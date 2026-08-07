@@ -260,7 +260,7 @@ const FAQ_DB = [
   { keywords: ["water", "hydration"], answer: "Good hydration supports kidney function and helps with the mild dehydration pattern seen in his blood counts. Aim for consistent water through the day, not just when thirsty." },
 ];
 
-function localAnswer(question) {
+function localAnswer(question, customDishes) {
   const q = question.toLowerCase();
   for (const entry of FAQ_DB) {
     if (entry.keywords.some(k => q.includes(k))) return entry.answer;
@@ -270,6 +270,14 @@ function localAnswer(question) {
       const meta = VERDICT_META[info.verdict] || VERDICT_META.moderate;
       const tip = info.healthierTip || suggestSwap(dish);
       return `${meta.emoji} ${meta.label} — ${info.reason} Portion: ${info.portion}.${tip ? " " + tip : ""}`;
+    }
+  }
+  if (customDishes) {
+    for (const [dish, info] of Object.entries(customDishes)) {
+      if (q.includes(dish)) {
+        const meta = VERDICT_META[info.verdict] || VERDICT_META.moderate;
+        return `${meta.emoji} ${meta.label} — from your saved dishes. ${info.reason}${info.healthierTip ? " " + info.healthierTip : ""}`;
+      }
     }
   }
   return null;
@@ -325,6 +333,122 @@ async function lookupNutrition(dish) {
   } catch {
     return null;
   }
+}
+
+/* ============================== FUZZY DISH MATCHING ============================== */
+// Loads once at startup — a 5,200-name corpus (from the uploaded dish database) used
+// purely as a spelling/typo dictionary. It has no reliable nutrition data of its own
+// (checked: the health ratings in that file are ~85-95% identical across all dishes —
+// templated, not dish-specific — so they're not used for verdicts, only names).
+let DISH_CORPUS = null;
+async function loadDishCorpus() {
+  if (DISH_CORPUS) return DISH_CORPUS;
+  try {
+    const res = await fetch("dishnames.json");
+    DISH_CORPUS = await res.json();
+  } catch {
+    DISH_CORPUS = { cuisines: [], dishes: [] };
+  }
+  return DISH_CORPUS;
+}
+
+const DISH_ALIASES = {
+  "dhosa": "dosa", "dosai": "dosa", "dosas": "dosa",
+  "chila": "chilla", "cheela": "chilla", "cheella": "chilla",
+  "khichadi": "khichdi", "kichdi": "khichdi", "khichuri": "khichdi",
+  "idly": "idli", "idlis": "idli",
+  "parata": "paratha", "parantha": "paratha", "prantha": "paratha",
+  "rotis": "roti", "chapatti": "chapati", "phulkas": "phulka",
+  "panneer": "paneer", "panir": "paneer",
+  "sambhar": "sambar", "sambhaar": "sambar",
+  "biriyani": "biryani", "briyani": "biryani",
+};
+
+function normalizeDishName(str) {
+  return str
+    .toLowerCase()
+    .replace(/\s*-\s*(classic|traditional)\s*$/i, "")
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+function applyAlias(word) { return DISH_ALIASES[word] || word; }
+function normalizeWithAliases(str) {
+  return normalizeDishName(str).split(" ").map(applyAlias).join(" ");
+}
+
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  if (m === 0) return n; if (n === 0) return m;
+  const dp = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+
+// Fuzzy-match a typed dish name against a set of known keys (curated FOOD_DB / custom
+// saved dishes). Returns the matching key, or null. Tolerant of typos, extra spaces,
+// "- classic" suffixes, and a handful of known phonetic variants (dosa/dhosa etc).
+function fuzzyMatchKey(query, knownKeys) {
+  const nq = normalizeWithAliases(query);
+  if (knownKeys.includes(nq)) return nq;
+  let best = null, bestDist = Infinity;
+  for (const key of knownKeys) {
+    const nk = normalizeWithAliases(key);
+    if (nk === nq) return key;
+    const dist = levenshtein(nq, nk);
+    const threshold = Math.max(1, Math.floor(Math.min(nq.length, nk.length) * 0.25));
+    if (dist <= threshold && dist < bestDist) { best = key; bestDist = dist; }
+  }
+  return best;
+}
+
+// Same idea but against the big read-only name corpus — used to suggest a corrected
+// canonical name (e.g. "dhosa" -> "Dosa") to retry against curated data or the API.
+function fuzzyMatchCorpus(query, corpus) {
+  const nq = normalizeWithAliases(query);
+  if (!corpus || !corpus.dishes) return null;
+  let best = null, bestDist = Infinity;
+  for (const [name] of corpus.dishes) {
+    const nk = normalizeWithAliases(name);
+    if (nk === nq) return name;
+    const dist = levenshtein(nq, nk);
+    const threshold = Math.max(1, Math.floor(Math.min(nq.length, nk.length) * 0.2));
+    if (dist <= threshold && dist < bestDist) { best = name; bestDist = dist; }
+  }
+  return best;
+}
+
+/* ============================== PASTE-NUTRITION PARSER ============================== */
+// Extracts calories/macros from pasted text (e.g. a Google AI Overview reply). Ranges
+// like "200 to 415 calories" are averaged to a single midpoint estimate.
+function extractNutrientFromText(text, keyword) {
+  let m = text.match(new RegExp(keyword + "\\s*[:\\s]*([\\d.]+)\\s*g?\\s*(?:(?:to|-|–|—)\\s*([\\d.]+)\\s*g?)?", "i"));
+  if (m) return m[2] ? (parseFloat(m[1]) + parseFloat(m[2])) / 2 : parseFloat(m[1]);
+  m = text.match(new RegExp("([\\d.]+)\\s*g\\s*(?:(?:to|-|–|—)\\s*([\\d.]+)\\s*g)?\\s*(?:of\\s+)?" + keyword, "i"));
+  if (m) return m[2] ? (parseFloat(m[1]) + parseFloat(m[2])) / 2 : parseFloat(m[1]);
+  return null;
+}
+function extractCaloriesFromText(text) {
+  let m = text.match(/([\d.]+)\s*(?:to|-|–|—)\s*([\d.]+)\s*(?:kcal|calories)/i);
+  if (m) return Math.round((parseFloat(m[1]) + parseFloat(m[2])) / 2);
+  m = text.match(/([\d.]+)\s*(?:kcal|calories)/i);
+  if (m) return Math.round(parseFloat(m[1]));
+  return null;
+}
+function parsePastedNutrition(text) {
+  return {
+    calories: extractCaloriesFromText(text),
+    protein: extractNutrientFromText(text, "protein"),
+    sugar: extractNutrientFromText(text, "(?:total )?sugars?"),
+    carbs: extractNutrientFromText(text, "(?:total )?carbohydrates?"),
+    fat: extractNutrientFromText(text, "(?:total )?fat"),
+    fiber: extractNutrientFromText(text, "(?:dietary )?fiber"),
+  };
 }
 
 // Omega-3 and Isabgol removed from here — they're already tracked precisely (dose + time)
@@ -726,29 +850,57 @@ function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, w
 /* ============================== TAB 2: FOOD CHECK ============================== */
 function MiniStat({ v, l }) { return <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15 }}>{v ?? "—"}</div><div style={{ fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft }}>{l}</div></div>; }
 
-function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, activities, weekSupplements, addFoodEntry, deleteFoodEntry, onOpenAsk }) {
+function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, activities, weekSupplements, addFoodEntry, deleteFoodEntry, customDishes, saveCustomDish, onOpenAsk }) {
   const [query, setQuery] = useState("");
   const [result, setResult] = useState(null);
   const [notFound, setNotFound] = useState(null); // dish name when no local or looked-up match
   const [lookingUp, setLookingUp] = useState(false);
   const [manualVerdict, setManualVerdict] = useState(null);
   const [manualCals, setManualCals] = useState("");
+  const [pasteText, setPasteText] = useState("");
+  const [pastePreview, setPastePreview] = useState(null);
   const [mealSlot, setMealSlot] = useState("Snack");
   const [warning, setWarning] = useState(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const shortcuts = ["besan laddoo", "sukhdi", "vada pav", "roasted peanuts", "bhakhri", "khichdi", "dal", "paneer sabzi", "chai", "kaju katri", "cookies"]; // his personal regulars — full list of ~50 dishes across cuisines is searchable by typing
+  const [correctedFrom, setCorrectedFrom] = useState(null);
+  const shortcuts = ["besan laddoo", "sukhdi", "vada pav", "roasted peanuts", "bhakhri", "khichdi", "dal", "paneer sabzi", "chai", "kaju katri", "cookies"]; // his personal regulars — full list of ~60 dishes + a growing custom library is searchable by typing
 
   async function checkDish(dish) {
-    setResult(null); setWarning(null); setNotFound(null); setManualVerdict(null); setManualCals("");
-    const key = dish.trim().toLowerCase();
-    if (FOOD_DB[key]) { const entry = FOOD_DB[key]; setResult({ dish, ...entry, healthierTip: entry.healthierTip || suggestSwap(key) }); return; }
+    setResult(null); setWarning(null); setNotFound(null); setManualVerdict(null); setManualCals(""); setPasteText(""); setPastePreview(null); setCorrectedFrom(null);
+    const raw = dish.trim();
+
+    // 1. Curated FOOD_DB, exact or fuzzy (typo-tolerant)
+    const foodKeys = Object.keys(FOOD_DB);
+    const matchedFoodKey = fuzzyMatchKey(raw, foodKeys);
+    if (matchedFoodKey) {
+      const entry = FOOD_DB[matchedFoodKey];
+      if (normalizeWithAliases(matchedFoodKey) !== normalizeWithAliases(raw)) setCorrectedFrom(matchedFoodKey);
+      setResult({ dish: matchedFoodKey, ...entry, healthierTip: entry.healthierTip || suggestSwap(matchedFoodKey) });
+      return;
+    }
+
+    // 2. Your own saved dishes (from past pastes), exact or fuzzy
+    const customKeys = Object.keys(customDishes);
+    const matchedCustomKey = fuzzyMatchKey(raw, customKeys);
+    if (matchedCustomKey) {
+      const entry = customDishes[matchedCustomKey];
+      if (normalizeWithAliases(matchedCustomKey) !== normalizeWithAliases(raw)) setCorrectedFrom(matchedCustomKey);
+      setResult({ dish: matchedCustomKey, ...entry, lookedUp: true, source: "your saved dishes" });
+      return;
+    }
+
+    // 3. Correct against the 5,200-name spelling corpus, then retry the free API with the cleaned-up name
     setLookingUp(true);
-    const data = await lookupNutrition(dish);
+    const corpus = await loadDishCorpus();
+    const corrected = fuzzyMatchCorpus(raw, corpus);
+    const queryForApi = corrected || raw;
+    const data = await lookupNutrition(queryForApi);
     setLookingUp(false);
     if (data) {
-      const verdict = classifyMacros(dish, data);
+      const verdict = classifyMacros(queryForApi, data);
+      if (corrected && normalizeWithAliases(corrected) !== normalizeWithAliases(raw)) setCorrectedFrom(corrected);
       setResult({
-        dish, verdict,
+        dish: corrected || raw, verdict,
         calories: data.calories != null ? Math.round(data.calories) : null,
         protein: data.protein != null ? Math.round(data.protein) : null,
         fiber: data.fiber != null ? Math.round(data.fiber) : null,
@@ -757,12 +909,31 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
         portion: data.servingDesc || "as typically served",
         reason: `Estimated from ${data.source || "nutrition database"} data for ${data.servingDesc || "a standard serving"} — verdict is a rules-based estimate, not a clinical judgment.`,
         marker: null, weeklyLimit: null,
-        healthierTip: suggestSwap(dish),
+        healthierTip: suggestSwap(corrected || raw),
         lookedUp: true, source: data.source,
       });
     } else {
-      setNotFound(dish);
+      setNotFound(corrected || raw);
     }
+  }
+
+  function parsePaste() {
+    const parsed = parsePastedNutrition(pasteText);
+    setPastePreview(parsed);
+  }
+  function saveAndLogPasted() {
+    if (!pastePreview) return;
+    const verdict = classifyMacros(notFound, pastePreview);
+    const entry = {
+      verdict, calories: pastePreview.calories, protein: pastePreview.protein, fiber: pastePreview.fiber,
+      carbs: pastePreview.carbs, sugar: pastePreview.sugar, portion: "as typically served (1 person)",
+      reason: "Saved from pasted nutrition info — averaged from the ranges you provided.",
+      marker: null, weeklyLimit: null, healthierTip: suggestSwap(notFound),
+    };
+    const key = normalizeWithAliases(notFound);
+    saveCustomDish(key, entry);
+    addFoodEntry(selectedDate, { dish: notFound, ...entry, mealSlot, time: Date.now() });
+    setNotFound(null); setPasteText(""); setPastePreview(null); setQuery("");
   }
   function meta(v) { return VERDICT_META[v] || VERDICT_META.moderate; }
   function weeklyCountFor(dishName) {
@@ -807,11 +978,29 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
           <div style={{ height: 10 }} />
           <Card>
             <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, textTransform: "capitalize", marginBottom: 4 }}>{notFound}</div>
-            <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 12 }}>Not in the pre-loaded list — check it in 10 seconds, then log it yourself:</div>
+            <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 12 }}>Not found in the dish list, your saved dishes, or the free nutrition databases — check it in 10 seconds, then log it yourself:</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
               <a href={nutritionUrl(notFound)} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, textDecoration: "none" }}>Search calories & nutrition <Icon name="external" size={12} color={T.teal} /></a>
               <a href={healthUrl(notFound)} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, textDecoration: "none" }}>Search if it's safe for TG/GGT <Icon name="external" size={12} color={T.teal} /></a>
               <a href={recipeUrl(notFound)} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: T.saffronDeep, fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, textDecoration: "none" }}>Search a healthier version <Icon name="external" size={12} color={T.saffronDeep} /></a>
+            </div>
+
+            <div style={{ background: T.tealPale, borderRadius: 10, padding: 12, marginBottom: 14 }}>
+              <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.teal, marginBottom: 6 }}>Got an answer from Google or Google AI? Paste it here:</div>
+              <textarea value={pasteText} onChange={e => { setPasteText(e.target.value); setPastePreview(null); }} placeholder="Paste the nutrition text you found — calories, protein, sugar, carbs, fat…" rows={4}
+                style={{ width: "100%", border: `1px solid ${T.border}`, borderRadius: 8, padding: 8, fontFamily: "Inter", fontSize: 12.5, resize: "vertical" }} />
+              {!pastePreview ? (
+                <button onClick={parsePaste} disabled={!pasteText.trim()} style={{ marginTop: 8, background: pasteText.trim() ? T.saffron : T.creamDeep, border: "none", borderRadius: 8, padding: "8px 14px", color: pasteText.trim() ? T.white : T.inkSoft, fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5 }}>Parse numbers</button>
+              ) : (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 8 }}>
+                    <MiniStat v={pastePreview.calories} l="cal" /><MiniStat v={pastePreview.protein} l="protein g" /><MiniStat v={pastePreview.fiber} l="fiber g" /><MiniStat v={pastePreview.carbs} l="carb g" /><MiniStat v={pastePreview.sugar} l="sugar g" />
+                  </div>
+                  {pastePreview.calories == null && <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.alert, marginBottom: 8 }}>Couldn't find a calorie number in that text — check the paste, or fall back to the manual verdict below.</div>}
+                  <button onClick={saveAndLogPasted} disabled={pastePreview.calories == null} style={{ width: "100%", background: pastePreview.calories != null ? T.teal : T.creamDeep, border: "none", borderRadius: 8, padding: "9px 0", color: pastePreview.calories != null ? T.white : T.inkSoft, fontFamily: "Manrope", fontWeight: 700, fontSize: 13 }}>Save & log this meal</button>
+                  <div style={{ fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft, marginTop: 6 }}>Saved permanently — typing "{notFound}" again will use these numbers instantly, no need to search or paste twice.</div>
+                </div>
+              )}
             </div>
             <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 6 }}>Your verdict, based on what you found:</div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
@@ -839,6 +1028,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
           <div style={{ height: 12 }} />
           <Card style={{ borderColor: meta(result.verdict).fg }}>
             <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, textTransform: "capitalize", marginBottom: 4 }}>{result.dish} {result.lookedUp && <Badge bg={T.creamDeep} fg={T.inkSoft}>estimated{result.source ? ` · ${result.source}` : ""}</Badge>}</div>
+            {correctedFrom && <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginBottom: 8 }}>Matched "{query}" to "{correctedFrom}"</div>}
             {result.ingredients && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>Likely: {result.ingredients}</div>}
             <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: meta(result.verdict).bg, color: meta(result.verdict).fg, padding: "6px 12px", borderRadius: 999, fontFamily: "Manrope", fontWeight: 800, fontSize: 13, marginBottom: 10 }}>{meta(result.verdict).emoji} {meta(result.verdict).label}</div>
             <div style={{ fontFamily: "Inter", fontSize: 13.5, color: T.ink, lineHeight: 1.5, marginBottom: 10 }}>{result.reason}</div>
@@ -1156,14 +1346,14 @@ function SupplementsTab({ selectedDate, setSelectedDate, supplementsForDate, tog
 }
 
 /* ============================== ASK PANEL ============================== */
-function AskPanel({ open, onClose }) {
+function AskPanel({ open, onClose, customDishes }) {
   const [messages, setMessages] = useState([{ role: "assistant", text: "Ask me anything — \"Can I eat this?\", \"Is X safe with my liver?\", \"What happens if I skip Omega-3?\"" }]);
   const [input, setInput] = useState(""); const scrollRef = useRef(null);
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages]);
   function send() {
     const text = input.trim(); if (!text) return;
     setInput(""); setMessages(m => [...m, { role: "user", text }]);
-    const answer = localAnswer(text);
+    const answer = localAnswer(text, customDishes);
     if (answer) {
       setMessages(m => [...m, { role: "assistant", text: answer }]);
     } else {
@@ -1330,6 +1520,10 @@ function App() {
   const [customGoals, setCustomGoals] = useKV("goals:custom", []);
   const [metrics, setMetrics] = useKV("reports:metrics", METRICS_SEED);
   const [periods, setPeriods] = useKV("reports:periods", PERIODS_SEED);
+  const [customDishes, setCustomDishes] = useKV("dishes:custom", {});
+  const [corpusLoaded, setCorpusLoaded] = useState(false);
+  useEffect(() => { loadDishCorpus().then(() => setCorpusLoaded(true)); }, []);
+  const saveCustomDish = (key, entry) => setCustomDishes(prev => ({ ...prev, [key]: entry }));
 
   const foodToday = weekFood[tk] || [];
   const supplementsToday = weekSupplements[tk] || {};
@@ -1379,7 +1573,7 @@ function App() {
       <div style={{ width: "100%", maxWidth: 420, background: T.cream, minHeight: "100vh", position: "relative", boxShadow: "0 0 40px rgba(0,0,0,0.06)" }}>
         <button onClick={() => openSettings("profile")} aria-label="Profile and reports" style={{ position: "absolute", top: "calc(14px + env(safe-area-inset-top, 0px))", right: 14, zIndex: 15, background: T.white, border: `1px solid ${T.border}`, borderRadius: 999, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.08)" }}><Icon name="settings" size={17} color={T.teal} /></button>
         {tab === "today" && <TodayTab profile={profile} targets={targets} foodToday={foodToday} habitToday={habitToday} supplementsToday={supplementsToday} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} toggleHabit={toggleHabit} onOpenAsk={() => setAskOpen(true)} onNavigate={setTab} demoCleared={demoCleared} clearDemo={clearDemo} />}
-        {tab === "food" && <FoodCheckTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} foodForDate={foodForDate} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} addFoodEntry={addFoodEntry} deleteFoodEntry={deleteFoodEntry} onOpenAsk={() => setAskOpen(true)} />}
+        {tab === "food" && <FoodCheckTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} foodForDate={foodForDate} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} addFoodEntry={addFoodEntry} deleteFoodEntry={deleteFoodEntry} customDishes={customDishes} saveCustomDish={saveCustomDish} onOpenAsk={() => setAskOpen(true)} />}
         {tab === "health" && <MyHealthTab metrics={metrics} periods={periods} supplementsToday={supplementsToday} toggleSupplement={(id) => toggleSupplement(tk, id)} onOpenAsk={() => setAskOpen(true)} onAddReport={() => openSettings("reports")} />}
         {tab === "habits" && <HabitsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} habitsForDate={habitsForDate} toggleHabit={toggleHabit} weekHabits={weekHabits} weekFood={weekFood} weekSupplements={weekSupplements} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} onOpenAsk={() => setAskOpen(true)} />}
         {tab === "supplements" && <SupplementsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} supplementsForDate={supplementsForDate} toggleSupplement={toggleSupplement} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} onOpenAsk={() => setAskOpen(true)} />}
@@ -1391,7 +1585,7 @@ function App() {
             </button>
           ); })}
         </div>
-        <AskPanel open={askOpen} onClose={() => setAskOpen(false)} />
+        <AskPanel open={askOpen} onClose={() => setAskOpen(false)} customDishes={customDishes} />
         <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} initialSection={settingsSection} profile={profile} saveProfile={setProfile} goalToggles={goalToggles} saveGoalToggles={setGoalToggles} customGoals={customGoals} saveCustomGoals={setCustomGoals} metrics={metrics} saveMetrics={setMetrics} periods={periods} savePeriods={setPeriods} onClearDate={clearDateData} onClearAll={clearAllData} />
       </div>
     </div>
