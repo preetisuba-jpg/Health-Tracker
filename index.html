@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#1B4B4A" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Health" />
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<link rel="icon" href="icons/icon-192.png" />
+<title>Jignesh Health Companion</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #F3E9D6; font-family: 'Inter', sans-serif; }
+  input:focus { outline: none; }
+  table td, table th { text-align: center; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
+</script>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useCallback } = React;
+
+/* ============================== TOKENS ============================== */
+const T = {
+  cream: "#FBF6EC", creamDeep: "#F3E9D6",
+  saffron: "#E8853D", saffronDeep: "#C96A28",
+  teal: "#1B4B4A", tealLight: "#2F6E6A", tealPale: "#E4EFEE",
+  forest: "#3D6B4F", forestPale: "#E7F0E9",
+  alert: "#B8433A", alertPale: "#FBE7E4",
+  amber: "#C4841F", amberPale: "#FBF0DC",
+  ink: "#26302E", inkSoft: "#5C6B65",
+  border: "#E7DCC7", white: "#FFFFFF",
+};
+
+/* ============================== ICONS (custom, no external icon lib) ============================== */
+function Icon({ name, size = 18, color = T.ink, style }) {
+  const s = { width: size, height: size, ...style };
+  const common = { viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", style: s };
+  switch (name) {
+    case "home": return <svg {...common}><path d="M3 11l9-7 9 7" /><path d="M5 10v10h14V10" /></svg>;
+    case "food": return <svg {...common}><path d="M6 3v7a2 2 0 002 2h0a2 2 0 002-2V3" /><path d="M8 12v9" /><path d="M17 3c-1.5 0-3 1.5-3 4s1.5 4 3 4v9" /></svg>;
+    case "activity": return <svg {...common}><path d="M3 12h4l2 7 4-14 2 7h6" /></svg>;
+    case "calendar": return <svg {...common}><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18" /><path d="M8 3v4M16 3v4" /><path d="M9 15l2 2 4-4" /></svg>;
+    case "pill": return <svg {...common}><rect x="4" y="9" width="16" height="6" rx="3" transform="rotate(-35 12 12)" /><path d="M9 9l6 6" /></svg>;
+    case "message": return <svg {...common}><path d="M21 11.5a8.4 8.4 0 01-9 8.4A8.6 8.6 0 013 12a8.4 8.4 0 018.5-8.5A8.4 8.4 0 0121 11.5z" /></svg>;
+    case "x": return <svg {...common}><path d="M18 6L6 18M6 6l12 12" /></svg>;
+    case "send": return <svg {...common}><path d="M22 2L11 13" /><path d="M22 2l-7 20-4-9-9-4 20-7z" /></svg>;
+    case "check": return <svg {...common}><path d="M20 6L9 17l-5-5" /></svg>;
+    case "trendUp": return <svg {...common}><path d="M3 17l6-6 4 4 8-8" /><path d="M17 7h4v4" /></svg>;
+    case "trendDown": return <svg {...common}><path d="M3 7l6 6 4-4 8 8" /><path d="M17 17h4v-4" /></svg>;
+    case "chevron": return <svg {...common}><path d="M9 6l6 6-6 6" /></svg>;
+    case "alert": return <svg {...common}><path d="M12 3l10 18H2z" /><path d="M12 10v4" /><circle cx="12" cy="17" r="0.5" fill={color} /></svg>;
+    case "walk": return <svg {...common}><circle cx="8" cy="6" r="2" /><circle cx="16" cy="14" r="2" /><path d="M8 8v4l3 3v5M16 16v5" /></svg>;
+    case "sparkles": return <svg {...common}><path d="M12 2l1.5 5L19 9l-5.5 2L12 16l-1.5-5L5 9l5.5-2z" /></svg>;
+    case "loader": return <svg {...common} className="spin"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8" /></svg>;
+    case "trash": return <svg {...common}><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M6 6l1 14h10l1-14" /></svg>;
+    case "arrowRight": return <svg {...common}><path d="M5 12h14" /><path d="M13 6l6 6-6 6" /></svg>;
+    case "settings": return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M4.2 4.2l2 2M17.8 17.8l2 2M2 12h3M19 12h3M4.2 19.8l2-2M17.8 6.2l2-2" /></svg>;
+    default: return null;
+  }
+}
+
+/* ============================== DATA ============================== */
+const PROFILE_SEED = { name: "Jignesh", fullName: "Jignesh Suba", age: 54, weight: 78, gender: "Male", city: "Rajkot, India", diet: "Indian vegetarian (Gujarati)", latestReportDate: "Jul 12, 2026" };
+const DEFAULT_GOAL_TOGGLES = [{ id: "weightloss", label: "Weight loss / Fat loss", active: false }, { id: "muscle", label: "Muscle building", active: false }];
+
+function computeTargets(weight, goalToggles) {
+  const weightLoss = goalToggles.find(g => g.id === "weightloss")?.active;
+  const muscle = goalToggles.find(g => g.id === "muscle")?.active;
+  const maintenance = Math.round(weight * 29);
+  let calories = maintenance, proteinPerKg = 0.9, note = "maintenance";
+  if (weightLoss && !muscle) { calories = maintenance - 400; proteinPerKg = 1.0; note = "mild deficit for fat loss"; }
+  else if (muscle && !weightLoss) { calories = maintenance + 200; proteinPerKg = 1.6; note = "surplus + higher protein for muscle gain"; }
+  else if (muscle && weightLoss) { calories = maintenance; proteinPerKg = 1.8; note = "recomposition — maintenance calories, high protein"; }
+  return { calories, protein: Math.round(weight * proteinPerKg), fiber: 30, carbs: weightLoss ? 180 : 220, sugar: 20, note };
+}
+
+const SWAPS = [
+  { craving: "Besan laddoo", swap: "Same besan laddoo, made with dates instead of sugar and half the ghee." },
+  { craving: "Sukhdi", swap: "Swap jaggery for date paste, use 1 tsp ghee instead of 3." },
+  { craving: "Kaju katri", swap: "Save it for a real occasion — no version of this is TG-safe right now." },
+  { craving: "Vada pav", swap: "Air-fried patty on a whole wheat bun instead of deep fried on maida." },
+  { craving: "Cookies", swap: "Homemade oats + jaggery-free cookies with flaxseed, or roasted makhana." },
+];
+
+const PERIODS_SEED = ["Mar 2024", "Jul 2024", "Oct 2024", "Dec 2024", "Mar 2025", "Jul 2025", "Jul 2026"];
+const METRICS_SEED = [
+  { key: "chol", label: "Total Cholesterol", unit: "mg/dL", low: null, high: 200, idealLow: null, idealHigh: null, points: [256, 223, 228, 204, 208, 238, 176], color: "#3D6B4F", note: "Best ever — first time below 200 in full history." },
+  { key: "ldl", label: "LDL Cholesterol", unit: "mg/dL", low: null, high: 100, idealLow: null, idealHigh: null, points: [166, 159, 132, 130, 142, 168, 82], color: "#1B4B4A", note: "Optimal for the first time ever — dropped 51%. Protect this win." },
+  { key: "tg", label: "Triglycerides", unit: "mg/dL", low: null, high: 150, idealLow: null, idealHigh: null, points: [177, 182, 119, 110, 148, 143, 257], color: "#B8433A", note: "Highest ever. Sharp spike — sugar/refined carbs the likely driver." },
+  { key: "hdl", label: "HDL Cholesterol", unit: "mg/dL", low: 40, high: null, idealLow: 55, idealHigh: null, points: [43, 41, 49, 52, 42, null, 43], color: "#C4841F", note: "Stable but low-normal. Only real lever is regular cardio." },
+  { key: "ggt", label: "GGT (Liver)", unit: "U/L", low: null, high: 64, idealLow: null, idealHigh: null, points: [143, 86, 85, 80, 76, 83, 105], color: "#B8433A", note: "Worsening sharply after 2 years of improvement. Alcohol is the top suspect." },
+  { key: "tsh", label: "TSH (Thyroid)", unit: "µIU/mL", low: 0.54, high: 5.3, idealLow: 1.5, idealHigh: 3.0, points: [4.39, 4.67, 5.23, 4.1, 2.8, 4.09, 4.57], color: "#C4841F", note: "Rising again after a 2.8 best. Ashwagandha lapse or TG spike likely culprits." },
+  { key: "sgot", label: "SGOT / AST", unit: "U/L", low: null, high: 35, idealLow: null, idealHigh: null, points: [null, null, null, null, null, 15, 21], color: "#3D6B4F", note: "Normal. Liver cells not damaged." },
+  { key: "sgpt", label: "SGPT / ALT", unit: "U/L", low: null, high: 45, idealLow: null, idealHigh: null, points: [null, null, null, null, null, 16, 25], color: "#3D6B4F", note: "Normal, slight rise." },
+];
+
+function metricStatus(value, m) {
+  if (value == null) return "untested";
+  if (m.low != null && value < m.low) return value < m.low * 0.85 ? "bad" : "watch";
+  if (m.high != null && value > m.high) return value > m.high * 1.15 ? "bad" : "watch";
+  if (m.idealLow != null && value < m.idealLow) return "watch";
+  if (m.idealHigh != null && value > m.idealHigh) return "watch";
+  return "good";
+}
+function rangeLabel(m) { if (m.low != null && m.high != null) return `${m.low}–${m.high}`; if (m.high != null) return `< ${m.high}`; if (m.low != null) return `> ${m.low}`; return "—"; }
+function computeTopPriorities(metrics, periods) {
+  const latestIdx = periods.length - 1;
+  const withStatus = metrics.map(m => { const value = m.points[latestIdx]; return { key: m.key, label: m.label, value, unit: m.unit, status: metricStatus(value, m), target: rangeLabel(m) }; }).filter(m => m.status === "bad" || m.status === "watch");
+  withStatus.sort((a, b) => (a.status === "bad" ? 0 : 1) - (b.status === "bad" ? 0 : 1));
+  return withStatus.slice(0, 3);
+}
+
+const TEST_NEXT = ["CBC + Ferritin + Iron Studies — flagged 3+ reports running, still not done", "Fasting Blood Sugar + HbA1c — must-do given the TG spike", "Vitamin D + B12 — both borderline/low, not retested since Jul 2025", "T3 / T4 alongside next TSH", "Recheck GGT + Triglycerides in 6–8 weeks"];
+
+const SUPPLEMENTS = [
+  { id: "omega3", name: "Omega-3 (Algal Oil)", dose: "1000–2000mg", time: "afternoon", timeLabel: "After lunch", why: "Core reason LDL dropped 168→82.", critical: true },
+  { id: "isabgol", name: "Isabgol (Psyllium Husk)", dose: "1 tsp in warm water", time: "night", timeLabel: "Before bed", why: "Binds LDL cholesterol in gut.", critical: true },
+  { id: "ashwagandha", name: "Ashwagandha", dose: "300–600mg", time: "morning", timeLabel: "After breakfast", why: "TSH was 2.8 at its best on this.", critical: true },
+  { id: "liv52", name: "Liv.52", dose: "2 tabs", time: "evening", timeLabel: "After dinner", why: "Liver detox support — GGT needs it now.", critical: true },
+  { id: "silymarin", name: "Silymarin / Milk Thistle", dose: "140mg", time: "morning", timeLabel: "2x/day with meals", why: "Targets GGT specifically.", critical: true, isNew: true },
+  { id: "b12", name: "Methylcobalamin B12", dose: "500mcg", time: "morning", timeLabel: "With breakfast", why: "B12 at 199, barely above threshold.", critical: false, isNew: true },
+  { id: "turmeric", name: "Turmeric + Piperine", dose: "500mg / 5mg", time: "afternoon", timeLabel: "After any meal", why: "Anti-inflammatory, supports GGT + TG.", critical: false, isNew: true },
+  { id: "zinc", name: "Zinc", dose: "25mg", time: "evening", timeLabel: "Alt. days, after dinner", why: "Thyroid + immune support.", critical: false },
+  { id: "d3", name: "Vitamin D3", dose: "60,000 IU", time: "weekly", timeLabel: "Once/week with food", why: "Borderline low, fluctuating.", critical: false },
+];
+
+const BANNED = [
+  { item: "Alcohol / beer", reason: "GGT at 105 — direct trigger. Zero, not occasional." },
+  { item: "Fruit juice (any)", reason: "TG at 257 — pure fructose spike." },
+  { item: "White sugar", reason: "Converts straight to triglycerides." },
+  { item: "Maida / white flour", reason: "High GI, TG driver." },
+  { item: "Fried food (vada pav, bhajiya, puri)", reason: "GGT + TG + cholesterol trigger." },
+  { item: "Palm oil / vanaspati", reason: "Saturated fat, liver stress." },
+  { item: "Packaged biscuits / chips / namkeen", reason: "Hidden trans fat + sugar." },
+  { item: "Large mango portions", reason: "High fructose — small amount only." },
+];
+const EAT_MORE = ["Dal — every day, protein anchor of every meal", "Jowar / bajra / ragi rotis instead of maida", "Walnuts — 5–7 halves daily, best for LDL", "Green sabzi (methi, palak) — liver + thyroid support", "Curd/dahi — 1 bowl daily for gut health", "Amla — liver protector, highest vitamin C"];
+const MEAL_IDEAS = { breakfast: ["Besan chilla with grated carrot, no butter", "Moong dal chilla + mint chutney", "Vegetable poha with peanuts (small handful)"], lunch: ["Dal + 2 bajra rotis + sabzi + curd", "Khichdi with extra vegetables + kadhi", "Roti + paneer sabzi (50–75g) + salad"], dinner: ["Light dal + jowar roti + sautéed greens", "Vegetable soup + grilled paneer + salad", "Khichdi (light, early dinner)"] };
+const MEAL_SLOTS = ["Breakfast", "Lunch", "Snack", "Dinner", "After Dinner"];
+const ACTIVITY_TYPES = ["Walk", "Gym / Strength", "Yoga", "Cycling", "Swimming", "Other"];
+
+const FOOD_DB = {
+  "besan laddoo": { verdict: "caution", calories: 150, protein: 3, fiber: 1, carbs: 18, sugar: 12, portion: "1 small piece", reason: "Ghee + sugar — flag both.", marker: "Triglycerides", weeklyLimit: 2 },
+  "sukhdi": { verdict: "limit", calories: 180, protein: 2, fiber: 0.5, carbs: 20, sugar: 14, portion: "1 small piece, occasional only", reason: "High ghee + jaggery.", marker: "Triglycerides", weeklyLimit: 1 },
+  "vada pav": { verdict: "avoid", calories: 290, protein: 6, fiber: 2, carbs: 35, sugar: 3, portion: "—", reason: "Deep fried + maida + potato.", marker: "Triglycerides & GGT", weeklyLimit: 0 },
+  "roasted peanuts": { verdict: "limit", calories: 160, protein: 7, fiber: 2, carbs: 5, sugar: 1, portion: "20–25g max", reason: "Healthy fat but calorie-dense — your daily post-dinner habit.", marker: "Weight / calories", weeklyLimit: 7 },
+  "bhakhri": { verdict: "safe", calories: 120, protein: 3, fiber: 2, carbs: 20, sugar: 0, portion: "2 pieces", reason: "Whole wheat, dry roasted.", marker: null, weeklyLimit: null },
+  "khichdi": { verdict: "safe", calories: 250, protein: 8, fiber: 3, carbs: 40, sugar: 1, portion: "1 bowl", reason: "Balanced, recommend freely.", marker: null, weeklyLimit: null },
+  "dal": { verdict: "safe", calories: 180, protein: 9, fiber: 5, carbs: 22, sugar: 1, portion: "1 bowl", reason: "Protein anchor — eat daily.", marker: null, weeklyLimit: null },
+  "paneer sabzi": { verdict: "moderate", calories: 220, protein: 12, fiber: 2, carbs: 8, sugar: 3, portion: "50–75g paneer max", reason: "Watch the portion.", marker: "LDL", weeklyLimit: 4 },
+  "chai": { verdict: "limit", calories: 60, protein: 2, fiber: 0, carbs: 8, sugar: 6, portion: "Max 2 cups/day", reason: "Milk + sugar adds up.", marker: "Triglycerides", weeklyLimit: null },
+  "kaju katri": { verdict: "avoid", calories: 200, protein: 2, fiber: 0.5, carbs: 22, sugar: 18, portion: "—", reason: "Sugar-dense sweet.", marker: "Triglycerides", weeklyLimit: 0 },
+  "cookies": { verdict: "avoid", calories: 150, protein: 2, fiber: 0.5, carbs: 20, sugar: 10, portion: "—", reason: "Maida + sugar.", marker: "Triglycerides", weeklyLimit: 0 },
+};
+
+const DAILY_TIPS = [
+  { marker: "Triglycerides", tip: "Every gram of sugar or maida you skip today moves TG down." },
+  { marker: "GGT", tip: "Zero alcohol isn't a suggestion right now — GGT at 105 is a direct liver alarm." },
+  { marker: "TSH", tip: "Don't skip Ashwagandha today — it's tied to your best-ever TSH of 2.8." },
+  { marker: "Activity", tip: "A 30-minute brisk walk is your single most effective lever for HDL and triglycerides." },
+  { marker: "LDL", tip: "Your LDL win took 2 years of Omega-3 + Isabgol. Don't relax that streak." },
+];
+const HABITS = [{ id: "walk", label: "Walk done" }, { id: "noAlcohol", label: "No alcohol" }, { id: "noFried", label: "No fried food" }, { id: "isabgol", label: "Isabgol taken" }, { id: "omega3", label: "Omega-3 taken" }, { id: "noSugar", label: "Sugar avoided" }, { id: "water", label: "Adequate water" }];
+const DEMO_WEEK = { 6: { score: 42 }, 5: { score: 68 }, 4: { score: 81 }, 3: { score: 55 }, 2: { score: 88 }, 1: { score: 74 } };
+
+/* ============================== HELPERS ============================== */
+const todayKey = () => new Date().toISOString().slice(0, 10);
+const dayLabel = (d) => d.toLocaleDateString("en-IN", { weekday: "short" });
+const isSunday = (d) => d.getDay() === 0;
+function last7Dates() { const arr = []; for (let i = 6; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); arr.push(d); } return arr; }
+function dateKeyOffset(offset) { const d = new Date(); d.setDate(d.getDate() - offset); return d.toISOString().slice(0, 10); }
+function daysInMonth(y, m) { return new Date(y, m + 1, 0).getDate(); }
+function summarizeActivitiesByMonth(activities) {
+  const byMonth = {};
+  Object.keys(activities).forEach(dateKey => {
+    const mk = dateKey.slice(0, 7); const entries = activities[dateKey] || [];
+    if (entries.length === 0) return;
+    if (!byMonth[mk]) byMonth[mk] = { activeDays: new Set(), totalMinutes: 0, count: 0 };
+    byMonth[mk].activeDays.add(dateKey);
+    entries.forEach(e => { byMonth[mk].totalMinutes += (e.duration || 0); byMonth[mk].count++; });
+  });
+  return byMonth;
+}
+function monthLabel(mk) { const [y, m] = mk.split("-").map(Number); return new Date(y, m - 1, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" }); }
+
+const STATUS_COLORS = { good: { bg: T.forestPale, fg: T.forest, label: "✅ Normal" }, watch: { bg: T.amberPale, fg: T.amber, label: "🟡 Watch" }, bad: { bg: T.alertPale, fg: T.alert, label: "🔴 High" } };
+const VERDICT_META = { safe: { emoji: "✅", label: "Safe to eat freely", bg: T.forestPale, fg: T.forest }, moderate: { emoji: "🟡", label: "OK in moderation", bg: T.amberPale, fg: T.amber }, limit: { emoji: "⚠️", label: "Limit strongly", bg: T.amberPale, fg: T.amber }, caution: { emoji: "🟡", label: "OK in moderation", bg: T.amberPale, fg: T.amber }, avoid: { emoji: "🔴", label: "Avoid for now", bg: T.alertPale, fg: T.alert } };
+
+function dayScore(entries, habitsForDay, supplementsForDay) {
+  const mealsCount = entries.length;
+  const badMeals = entries.filter(f => f.verdict === "avoid" || f.verdict === "limit").length;
+  const goodMeals = mealsCount - badMeals;
+  const foodScore = mealsCount === 0 ? 70 : Math.round((goodMeals / mealsCount) * 100);
+  const habitsDone = Object.values(habitsForDay || {}).filter(Boolean).length;
+  const habitScore = Math.round((habitsDone / HABITS.length) * 100);
+  const supplementsDone = Object.values(supplementsForDay || {}).filter(Boolean).length;
+  const supScore = Math.round((supplementsDone / SUPPLEMENTS.length) * 100);
+  return Math.max(0, Math.min(100, Math.round(foodScore * 0.4 + habitScore * 0.35 + supScore * 0.25)));
+}
+
+// Calls YOUR backend proxy (/api/chat), not Anthropic directly — the proxy holds the real key.
+async function callClaude(systemPrompt, userText, jsonMode) {
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ system: systemPrompt, message: userText }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    const text = data.text || "";
+    if (jsonMode) { try { return JSON.parse(text.replace(/```json|```/g, "").trim()); } catch { return null; } }
+    return text;
+  } catch (e) {
+    return jsonMode ? null : "Couldn't reach the health engine (" + e.message + "). Check that the backend proxy is deployed with an API key set.";
+  }
+}
+
+/* ============================== STORAGE (real localStorage — this is a standalone site) ============================== */
+function useKV(key, initial) {
+  const [value, setValue] = useState(() => {
+    try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : initial; } catch { return initial; }
+  });
+  const save = useCallback((updater) => {
+    setValue(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      try { localStorage.setItem(key, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, [key]);
+  return [value, save, true];
+}
+
+/* ============================== SMALL UI PIECES ============================== */
+function Pulse({ children }) { return <div className="pulseWrap">{children}</div>; }
+function HealthRing({ score }) {
+  const r = 54, c = 2 * Math.PI * r; const offset = c - (score / 100) * c;
+  const color = score >= 70 ? T.forest : score >= 45 ? T.amber : T.alert;
+  return (
+    <div style={{ position: "relative", width: 132, height: 132, margin: "0 auto" }}>
+      <svg width="132" height="132" viewBox="0 0 132 132">
+        <circle cx="66" cy="66" r={r} fill="none" stroke={T.creamDeep} strokeWidth="12" />
+        <circle cx="66" cy="66" r={r} fill="none" stroke={color} strokeWidth="12" strokeDasharray={c} strokeDashoffset={offset} strokeLinecap="round" transform="rotate(-90 66 66)" style={{ transition: "stroke-dashoffset 1s ease-out" }} />
+      </svg>
+      <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 34, color: T.ink, lineHeight: 1 }}>{score}</div>
+        <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 2 }}>today's score</div>
+      </div>
+    </div>
+  );
+}
+function SectionLabel({ children }) { return <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 13, letterSpacing: 0.4, textTransform: "uppercase", color: T.teal, marginBottom: 10 }}>{children}</div>; }
+function Card({ children, style }) { return <div style={{ background: T.white, borderRadius: 16, padding: 16, border: `1px solid ${T.border}`, boxShadow: "0 1px 2px rgba(38,48,46,0.04)", ...style }}>{children}</div>; }
+function Badge({ children, bg, fg }) { return <span style={{ background: bg, color: fg, fontFamily: "Inter", fontWeight: 700, fontSize: 11.5, padding: "3px 9px", borderRadius: 999, whiteSpace: "nowrap" }}>{children}</span>; }
+function NutrientBar({ label, value, target, unit, warnOver }) {
+  const pct = Math.min(100, Math.round((value / target) * 100));
+  const over = warnOver && value > target;
+  const color = over ? T.alert : pct >= 90 ? T.forest : T.saffron;
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "Inter", fontSize: 12, marginBottom: 4 }}>
+        <span style={{ color: T.ink, fontWeight: 600 }}>{label}</span>
+        <span style={{ color: over ? T.alert : T.inkSoft }}>{value}{unit} / {target}{unit}{over ? " ⚠️" : ""}</span>
+      </div>
+      <div style={{ height: 7, borderRadius: 999, background: T.creamDeep, overflow: "hidden" }}><div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 999 }} /></div>
+    </div>
+  );
+}
+function FabButton({ onOpenAsk }) {
+  return (
+    <button className="fab" onClick={onOpenAsk} aria-label="Ask about a dish">
+      <Icon name="message" size={20} color={T.white} />
+      <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.white }}>Ask</span>
+    </button>
+  );
+}
+function QuickAction({ label, icon, onClick }) {
+  return (
+    <button onClick={onClick} style={{ flex: 1, background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: "10px 6px", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, cursor: "pointer" }}>
+      <Icon name={icon} size={17} color={T.saffron} />
+      <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 10.5, color: T.ink, textAlign: "center" }}>{label}</span>
+    </button>
+  );
+}
+
+/* ============================== SIMPLE CUSTOM CHARTS (no chart library) ============================== */
+function MiniLineChart({ periods, series, width = 560, height = 220 }) {
+  const padL = 34, padB = 24, padT = 10, padR = 10;
+  const allVals = series.flatMap(s => s.points.filter(v => v != null));
+  const min = Math.min(...allVals, 0), max = Math.max(...allVals, 1);
+  const x = (i) => padL + (i / (periods.length - 1)) * (width - padL - padR);
+  const y = (v) => padT + (1 - (v - min) / (max - min || 1)) * (height - padT - padB);
+  return (
+    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`}>
+      {[0, 0.5, 1].map((f, i) => (
+        <line key={i} x1={padL} x2={width - padR} y1={padT + f * (height - padT - padB)} y2={padT + f * (height - padT - padB)} stroke={T.border} strokeWidth="1" />
+      ))}
+      {periods.map((p, i) => <text key={i} x={x(i)} y={height - 6} fontSize="9" fill={T.inkSoft} textAnchor="middle" fontFamily="Inter">{p}</text>)}
+      {series.map(s => {
+        const segments = [];
+        let current = [];
+        s.points.forEach((v, i) => {
+          if (v == null) { if (current.length) segments.push(current); current = []; }
+          else current.push([x(i), y(v)]);
+        });
+        if (current.length) segments.push(current);
+        return segments.map((seg, si) => (
+          <polyline key={s.key + si} points={seg.map(p => p.join(",")).join(" ")} fill="none" stroke={s.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        ));
+      })}
+      {series.map(s => s.points.map((v, i) => v != null && <circle key={s.key + i} cx={x(i)} cy={y(v)} r="3" fill={s.color} />))}
+    </svg>
+  );
+}
+function MiniBarChart({ bars, height = 100 }) {
+  const width = 320, padB = 18, padT = 6;
+  const max = Math.max(...bars.map(b => Math.abs(b.value)), 1);
+  const bw = (width / bars.length) * 0.6;
+  return (
+    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`}>
+      {bars.map((b, i) => {
+        const slot = width / bars.length;
+        const cx = slot * i + slot / 2;
+        const h = b.value < 0 ? 6 : Math.max(4, (Math.abs(b.value) / max) * (height - padB - padT));
+        return (
+          <g key={i}>
+            <rect x={cx - bw / 2} y={height - padB - h} width={bw} height={h} rx="3" fill={b.color} opacity={b.opacity ?? 1} />
+            <text x={cx} y={height - 4} fontSize="9" fill={T.inkSoft} textAnchor="middle" fontFamily="Inter">{b.label}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/* ============================== TAB 1: TODAY ============================== */
+function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, weekFood, weekHabits, weekSupplements, toggleHabit, onOpenAsk, onNavigate, demoCleared, clearDemo }) {
+  const day = new Date();
+  const dateStr = day.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
+  const sunday = isSunday(day);
+  const tk = todayKey();
+  const score = dayScore(foodToday, habitToday, supplementsToday);
+  const mealsCount = foodToday.length;
+  const badMeals = foodToday.filter(f => f.verdict === "avoid" || f.verdict === "limit").length;
+  const goodMeals = mealsCount - badMeals;
+  const sums = foodToday.reduce((acc, f) => ({ calories: acc.calories + (f.calories || 0), protein: acc.protein + (f.protein || 0), fiber: acc.fiber + (f.fiber || 0), carbs: acc.carbs + (f.carbs || 0), sugar: acc.sugar + (f.sugar || 0) }), { calories: 0, protein: 0, fiber: 0, carbs: 0, sugar: 0 });
+  const supplementsDone = Object.values(supplementsToday).filter(Boolean).length;
+  const tipIndex = day.getDate() % DAILY_TIPS.length;
+  const tip = DAILY_TIPS[tipIndex];
+
+  const weekBars = [6, 5, 4, 3, 2, 1, 0].map(offset => {
+    const key = dateKeyOffset(offset);
+    const realFood = weekFood[key], realHabits = weekHabits[key], realSupp = weekSupplements[key];
+    const hasReal = (realFood && realFood.length > 0) || (realHabits && Object.keys(realHabits).length > 0) || (realSupp && Object.keys(realSupp).length > 0);
+    const d = new Date(); d.setDate(d.getDate() - offset);
+    if (offset === 0) return { label: dayLabel(d), value: score, color: score >= 70 ? T.forest : score >= 45 ? T.amber : T.alert };
+    if (hasReal) { const sc = dayScore(realFood || [], realHabits || {}, realSupp || {}); return { label: dayLabel(d), value: sc, color: sc >= 70 ? T.forest : sc >= 45 ? T.amber : T.alert }; }
+    if (!demoCleared && DEMO_WEEK[offset]) return { label: dayLabel(d), value: DEMO_WEEK[offset].score, color: T.saffron, opacity: 0.5 };
+    return { label: dayLabel(d), value: 2, color: T.creamDeep };
+  });
+  const anyDemo = weekBars.some(b => b.opacity);
+
+  return (
+    <div className="tabPane">
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>{dateStr}</div>
+        <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22, color: T.teal }}>Hi {profile.name} 👋</div>
+      </div>
+      <Card style={{ padding: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, textAlign: "center" }}>
+          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 18, color: score >= 70 ? T.forest : score >= 45 ? T.amber : T.alert }}>{score}</div><div style={{ fontFamily: "Inter", fontSize: 10, color: T.inkSoft }}>score</div></div>
+          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 18, color: habitToday.walk ? T.forest : T.inkSoft }}>{sunday ? "—" : habitToday.walk ? "✓" : "✗"}</div><div style={{ fontFamily: "Inter", fontSize: 10, color: T.inkSoft }}>walk</div></div>
+          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>{supplementsDone}/{SUPPLEMENTS.length}</div><div style={{ fontFamily: "Inter", fontSize: 10, color: T.inkSoft }}>supplements</div></div>
+          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>{sums.calories}</div><div style={{ fontFamily: "Inter", fontSize: 10, color: T.inkSoft }}>calories</div></div>
+        </div>
+      </Card>
+      <div style={{ height: 10 }} />
+      <div style={{ display: "flex", gap: 8 }}>
+        <QuickAction label="Log food" icon="food" onClick={() => onNavigate("food")} />
+        <QuickAction label="Log activity" icon="walk" onClick={() => onNavigate("habits")} />
+        <QuickAction label="Log supplement" icon="pill" onClick={() => onNavigate("supplements")} />
+      </div>
+      <div style={{ height: 14 }} />
+      <Card style={{ textAlign: "center", background: `linear-gradient(180deg, ${T.tealPale}, ${T.white})` }}>
+        <Pulse><HealthRing score={score} /></Pulse>
+        <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 10 }}>{mealsCount === 0 ? "No meals logged yet — start with Food Check." : `${mealsCount} meal${mealsCount > 1 ? "s" : ""} logged — ${goodMeals} good, ${badMeals} need attention.`}</div>
+      </Card>
+      <div style={{ height: 14 }} />
+      <Card>
+        <SectionLabel>Nutrients today</SectionLabel>
+        <NutrientBar label="Calories" value={sums.calories} target={targets.calories} unit="" />
+        <NutrientBar label="Protein" value={Math.round(sums.protein)} target={targets.protein} unit="g" />
+        <NutrientBar label="Fiber" value={Math.round(sums.fiber)} target={targets.fiber} unit="g" />
+        <NutrientBar label="Carbs" value={Math.round(sums.carbs)} target={targets.carbs} unit="g" />
+        <NutrientBar label="Sugar" value={Math.round(sums.sugar)} target={targets.sugar} unit="g" warnOver />
+        <div style={{ fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft, marginTop: 2 }}>Estimated targets ({targets.note}). Change goals in ⚙️ Profile.</div>
+      </Card>
+      <div style={{ height: 14 }} />
+      <Card>
+        {sunday ? (
+          <div style={{ fontFamily: "Inter", fontSize: 14, color: T.inkSoft, display: "flex", alignItems: "center", gap: 8 }}><Icon name="walk" color={T.teal} /> Rest day — no tracking needed.</div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon name="walk" color={T.teal} /><span style={{ fontFamily: "Inter", fontSize: 14 }}>30-min brisk walk</span></div>
+            <button onClick={() => toggleHabit(tk, "walk")} style={{ background: habitToday.walk ? T.forestPale : T.saffron, border: "none", borderRadius: 999, padding: "7px 14px", display: "flex", alignItems: "center", gap: 5, cursor: "pointer" }}>
+              {habitToday.walk && <Icon name="check" size={14} color={T.forest} />}
+              <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: habitToday.walk ? T.forest : T.white }}>{habitToday.walk ? "Done" : "Mark done"}</span>
+            </button>
+          </div>
+        )}
+        <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 8 }}>Gym, yoga, cycling log on the Habits tab under Activity Log.</div>
+      </Card>
+      <div style={{ height: 14 }} />
+      <Card>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div><SectionLabel>Supplements</SectionLabel><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>{supplementsDone} of {SUPPLEMENTS.length} taken</div></div>
+          <button onClick={() => onNavigate("supplements")} style={{ background: T.tealPale, border: "none", borderRadius: 10, padding: "8px 12px", display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+            <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.teal }}>Go to Plan</span><Icon name="arrowRight" size={14} color={T.teal} />
+          </button>
+        </div>
+      </Card>
+      <div style={{ height: 14 }} />
+      <Card style={{ background: T.tealPale, border: "none" }}>
+        <div style={{ display: "flex", gap: 10 }}>
+          <Icon name="sparkles" size={20} color={T.teal} style={{ flexShrink: 0, marginTop: 2 }} />
+          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12, color: T.teal, marginBottom: 3 }}>TODAY'S FOCUS — {tip.marker.toUpperCase()}</div><div style={{ fontFamily: "Inter", fontSize: 14, color: T.ink, lineHeight: 1.45 }}>{tip.tip}</div></div>
+        </div>
+      </Card>
+      <div style={{ height: 14 }} />
+      <Card>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <SectionLabel>This week</SectionLabel>
+          {anyDemo && <button onClick={clearDemo} style={{ background: "none", border: "none", display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}><Icon name="trash" size={13} color={T.inkSoft} /><span style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft }}>Clear demo</span></button>}
+        </div>
+        {anyDemo && <div style={{ fontFamily: "Inter", fontSize: 11, color: T.amber, marginBottom: 8 }}>Faded bars are placeholder demo data — clear anytime.</div>}
+        <MiniBarChart bars={weekBars} />
+      </Card>
+      <div style={{ height: 90 }} />
+      <FabButton onOpenAsk={onOpenAsk} />
+    </div>
+  );
+}
+
+/* ============================== TAB 2: FOOD CHECK ============================== */
+function MiniStat({ v, l }) { return <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15 }}>{v ?? "—"}</div><div style={{ fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft }}>{l}</div></div>; }
+
+function FoodCheckTab({ foodToday, weekFood, addFoodEntry, onOpenAsk }) {
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const [mealSlot, setMealSlot] = useState("Snack");
+  const [warning, setWarning] = useState(null);
+  const shortcuts = Object.keys(FOOD_DB);
+
+  async function checkDish(dish) {
+    setResult(null); setWarning(null);
+    const key = dish.trim().toLowerCase();
+    if (FOOD_DB[key]) { setResult({ dish, ...FOOD_DB[key] }); return; }
+    setLoading(true);
+    const sys = `You are a clinical nutrition assistant for Jignesh, 54, Indian vegetarian (Gujarati), current priorities: Triglycerides 257 (HIGH, target <150), GGT 105 (ELEVATED liver, target <64), TSH 4.57 (high-normal, target 1.5-3.0), LDL 82 (OPTIMAL — protect this). Given a dish name, respond ONLY with JSON, no markdown fences: {"ingredients": "...", "calories": <int>, "protein": <int>, "fiber": <int>, "carbs": <int>, "sugar": <int>, "portion": "...", "verdict": "safe"|"moderate"|"limit"|"avoid", "reason": "...", "marker": "..." or null, "weeklyLimit": <int> or null}`;
+    const parsed = await callClaude(sys, `Dish: ${dish}`, true);
+    setLoading(false);
+    setResult(parsed ? { dish, ...parsed } : { dish, verdict: "moderate", calories: 200, protein: 5, fiber: 1, carbs: 25, sugar: 5, portion: "small serving", reason: "Could not analyze automatically.", marker: null, weeklyLimit: null });
+  }
+  function meta(v) { return VERDICT_META[v] || VERDICT_META.moderate; }
+  function weeklyCountFor(dishName) {
+    const key = dishName.trim().toLowerCase(); let count = 0;
+    for (let offset = 0; offset <= 6; offset++) { const dk = dateKeyOffset(offset); const entries = weekFood[dk] || []; count += entries.filter(e => e.dish.trim().toLowerCase() === key).length; }
+    return count;
+  }
+  function logMeal() {
+    const entry = { dish: result.dish, calories: result.calories || 0, protein: result.protein || 0, fiber: result.fiber || 0, carbs: result.carbs || 0, sugar: result.sugar || 0, verdict: result.verdict, mealSlot, time: Date.now() };
+    addFoodEntry(entry);
+    const countAfter = weeklyCountFor(result.dish) + 1;
+    if (result.weeklyLimit != null && countAfter > result.weeklyLimit) setWarning(`⚠️ This is your ${countAfter}${countAfter === 1 ? "st" : countAfter === 2 ? "nd" : countAfter === 3 ? "rd" : "th"} "${result.dish}" this week — recommended cap is ${result.weeklyLimit}/week.`);
+    else if (mealSlot === "After Dinner" && (result.verdict === "limit" || result.verdict === "avoid")) setWarning(`Post-dinner + ${meta(result.verdict).label.toLowerCase()} — flagged habit pattern. Small portion or skip tonight.`);
+    else { setWarning(null); setResult(null); setQuery(""); }
+  }
+  const totalCals = foodToday.reduce((s, f) => s + (f.calories || 0), 0);
+  const badCount = foodToday.filter(f => f.verdict === "avoid" || f.verdict === "limit").length;
+
+  return (
+    <div className="tabPane">
+      <SectionLabel>Is this safe?</SectionLabel>
+      <Card>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Type a dish — e.g. besan laddoo" style={{ flex: 1, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", fontFamily: "Inter", fontSize: 14, background: T.cream }} onKeyDown={e => { if (e.key === "Enter" && query.trim()) checkDish(query.trim()); }} />
+          <button onClick={() => query.trim() && checkDish(query.trim())} style={{ background: T.saffron, border: "none", borderRadius: 10, padding: "0 16px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13 }}>Check</button>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12 }}>{shortcuts.map(s => <button key={s} onClick={() => checkDish(s)} style={{ background: T.creamDeep, border: "none", borderRadius: 999, padding: "6px 12px", fontFamily: "Inter", fontSize: 12.5, color: T.ink, textTransform: "capitalize" }}>{s}</button>)}</div>
+      </Card>
+      {loading && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 14, fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}><Icon name="loader" size={16} /> Checking ingredients…</div>}
+      {result && !loading && (
+        <>
+          <div style={{ height: 12 }} />
+          <Card style={{ borderColor: meta(result.verdict).fg }}>
+            <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, textTransform: "capitalize", marginBottom: 4 }}>{result.dish}</div>
+            {result.ingredients && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>Likely: {result.ingredients}</div>}
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: meta(result.verdict).bg, color: meta(result.verdict).fg, padding: "6px 12px", borderRadius: 999, fontFamily: "Manrope", fontWeight: 800, fontSize: 13, marginBottom: 10 }}>{meta(result.verdict).emoji} {meta(result.verdict).label}</div>
+            <div style={{ fontFamily: "Inter", fontSize: 13.5, color: T.ink, lineHeight: 1.5, marginBottom: 10 }}>{result.reason}</div>
+            <div style={{ display: "flex", gap: 14, marginBottom: 12, flexWrap: "wrap" }}><MiniStat v={result.calories} l="cal" /><MiniStat v={result.protein} l="protein g" /><MiniStat v={result.fiber} l="fiber g" /><MiniStat v={result.sugar} l="sugar g" /></div>
+            {result.weeklyLimit != null && <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>You've had this {weeklyCountFor(result.dish)}x this week · cap: {result.weeklyLimit}/week</div>}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 6 }}>When?</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{MEAL_SLOTS.map(s => <button key={s} onClick={() => setMealSlot(s)} style={{ background: mealSlot === s ? T.teal : T.creamDeep, color: mealSlot === s ? T.white : T.ink, border: "none", borderRadius: 999, padding: "5px 11px", fontFamily: "Inter", fontSize: 12 }}>{s}</button>)}</div>
+            </div>
+            <button onClick={logMeal} style={{ width: "100%", background: T.teal, border: "none", borderRadius: 10, padding: "10px 0", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5 }}>Log this meal</button>
+          </Card>
+        </>
+      )}
+      {warning && (
+        <>
+          <div style={{ height: 10 }} />
+          <Card style={{ background: T.amberPale, border: "none" }}>
+            <div style={{ fontFamily: "Inter", fontSize: 13, color: T.ink, lineHeight: 1.45, marginBottom: 8 }}>{warning}</div>
+            <button onClick={() => { setWarning(null); setResult(null); setQuery(""); }} style={{ background: T.teal, border: "none", borderRadius: 8, padding: "7px 12px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 12 }}>Got it</button>
+          </Card>
+        </>
+      )}
+      <div style={{ height: 18 }} />
+      <SectionLabel>What I ate today</SectionLabel>
+      <Card>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 20 }}>{totalCals}</div><div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft }}>calories today</div></div>
+          <div style={{ textAlign: "right" }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 20, color: badCount > 1 ? T.alert : T.forest }}>{badCount}</div><div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft }}>flagged items</div></div>
+        </div>
+        <div style={{ height: 8, borderRadius: 999, background: T.creamDeep, overflow: "hidden", display: "flex", marginBottom: 10 }}>{foodToday.length === 0 ? <div style={{ flex: 1 }} /> : foodToday.map((f, i) => <div key={i} style={{ flex: 1, background: meta(f.verdict).fg }} />)}</div>
+        {foodToday.length === 0 ? <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>Nothing logged yet today.</div> : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{foodToday.map((f, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div><div style={{ fontFamily: "Inter", fontSize: 13.5, textTransform: "capitalize" }}>{f.dish}</div><div style={{ fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft }}>{f.mealSlot || "—"}</div></div>
+              <Badge bg={meta(f.verdict).bg} fg={meta(f.verdict).fg}>{meta(f.verdict).emoji} {f.calories} cal</Badge>
+            </div>
+          ))}</div>
+        )}
+      </Card>
+      <div style={{ height: 90 }} />
+      <FabButton onOpenAsk={onOpenAsk} />
+    </div>
+  );
+}
+
+/* ============================== TAB 3: MY HEALTH ============================== */
+function MyHealthTab({ metrics, periods, supplementsToday, toggleSupplement, onOpenAsk, onAddReport }) {
+  const priorities = computeTopPriorities(metrics, periods);
+  return (
+    <div className="tabPane">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <SectionLabel>Top priorities right now</SectionLabel>
+        <button onClick={onAddReport} style={{ background: T.tealPale, border: "none", borderRadius: 8, padding: "5px 10px", fontFamily: "Manrope", fontWeight: 700, fontSize: 11, color: T.teal, marginBottom: 8 }}>+ New report</button>
+      </div>
+      {priorities.length === 0 ? <Card><div style={{ fontFamily: "Inter", fontSize: 13, color: T.forest }}>Nothing flagged — every tracked marker is within range.</div></Card> : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{priorities.map(p => (
+          <Card key={p.key} style={{ borderColor: p.status === "bad" ? T.alert : T.amber }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 14 }}>{p.label}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>Target: {p.target} {p.unit}</div></div>
+              <div style={{ textAlign: "right" }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 20, color: p.status === "bad" ? T.alert : T.amber }}>{p.value}</div><Icon name="trendDown" size={16} color={p.status === "bad" ? T.alert : T.amber} /></div>
+            </div>
+          </Card>
+        ))}</div>
+      )}
+      <div style={{ height: 18 }} />
+      <SectionLabel>All markers — {periods[periods.length - 1]}</SectionLabel>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{metrics.map(m => {
+        const latest = m.points[m.points.length - 1]; const status = metricStatus(latest, m);
+        const s = STATUS_COLORS[status] || { bg: T.creamDeep, fg: T.inkSoft, label: "Not tested" };
+        return (
+          <Card key={m.key}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ flex: 1 }}><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5 }}>{m.label}</div><div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft }}>{rangeLabel(m)} {m.unit}</div></div>
+              <div style={{ textAlign: "right", marginRight: 10 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 17 }}>{latest ?? "—"}</div></div>
+              <Badge bg={s.bg} fg={s.fg}>{s.label}</Badge>
+            </div>
+            {m.note && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 6, lineHeight: 1.4 }}>{m.note}</div>}
+          </Card>
+        );
+      })}</div>
+      <div style={{ height: 18 }} />
+      <SectionLabel>Trend — {periods[0]} to {periods[periods.length - 1]}</SectionLabel>
+      <Card>
+        <div style={{ width: "100%", overflowX: "auto" }}><div style={{ minWidth: 520 }}>
+          <MiniLineChart periods={periods} series={metrics.filter(m => ["chol", "ldl", "tg", "hdl", "ggt"].includes(m.key)).map(m => ({ key: m.key, points: m.points, color: m.color }))} />
+        </div></div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 8 }}>{metrics.filter(m => ["chol", "ldl", "tg", "hdl", "ggt"].includes(m.key)).map(m => (
+          <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 9, height: 9, borderRadius: 3, background: m.color, display: "inline-block" }} /><span style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft }}>{m.label}</span></div>
+        ))}</div>
+        <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 6 }}>Gaps mean the marker wasn't tested that period.</div>
+      </Card>
+      <div style={{ height: 18 }} />
+      <SectionLabel>Supplement tracker — today</SectionLabel>
+      <Card><div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{SUPPLEMENTS.map(s => (
+        <label key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+          <button onClick={() => toggleSupplement(s.id)} style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${supplementsToday[s.id] ? T.forest : T.border}`, background: supplementsToday[s.id] ? T.forest : T.white, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{supplementsToday[s.id] && <Icon name="check" size={14} color={T.white} />}</button>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: "Inter", fontSize: 13.5, fontWeight: 600, textDecoration: supplementsToday[s.id] ? "line-through" : "none", color: supplementsToday[s.id] ? T.inkSoft : T.ink }}>{s.name} {s.isNew && <Badge bg={T.amberPale} fg={T.amber}>NEW</Badge>}</div>
+            <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft }}>{s.dose} · {s.timeLabel}</div>
+          </div>
+        </label>
+      ))}</div></Card>
+      <div style={{ height: 18 }} />
+      <SectionLabel>What to test next</SectionLabel>
+      <Card>{TEST_NEXT.map((t, i) => <div key={i} style={{ display: "flex", gap: 8, marginBottom: i === TEST_NEXT.length - 1 ? 0 : 8 }}><Icon name="alert" size={14} color={T.amber} style={{ flexShrink: 0, marginTop: 2 }} /><span style={{ fontFamily: "Inter", fontSize: 13, lineHeight: 1.4 }}>{t}</span></div>)}</Card>
+      <div style={{ height: 90 }} />
+      <FabButton onOpenAsk={onOpenAsk} />
+    </div>
+  );
+}
+
+/* ============================== TAB 4: HABITS ============================== */
+function ActivityLog({ activities, addActivity }) {
+  const [type, setType] = useState("Walk");
+  const [duration, setDuration] = useState("");
+  const tk = todayKey();
+  function add() { const mins = parseInt(duration, 10); if (!mins || mins <= 0) return; addActivity({ type, duration: mins, time: Date.now() }); setDuration(""); }
+  const allEntries = Object.keys(activities).sort((a, b) => b.localeCompare(a)).flatMap(dk => (activities[dk] || []).map(e => ({ ...e, dateKey: dk }))).sort((a, b) => b.time - a.time).slice(0, 10);
+  const byMonth = summarizeActivitiesByMonth(activities);
+  const now = new Date(); const curMk = now.toISOString().slice(0, 7);
+  const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1); const prevMk = prevDate.toISOString().slice(0, 7);
+  const daysElapsedThisMonth = now.getDate(); const daysInPrevMonth = daysInMonth(prevDate.getFullYear(), prevDate.getMonth());
+  const curStats = byMonth[curMk]; const prevStats = byMonth[prevMk];
+  const curPct = curStats ? Math.round((curStats.activeDays.size / daysElapsedThisMonth) * 100) : 0;
+  const prevPct = prevStats ? Math.round((prevStats.activeDays.size / daysInPrevMonth) * 100) : null;
+  return (
+    <>
+      <SectionLabel>Activity log</SectionLabel>
+      <Card>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>{ACTIVITY_TYPES.map(t => <button key={t} onClick={() => setType(t)} style={{ background: type === t ? T.teal : T.creamDeep, color: type === t ? T.white : T.ink, border: "none", borderRadius: 999, padding: "6px 12px", fontFamily: "Inter", fontSize: 12 }}>{t}</button>)}</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input value={duration} onChange={e => setDuration(e.target.value.replace(/\D/g, ""))} placeholder="Minutes" inputMode="numeric" style={{ flex: 1, border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", fontFamily: "Inter", fontSize: 13.5 }} />
+          <button onClick={add} style={{ background: T.saffron, border: "none", borderRadius: 10, padding: "0 16px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13 }}>Add</button>
+        </div>
+      </Card>
+      <div style={{ height: 12 }} />
+      <SectionLabel>Recent activity</SectionLabel>
+      <Card>{allEntries.length === 0 ? <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>Nothing logged yet.</div> : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{allEntries.map((e, i) => (
+          <div key={i} style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontFamily: "Inter", fontSize: 13 }}>{e.type}</span><span style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{e.duration} min · {e.dateKey === tk ? "Today" : e.dateKey}</span></div>
+        ))}</div>
+      )}</Card>
+      <div style={{ height: 12 }} />
+      <SectionLabel>Monthly summary</SectionLabel>
+      <Card>
+        <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, marginBottom: 6 }}>{monthLabel(curMk)}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+          <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22 }}>{curPct}%</div>
+          <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{curStats ? curStats.activeDays.size : 0} active days of {daysElapsedThisMonth} so far{curStats ? ` · ${curStats.totalMinutes} min total` : ""}</div>
+        </div>
+        {prevPct !== null ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 6 }}>
+            <Icon name={curPct >= prevPct ? "trendUp" : "trendDown"} size={14} color={curPct >= prevPct ? T.forest : T.alert} /> vs {prevPct}% in {monthLabel(prevMk)}
+          </div>
+        ) : <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 6 }}>No data yet for {monthLabel(prevMk)} to compare.</div>}
+      </Card>
+      <div style={{ height: 18 }} />
+    </>
+  );
+}
+
+function HabitsTab({ habitsWeek, toggleHabit, activities, addActivity, onOpenAsk }) {
+  const dates = last7Dates();
+  function streakFor(habitId) { let streak = 0; for (let i = dates.length - 1; i >= 0; i--) { const d = dates[i]; const key = d.toISOString().slice(0, 10); if (isSunday(d)) continue; if (habitsWeek[key]?.[habitId]) streak++; else break; } return streak; }
+  const weekBars = dates.map(d => { const key = d.toISOString().slice(0, 10); if (isSunday(d)) return { label: dayLabel(d), value: 0.3, color: T.creamDeep }; const done = HABITS.filter(h => habitsWeek[key]?.[h.id]).length; return { label: dayLabel(d), value: done || 0.3, color: done >= HABITS.length - 1 ? T.forest : done >= HABITS.length / 2 ? T.amber : T.alert }; });
+  const totalPossible = dates.filter(d => !isSunday(d)).length * HABITS.length;
+  const totalDone = dates.reduce((sum, d) => { if (isSunday(d)) return sum; const key = d.toISOString().slice(0, 10); return sum + HABITS.filter(h => habitsWeek[key]?.[h.id]).length; }, 0);
+  const weekPct = totalPossible === 0 ? 0 : Math.round((totalDone / totalPossible) * 100);
+  return (
+    <div className="tabPane">
+      <ActivityLog activities={activities} addActivity={addActivity} />
+      <SectionLabel>This week — tap today's column to log</SectionLabel>
+      <Card>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 480 }}>
+            <thead><tr><th></th>{dates.map((d, i) => <th key={i} style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11, color: T.inkSoft, paddingBottom: 8 }}>{dayLabel(d)}</th>)}</tr></thead>
+            <tbody>{HABITS.map(h => (
+              <tr key={h.id}>
+                <td style={{ fontFamily: "Inter", fontSize: 12.5, paddingRight: 8, whiteSpace: "nowrap" }}>{h.label}</td>
+                {dates.map((d, i) => {
+                  const key = d.toISOString().slice(0, 10); const rest = isSunday(d); const done = habitsWeek[key]?.[h.id]; const isToday = key === todayKey();
+                  return <td key={i} style={{ textAlign: "center", padding: 3 }}><button disabled={rest || !isToday} onClick={() => isToday && toggleHabit(key, h.id)} style={{ width: 26, height: 26, borderRadius: 7, border: "none", background: rest ? T.creamDeep : done ? T.forest : T.alertPale, opacity: isToday ? 1 : rest ? 1 : 0.55, cursor: isToday && !rest ? "pointer" : "default" }} /></td>;
+                })}
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+        <div style={{ display: "flex", gap: 12, marginTop: 12, fontFamily: "Inter", fontSize: 11, color: T.inkSoft }}>
+          <span><span style={{ display: "inline-block", width: 10, height: 10, background: T.forest, borderRadius: 3, marginRight: 4 }} />Done</span>
+          <span><span style={{ display: "inline-block", width: 10, height: 10, background: T.alertPale, borderRadius: 3, marginRight: 4 }} />Missed</span>
+          <span><span style={{ display: "inline-block", width: 10, height: 10, background: T.creamDeep, borderRadius: 3, marginRight: 4 }} />Sunday</span>
+        </div>
+      </Card>
+      <div style={{ height: 14 }} />
+      <SectionLabel>Streaks</SectionLabel>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{HABITS.map(h => (
+        <Card key={h.id} style={{ flex: "1 1 45%", textAlign: "center", padding: 12 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 20, color: T.saffronDeep }}>{streakFor(h.id)}</div><div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft }}>{h.label}</div></Card>
+      ))}</div>
+      <div style={{ height: 14 }} />
+      <SectionLabel>Weekly score</SectionLabel>
+      <Card>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 26 }}>{weekPct}%</div>
+          <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, textAlign: "right", maxWidth: 220 }}>{weekPct >= 80 ? "Strong week — keep going." : weekPct >= 50 ? "Halfway there." : "Needs work."}</div>
+        </div>
+        <MiniBarChart bars={weekBars} />
+      </Card>
+      <div style={{ height: 90 }} />
+      <FabButton onOpenAsk={onOpenAsk} />
+    </div>
+  );
+}
+
+/* ============================== TAB 5: PLAN ============================== */
+function SupplementsTab({ supplementsToday, toggleSupplement, weekFood, onOpenAsk }) {
+  const groups = [{ key: "morning", label: "🌅 Morning" }, { key: "afternoon", label: "☀️ After lunch" }, { key: "evening", label: "🌆 Evening" }, { key: "night", label: "🌙 Before bed" }, { key: "weekly", label: "📅 Weekly" }];
+  const freqMap = {};
+  Object.values(weekFood || {}).flat().forEach(f => { const key = f.dish.trim().toLowerCase(); freqMap[key] = (freqMap[key] || 0) + 1; });
+  const frequentlyEaten = Object.entries(freqMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  return (
+    <div className="tabPane">
+      <SectionLabel>Healthier versions of what you love</SectionLabel>
+      <Card style={{ marginBottom: 18 }}><div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{SWAPS.map((s, i) => (
+        <div key={i}><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13 }}>{s.craving}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, lineHeight: 1.4 }}>{s.swap}</div></div>
+      ))}</div></Card>
+      {frequentlyEaten.length > 0 && (
+        <>
+          <SectionLabel>What you've actually been eating</SectionLabel>
+          <Card style={{ marginBottom: 18 }}><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{frequentlyEaten.map(([dish, count]) => {
+            const swap = SWAPS.find(s => s.craving.toLowerCase() === dish);
+            return (
+              <div key={dish}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontFamily: "Inter", fontSize: 13, textTransform: "capitalize" }}>{dish}</span><Badge bg={T.creamDeep} fg={T.inkSoft}>{count}x logged</Badge></div>
+                {swap && <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.saffronDeep, marginTop: 2 }}>💡 {swap.swap}</div>}
+              </div>
+            );
+          })}</div></Card>
+        </>
+      )}
+      <SectionLabel>Supplement schedule</SectionLabel>
+      {groups.map(g => { const items = SUPPLEMENTS.filter(s => s.time === g.key); if (items.length === 0) return null; return (
+        <div key={g.key} style={{ marginBottom: 14 }}>
+          <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.inkSoft, marginBottom: 6 }}>{g.label}</div>
+          <Card><div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{items.map(s => (
+            <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button onClick={() => toggleSupplement(s.id)} style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${supplementsToday[s.id] ? T.forest : T.border}`, background: supplementsToday[s.id] ? T.forest : T.white, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{supplementsToday[s.id] && <Icon name="check" size={14} color={T.white} />}</button>
+              <div style={{ flex: 1 }}><div style={{ fontFamily: "Inter", fontSize: 13.5, fontWeight: 600 }}>{s.name}</div><div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft }}>{s.dose} · {s.why}</div></div>
+            </div>
+          ))}</div></Card>
+        </div>
+      ); })}
+      <SectionLabel>Foods to avoid this week</SectionLabel>
+      <Card style={{ marginBottom: 18 }}><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{BANNED.map((b, i) => (
+        <div key={i}><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.alert }}>🔴 {b.item}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{b.reason}</div></div>
+      ))}</div></Card>
+      <SectionLabel>Eat more of</SectionLabel>
+      <Card style={{ marginBottom: 18 }}><div style={{ display: "flex", flexDirection: "column", gap: 6 }}>{EAT_MORE.map((e, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 13, color: T.ink }}>🌿 {e}</div>)}</div></Card>
+      <SectionLabel>This week's meal ideas</SectionLabel>
+      <Card style={{ marginBottom: 90 }}>{["breakfast", "lunch", "dinner"].map(m => (
+        <div key={m} style={{ marginBottom: 10 }}>
+          <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, textTransform: "capitalize", color: T.teal, marginBottom: 4 }}>{m}</div>
+          {MEAL_IDEAS[m].map((idea, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 13, color: T.ink, marginBottom: 2, display: "flex", gap: 6 }}><Icon name="chevron" size={14} color={T.saffron} style={{ flexShrink: 0, marginTop: 3 }} /> {idea}</div>)}
+        </div>
+      ))}</Card>
+      <FabButton onOpenAsk={onOpenAsk} />
+    </div>
+  );
+}
+
+/* ============================== ASK PANEL ============================== */
+function AskPanel({ open, onClose }) {
+  const [messages, setMessages] = useState([{ role: "assistant", text: "Ask me anything — \"Can I eat this?\", \"Is X safe with my liver?\"" }]);
+  const [input, setInput] = useState(""); const [loading, setLoading] = useState(false); const scrollRef = useRef(null);
+  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages, loading]);
+  async function send() {
+    const text = input.trim(); if (!text || loading) return;
+    setInput(""); setMessages(m => [...m, { role: "user", text }]); setLoading(true);
+    const sys = `You are a direct, specific health assistant for Jignesh, 54, Indian vegetarian (Gujarati). Priorities: Triglycerides 257 (HIGH, target <150), GGT 105 (ELEVATED, target <64), TSH 4.57 (target 1.5-3.0), LDL 82 (OPTIMAL, protect it). Supplements: Omega-3, Isabgol, Ashwagandha, Liv.52, Silymarin, B12, Turmeric, Zinc, D3. Banned: alcohol, fruit juice, sugar, maida, fried food, large mango. Answer in 2-4 short sentences, direct and specific — never generic.`;
+    const reply = await callClaude(sys, text, false);
+    setLoading(false); setMessages(m => [...m, { role: "assistant", text: reply || "Couldn't reach the health engine." }]);
+  }
+  if (!open) return null;
+  return (
+    <div className="askOverlay" onClick={onClose}>
+      <div className="askPanel" onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", borderBottom: `1px solid ${T.border}` }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, color: T.teal }}>Ask about anything</div><button onClick={onClose} style={{ background: "none", border: "none" }}><Icon name="x" size={20} color={T.inkSoft} /></button></div>
+        <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+          {messages.map((m, i) => <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", background: m.role === "user" ? T.saffron : T.tealPale, color: m.role === "user" ? T.white : T.ink, padding: "10px 13px", borderRadius: 14, maxWidth: "82%", fontFamily: "Inter", fontSize: 13.5, lineHeight: 1.45 }}>{m.text}</div>)}
+          {loading && <div style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 6, color: T.inkSoft, fontFamily: "Inter", fontSize: 12.5 }}><Icon name="loader" size={14} /> thinking…</div>}
+        </div>
+        <div style={{ display: "flex", gap: 8, padding: 12, borderTop: `1px solid ${T.border}` }}>
+          <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} placeholder="Type your question…" style={{ flex: 1, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", fontFamily: "Inter", fontSize: 13.5 }} />
+          <button onClick={send} style={{ background: T.teal, border: "none", borderRadius: 10, width: 42, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="send" size={16} color={T.white} /></button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================== SETTINGS PANEL ============================== */
+function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveGoalToggles, customGoals, saveCustomGoals, metrics, saveMetrics, periods, savePeriods, initialSection }) {
+  const [section, setSection] = useState(initialSection || "profile");
+  const [form, setForm] = useState(profile);
+  const [newGoalText, setNewGoalText] = useState("");
+  const [newPeriodLabel, setNewPeriodLabel] = useState("");
+  const [newValues, setNewValues] = useState({});
+  const [addingReport, setAddingReport] = useState(false);
+  useEffect(() => { setForm(profile); }, [profile, open]);
+  useEffect(() => { if (open) setSection(initialSection || "profile"); }, [open, initialSection]);
+  if (!open) return null;
+  function saveProfileForm() { saveProfile({ ...form, weight: Number(form.weight) || profile.weight, age: Number(form.age) || profile.age }); }
+  function toggleGoal(id) { saveGoalToggles(goalToggles.map(g => g.id === id ? { ...g, active: !g.active } : g)); }
+  function addCustomGoal() { if (!newGoalText.trim()) return; saveCustomGoals([...customGoals, { id: `custom-${Date.now()}`, label: newGoalText.trim(), active: true }]); setNewGoalText(""); }
+  function removeCustomGoal(id) { saveCustomGoals(customGoals.filter(g => g.id !== id)); }
+  function submitNewReport() {
+    if (!newPeriodLabel.trim()) return;
+    savePeriods([...periods, newPeriodLabel.trim()]);
+    saveMetrics(metrics.map(m => ({ ...m, points: [...m.points, newValues[m.key] != null && newValues[m.key] !== "" ? Number(newValues[m.key]) : null] })));
+    setNewPeriodLabel(""); setNewValues({}); setAddingReport(false);
+  }
+  const SECTIONS = [{ id: "profile", label: "Profile" }, { id: "goals", label: "Goals" }, { id: "reports", label: "Reports" }];
+  return (
+    <div className="askOverlay" onClick={onClose}>
+      <div className="askPanel" onClick={e => e.stopPropagation()} style={{ height: "88vh" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", borderBottom: `1px solid ${T.border}` }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, color: T.teal }}>Profile & Reports</div><button onClick={onClose} style={{ background: "none", border: "none" }}><Icon name="x" size={20} color={T.inkSoft} /></button></div>
+        <div style={{ display: "flex", gap: 6, padding: "10px 16px", borderBottom: `1px solid ${T.border}` }}>{SECTIONS.map(s => <button key={s.id} onClick={() => setSection(s.id)} style={{ background: section === s.id ? T.teal : T.creamDeep, color: section === s.id ? T.white : T.ink, border: "none", borderRadius: 999, padding: "6px 14px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5 }}>{s.label}</button>)}</div>
+        <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
+          {section === "profile" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {[{ key: "name", label: "Name" }, { key: "age", label: "Age" }, { key: "weight", label: "Weight (kg)" }, { key: "gender", label: "Gender" }, { key: "city", label: "City / Country" }, { key: "diet", label: "Dietary pattern" }].map(f => (
+                <div key={f.key}><div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 4 }}>{f.label}</div><input value={form[f.key] ?? ""} onChange={e => setForm({ ...form, [f.key]: e.target.value })} style={{ width: "100%", border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", fontFamily: "Inter", fontSize: 13.5 }} /></div>
+              ))}
+              <button onClick={saveProfileForm} style={{ background: T.saffron, border: "none", borderRadius: 10, padding: "10px 0", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, marginTop: 6 }}>Save profile</button>
+              <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft }}>Changing weight recalculates calorie/protein targets automatically.</div>
+            </div>
+          )}
+          {section === "goals" && (
+            <div>
+              <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>BODY COMPOSITION GOALS</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>{goalToggles.map(g => (
+                <label key={g.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                  <button onClick={() => toggleGoal(g.id)} style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${g.active ? T.forest : T.border}`, background: g.active ? T.forest : T.white, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{g.active && <Icon name="check" size={14} color={T.white} />}</button>
+                  <span style={{ fontFamily: "Inter", fontSize: 13.5 }}>{g.label}</span>
+                </label>
+              ))}</div>
+              <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>OTHER GOALS</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+                {customGoals.length === 0 && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft }}>None added yet.</div>}
+                {customGoals.map(g => <div key={g.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: T.creamDeep, borderRadius: 10, padding: "8px 10px" }}><span style={{ fontFamily: "Inter", fontSize: 13 }}>{g.label}</span><button onClick={() => removeCustomGoal(g.id)} style={{ background: "none", border: "none" }}><Icon name="x" size={14} color={T.inkSoft} /></button></div>)}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input value={newGoalText} onChange={e => setNewGoalText(e.target.value)} placeholder="e.g. Improve sleep" style={{ flex: 1, border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", fontFamily: "Inter", fontSize: 13 }} />
+                <button onClick={addCustomGoal} style={{ background: T.teal, border: "none", borderRadius: 10, padding: "0 14px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5 }}>Add</button>
+              </div>
+              <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 10 }}>Marker-based priorities update automatically from your latest report.</div>
+            </div>
+          )}
+          {section === "reports" && (
+            <div>
+              <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>REPORT HISTORY</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>{periods.map(p => <Badge key={p} bg={T.tealPale} fg={T.teal}>{p}</Badge>)}</div>
+              {!addingReport ? <button onClick={() => setAddingReport(true)} style={{ width: "100%", background: T.saffron, border: "none", borderRadius: 10, padding: "10px 0", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5 }}>+ Add new report</button> : (
+                <div>
+                  <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 4 }}>Period label (e.g. "Jan 2027")</div>
+                  <input value={newPeriodLabel} onChange={e => setNewPeriodLabel(e.target.value)} style={{ width: "100%", border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", fontFamily: "Inter", fontSize: 13.5, marginBottom: 12 }} />
+                  <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 6 }}>Enter new values — leave blank if not tested</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>{metrics.map(m => (
+                    <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ flex: 1, fontFamily: "Inter", fontSize: 12.5 }}>{m.label}</span>
+                      <input value={newValues[m.key] ?? ""} onChange={e => setNewValues({ ...newValues, [m.key]: e.target.value.replace(/[^0-9.]/g, "") })} placeholder={m.unit} inputMode="decimal" style={{ width: 80, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 8px", fontFamily: "Inter", fontSize: 13 }} />
+                    </div>
+                  ))}</div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => setAddingReport(false)} style={{ flex: 1, background: T.creamDeep, border: "none", borderRadius: 10, padding: "9px 0", fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.ink }}>Cancel</button>
+                    <button onClick={submitNewReport} style={{ flex: 1, background: T.teal, border: "none", borderRadius: 10, padding: "9px 0", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13 }}>Save report</button>
+                  </div>
+                </div>
+              )}
+              <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 14, lineHeight: 1.5 }}>Manual entry only — this app can't read an uploaded PDF/Excel file itself.</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================== ROOT APP ============================== */
+function App() {
+  const [tab, setTab] = useState("today");
+  const [askOpen, setAskOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState("profile");
+  const tk = todayKey();
+
+  const [weekFood, setWeekFood] = useKV("week:foodlog", {});
+  const [weekSupplements, setWeekSupplements] = useKV("week:supplements", {});
+  const [weekHabits, setWeekHabits] = useKV("week:habits", {});
+  const [demoCleared, setDemoCleared] = useKV("week:demoCleared", false);
+  const [activities, setActivities] = useKV("activities:log", {});
+  const [profile, setProfile] = useKV("profile:data", PROFILE_SEED);
+  const [goalToggles, setGoalToggles] = useKV("goals:toggles", DEFAULT_GOAL_TOGGLES);
+  const [customGoals, setCustomGoals] = useKV("goals:custom", []);
+  const [metrics, setMetrics] = useKV("reports:metrics", METRICS_SEED);
+  const [periods, setPeriods] = useKV("reports:periods", PERIODS_SEED);
+
+  const foodToday = weekFood[tk] || [];
+  const supplementsToday = weekSupplements[tk] || {};
+  const habitToday = weekHabits[tk] || {};
+  const targets = computeTargets(profile.weight, goalToggles);
+
+  const addFoodEntry = (entry) => setWeekFood(prev => ({ ...prev, [tk]: [...(prev[tk] || []), entry] }));
+  const toggleSupplement = (id) => setWeekSupplements(prev => ({ ...prev, [tk]: { ...(prev[tk] || {}), [id]: !(prev[tk]?.[id]) } }));
+  const toggleHabit = (dateKey, habitId) => setWeekHabits(prev => ({ ...prev, [dateKey]: { ...(prev[dateKey] || {}), [habitId]: !(prev[dateKey]?.[habitId]) } }));
+  const clearDemo = () => setDemoCleared(true);
+  const addActivity = (entry) => setActivities(prev => ({ ...prev, [tk]: [...(prev[tk] || []), entry] }));
+  const openSettings = (section) => { setSettingsSection(section || "profile"); setSettingsOpen(true); };
+
+  const TABS = [
+    { id: "today", label: "Today", icon: "home" },
+    { id: "food", label: "Food Check", icon: "food" },
+    { id: "health", label: "My Health", icon: "activity" },
+    { id: "habits", label: "Habits", icon: "calendar" },
+    { id: "supplements", label: "Plan", icon: "pill" },
+  ];
+
+  return (
+    <div style={{ display: "flex", justifyContent: "center", background: T.creamDeep, minHeight: "100vh" }}>
+      <style>{`
+        .pulseWrap { animation: pulse 3s ease-in-out infinite; }
+        @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.03); } }
+        .fab { position: fixed; bottom: 78px; right: calc(50% - 190px); background: ${T.saffron}; border: none; border-radius: 999px; padding: 12px 18px; display: flex; align-items: center; gap: 7px; box-shadow: 0 6px 18px rgba(232,133,61,0.45); cursor: pointer; z-index: 20; }
+        @media (max-width: 460px) { .fab { right: 16px; } }
+        .askOverlay { position: fixed; inset: 0; background: rgba(38,48,46,0.45); z-index: 50; display: flex; align-items: flex-end; justify-content: center; }
+        .askPanel { background: ${T.cream}; width: 100%; max-width: 420px; height: 78vh; border-radius: 20px 20px 0 0; display: flex; flex-direction: column; }
+        .tabPane { padding: 18px 16px 16px; }
+        .spin { animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+      `}</style>
+      <div style={{ width: "100%", maxWidth: 420, background: T.cream, minHeight: "100vh", position: "relative", boxShadow: "0 0 40px rgba(0,0,0,0.06)" }}>
+        <button onClick={() => openSettings("profile")} aria-label="Profile and reports" style={{ position: "absolute", top: 14, right: 14, zIndex: 15, background: T.white, border: `1px solid ${T.border}`, borderRadius: 999, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><Icon name="settings" size={16} color={T.teal} /></button>
+        {tab === "today" && <TodayTab profile={profile} targets={targets} foodToday={foodToday} habitToday={habitToday} supplementsToday={supplementsToday} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} toggleHabit={toggleHabit} onOpenAsk={() => setAskOpen(true)} onNavigate={setTab} demoCleared={demoCleared} clearDemo={clearDemo} />}
+        {tab === "food" && <FoodCheckTab foodToday={foodToday} weekFood={weekFood} addFoodEntry={addFoodEntry} onOpenAsk={() => setAskOpen(true)} />}
+        {tab === "health" && <MyHealthTab metrics={metrics} periods={periods} supplementsToday={supplementsToday} toggleSupplement={toggleSupplement} onOpenAsk={() => setAskOpen(true)} onAddReport={() => openSettings("reports")} />}
+        {tab === "habits" && <HabitsTab habitsWeek={weekHabits} toggleHabit={toggleHabit} activities={activities} addActivity={addActivity} onOpenAsk={() => setAskOpen(true)} />}
+        {tab === "supplements" && <SupplementsTab supplementsToday={supplementsToday} toggleSupplement={toggleSupplement} weekFood={weekFood} onOpenAsk={() => setAskOpen(true)} />}
+        <div style={{ position: "fixed", bottom: 0, width: "100%", maxWidth: 420, background: T.teal, display: "flex", justifyContent: "space-around", padding: "10px 4px 12px", zIndex: 30 }}>
+          {TABS.map(t => { const active = tab === t.id; return (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{ background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, opacity: active ? 1 : 0.6, cursor: "pointer" }}>
+              <Icon name={t.icon} size={20} color={active ? T.saffron : T.white} />
+              <span style={{ fontFamily: "Inter", fontSize: 10, fontWeight: active ? 700 : 500, color: T.white }}>{t.label}</span>
+            </button>
+          ); })}
+        </div>
+        <AskPanel open={askOpen} onClose={() => setAskOpen(false)} />
+        <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} initialSection={settingsSection} profile={profile} saveProfile={setProfile} goalToggles={goalToggles} saveGoalToggles={setGoalToggles} customGoals={customGoals} saveCustomGoals={setCustomGoals} metrics={metrics} saveMetrics={setMetrics} periods={periods} savePeriods={setPeriods} />
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
