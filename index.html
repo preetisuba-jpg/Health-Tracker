@@ -178,6 +178,48 @@ const DAILY_TIPS = [
   { marker: "LDL", tip: "Your LDL win took 2 years of Omega-3 + Isabgol. Don't relax that streak." },
 ];
 
+// Free, local answer engine — no API calls, no cost, ever. Covers the health rules
+// already established for Jignesh. Anything outside this falls back to a search link.
+const FAQ_DB = [
+  { keywords: ["omega", "fish oil", "algal"], answer: "Omega-3 (Algal Oil), 1000–2000mg after lunch, is core to why his LDL dropped from 168 to 82. Skipping it regularly would start reversing that win — don't skip it." },
+  { keywords: ["isabgol", "psyllium"], answer: "Isabgol before bed binds cholesterol in the gut — a major reason LDL improved. Keep it daily, with plenty of water." },
+  { keywords: ["ashwagandha"], answer: "Ashwagandha after breakfast is tied to his best-ever TSH of 2.8. TSH is rising again (4.57) — don't stop this one." },
+  { keywords: ["liv.52", "liv 52", "liver support"], answer: "Liv.52 after dinner supports liver detox — keep taking it while GGT is elevated at 105." },
+  { keywords: ["silymarin", "milk thistle"], answer: "Silymarin (140mg 2x/day with meals) specifically targets GGT. New addition — give it 6–8 weeks before retesting GGT." },
+  { keywords: ["b12", "cobalamin"], answer: "B12 was at 199, barely above the low threshold — common on a vegetarian diet. Methylcobalamin 500mcg with breakfast helps." },
+  { keywords: ["turmeric", "piperine", "curcumin"], answer: "Turmeric + piperine after any meal is anti-inflammatory and supports both GGT and triglyceride-driven inflammation." },
+  { keywords: ["zinc"], answer: "Zinc 25mg on alternate days after dinner — daily use isn't recommended, it can block iron absorption." },
+  { keywords: ["vitamin d", "d3"], answer: "Vitamin D3, 60,000 IU once a week with food — weekly, not daily. Borderline low and needs consistency to hold." },
+  { keywords: ["alcohol", "beer", "drink", "wine"], answer: "Zero alcohol right now — not occasional, not social. GGT is at 105 and alcohol is the single most direct trigger for it." },
+  { keywords: ["sugar", "sweet"], answer: "Sugar is the #1 driver of the triglyceride spike to 257. Replace with dates (2-3 max/day) or stevia — not a free pass either way." },
+  { keywords: ["fried", "fry", "oil"], answer: "Fried food raises both GGT and triglycerides. Air-fry or bake when the craving hits — not the same, but far less damage." },
+  { keywords: ["walk", "exercise", "gym", "workout"], answer: "A 30-min brisk walk is the single most effective lever he has for both HDL and triglycerides. Sunday is a rest day — no pressure that day." },
+  { keywords: ["tsh", "thyroid"], answer: "TSH is rising again (4.57, best was 2.8) after a period of improvement. Likely causes: skipped Ashwagandha, stress, or the TG spike itself — high TG can impair thyroid metabolism." },
+  { keywords: ["ggt", "liver"], answer: "GGT at 105 is elevated and worsening — most likely alcohol (even occasional), plus possibly increased fried food. Zero alcohol + Silymarin + Liv.52 is the current plan." },
+  { keywords: ["triglyceride", "tg "], answer: "Triglycerides at 257 is the highest ever recorded for him. Sugar, refined carbs, white rice, and alcohol are the direct drivers — diet is the only real lever here, no supplement fixes this alone." },
+  { keywords: ["ldl", "cholesterol"], answer: "LDL at 82 is optimal for the first time ever (down from 168) — protect this. Omega-3 and Isabgol are doing the work; don't change that combination." },
+  { keywords: ["mango"], answer: "Mango is fine in a small amount (2-3 slices), not as a regular large serving — high fructose content spikes triglycerides." },
+  { keywords: ["rice"], answer: "White rice in large portions is a real TG driver for him. Millets (jowar/bajra roti) or a small single portion are the better call while TG is high." },
+  { keywords: ["water", "hydration"], answer: "Good hydration supports kidney function and helps with the mild dehydration pattern seen in his blood counts. Aim for consistent water through the day, not just when thirsty." },
+];
+
+function localAnswer(question) {
+  const q = question.toLowerCase();
+  for (const entry of FAQ_DB) {
+    if (entry.keywords.some(k => q.includes(k))) return entry.answer;
+  }
+  for (const [dish, info] of Object.entries(FOOD_DB)) {
+    if (q.includes(dish)) {
+      const meta = VERDICT_META[info.verdict] || VERDICT_META.moderate;
+      return `${meta.emoji} ${meta.label} — ${info.reason} Portion: ${info.portion}.${info.healthierTip ? " " + info.healthierTip : ""}`;
+    }
+  }
+  return null;
+}
+function contextSearchUrl(question) {
+  return `https://www.google.com/search?q=${encodeURIComponent(question + " for someone with high triglycerides and elevated GGT liver enzyme")}`;
+}
+
 // Omega-3 and Isabgol removed from here — they're already tracked precisely (dose + time)
 // in the Supplements checklist, so keeping them here was double-counting the same action.
 const HABITS = [
@@ -246,24 +288,6 @@ function monthScoreAvg(mk, weekFood, weekHabits, weekSupplements) {
   let total = 0;
   dates.forEach(dk => { total += dayScore(weekFood[dk] || [], weekHabits[dk] || {}, weekSupplements[dk] || {}); });
   return Math.round(total / dates.size);
-}
-
-// Calls YOUR backend proxy (/api/chat), never Anthropic directly.
-async function callClaude(systemPrompt, userText, jsonMode) {
-  try {
-    const res = await fetch("/api/chat", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ system: systemPrompt, message: userText }),
-    });
-    let data;
-    try { data = await res.json(); } catch { throw new Error(`Server returned ${res.status} with no JSON body — the /api/chat function may not be deployed.`); }
-    if (!res.ok || data.error) throw new Error(data.error || `Server returned ${res.status}.`);
-    const text = data.text || "";
-    if (jsonMode) { try { return { ok: true, data: JSON.parse(text.replace(/```json|```/g, "").trim()) }; } catch { return { ok: false, error: "Got a reply but couldn't parse it as data." }; } }
-    return { ok: true, data: text };
-  } catch (e) {
-    return { ok: false, error: e.message || String(e) };
-  }
 }
 
 /* ============================== STORAGE ============================== */
@@ -597,24 +621,20 @@ function MiniStat({ v, l }) { return <div><div style={{ fontFamily: "Manrope", f
 
 function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, activities, weekSupplements, addFoodEntry, deleteFoodEntry, onOpenAsk }) {
   const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
-  const [errorMsg, setErrorMsg] = useState(null);
+  const [notFound, setNotFound] = useState(null); // dish name when not in local DB
+  const [manualVerdict, setManualVerdict] = useState(null);
+  const [manualCals, setManualCals] = useState("");
   const [mealSlot, setMealSlot] = useState("Snack");
   const [warning, setWarning] = useState(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const shortcuts = Object.keys(FOOD_DB);
 
-  async function checkDish(dish) {
-    setResult(null); setWarning(null); setErrorMsg(null);
+  function checkDish(dish) {
+    setResult(null); setWarning(null); setNotFound(null); setManualVerdict(null); setManualCals("");
     const key = dish.trim().toLowerCase();
     if (FOOD_DB[key]) { setResult({ dish, ...FOOD_DB[key] }); return; }
-    setLoading(true);
-    const sys = `You are a clinical nutrition assistant for Jignesh, 54, Indian vegetarian (Gujarati), current priorities: Triglycerides 257 (HIGH, target <150), GGT 105 (ELEVATED liver, target <64), TSH 4.57 (high-normal, target 1.5-3.0), LDL 82 (OPTIMAL — protect this). Given a dish name, respond ONLY with JSON, no markdown fences: {"ingredients": "...", "calories": <int>, "protein": <int>, "fiber": <int>, "carbs": <int>, "sugar": <int>, "portion": "...", "verdict": "safe"|"moderate"|"limit"|"avoid", "reason": "...", "marker": "..." or null, "weeklyLimit": <int> or null, "healthierTip": "one sentence, a specific healthier way to make or order this exact dish"}`;
-    const outcome = await callClaude(sys, `Dish: ${dish}`, true);
-    setLoading(false);
-    if (outcome.ok) setResult({ dish, ...outcome.data });
-    else setErrorMsg(outcome.error);
+    setNotFound(dish);
   }
   function meta(v) { return VERDICT_META[v] || VERDICT_META.moderate; }
   function weeklyCountFor(dishName) {
@@ -630,9 +650,17 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
     else if (mealSlot === "After Dinner" && (result.verdict === "limit" || result.verdict === "avoid")) setWarning(`Post-dinner + ${meta(result.verdict).label.toLowerCase()} — flagged habit pattern. Small portion or skip tonight.`);
     else { setWarning(null); setResult(null); setQuery(""); }
   }
+  function logManual() {
+    if (!manualVerdict) return;
+    const entry = { dish: notFound, calories: manualCals ? Number(manualCals) : null, protein: null, fiber: null, carbs: null, sugar: null, verdict: manualVerdict, mealSlot, manual: true, time: Date.now() };
+    addFoodEntry(selectedDate, entry);
+    setNotFound(null); setManualVerdict(null); setManualCals(""); setQuery("");
+  }
   const totalCals = foodForDate.reduce((s, f) => s + (f.calories || 0), 0);
   const badCount = foodForDate.filter(f => f.verdict === "avoid" || f.verdict === "limit").length;
   const recipeUrl = (dish) => `https://www.google.com/search?q=${encodeURIComponent("healthy " + dish + " recipe low sugar low ghee")}`;
+  const nutritionUrl = (dish) => `https://www.google.com/search?q=${encodeURIComponent(dish + " calories protein sugar nutrition per serving")}`;
+  const healthUrl = (dish) => `https://www.google.com/search?q=${encodeURIComponent("is " + dish + " safe for high triglycerides and elevated GGT liver")}`;
 
   return (
     <div className="tabPane">
@@ -645,18 +673,39 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12 }}>{shortcuts.map(s => <button key={s} onClick={() => checkDish(s)} style={{ background: T.creamDeep, border: "none", borderRadius: 999, padding: "6px 12px", fontFamily: "Inter", fontSize: 12.5, color: T.ink, textTransform: "capitalize" }}>{s}</button>)}</div>
       </Card>
-      {loading && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 14, fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}><Icon name="loader" size={16} /> Checking ingredients…</div>}
-      {errorMsg && !loading && (
+      {notFound && (
         <>
           <div style={{ height: 10 }} />
-          <Card style={{ background: T.alertPale, border: "none" }}>
-            <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.alert, marginBottom: 4 }}>Couldn't check that dish</div>
-            <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.4, marginBottom: 8 }}>{errorMsg}</div>
-            <button onClick={() => checkDish(query)} style={{ background: T.teal, border: "none", borderRadius: 8, padding: "7px 12px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 12 }}>Try again</button>
+          <Card>
+            <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, textTransform: "capitalize", marginBottom: 4 }}>{notFound}</div>
+            <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 12 }}>Not in the pre-loaded list — check it in 10 seconds, then log it yourself:</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+              <a href={nutritionUrl(notFound)} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, textDecoration: "none" }}>Search calories & nutrition <Icon name="external" size={12} color={T.teal} /></a>
+              <a href={healthUrl(notFound)} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, textDecoration: "none" }}>Search if it's safe for TG/GGT <Icon name="external" size={12} color={T.teal} /></a>
+              <a href={recipeUrl(notFound)} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: T.saffronDeep, fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, textDecoration: "none" }}>Search a healthier version <Icon name="external" size={12} color={T.saffronDeep} /></a>
+            </div>
+            <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 6 }}>Your verdict, based on what you found:</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+              {["safe", "moderate", "limit", "avoid"].map(v => (
+                <button key={v} onClick={() => setManualVerdict(v)} style={{
+                  background: manualVerdict === v ? meta(v).fg : T.creamDeep, color: manualVerdict === v ? T.white : T.ink,
+                  border: "none", borderRadius: 999, padding: "6px 12px", fontFamily: "Inter", fontSize: 12
+                }}>{meta(v).emoji} {meta(v).label}</button>
+              ))}
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 6 }}>Calories (optional)</div>
+              <input value={manualCals} onChange={e => setManualCals(e.target.value.replace(/\D/g, ""))} placeholder="e.g. 200" inputMode="numeric" style={{ width: 120, border: `1px solid ${T.border}`, borderRadius: 10, padding: "8px 10px", fontFamily: "Inter", fontSize: 13.5 }} />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 6 }}>When?</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{MEAL_SLOTS.map(s => <button key={s} onClick={() => setMealSlot(s)} style={{ background: mealSlot === s ? T.teal : T.creamDeep, color: mealSlot === s ? T.white : T.ink, border: "none", borderRadius: 999, padding: "5px 11px", fontFamily: "Inter", fontSize: 12 }}>{s}</button>)}</div>
+            </div>
+            <button onClick={logManual} disabled={!manualVerdict} style={{ width: "100%", background: manualVerdict ? T.teal : T.creamDeep, border: "none", borderRadius: 10, padding: "10px 0", color: manualVerdict ? T.white : T.inkSoft, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5 }}>Log this meal</button>
           </Card>
         </>
       )}
-      {result && !loading && (
+      {result && (
         <>
           <div style={{ height: 12 }} />
           <Card style={{ borderColor: meta(result.verdict).fg }}>
@@ -703,7 +752,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
         {foodForDate.length === 0 ? <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>Nothing logged for this date.</div> : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{foodForDate.map((f, i) => (
             <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-              <div style={{ flex: 1 }}><div style={{ fontFamily: "Inter", fontSize: 13.5, textTransform: "capitalize" }}>{f.dish}</div><div style={{ fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft }}>{f.mealSlot || "—"}</div></div>
+              <div style={{ flex: 1 }}><div style={{ fontFamily: "Inter", fontSize: 13.5, textTransform: "capitalize" }}>{f.dish}{f.manual && <span style={{ fontSize: 9.5, color: T.inkSoft, marginLeft: 5 }}>(self-checked)</span>}</div><div style={{ fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft }}>{f.mealSlot || "—"}</div></div>
               <Badge bg={meta(f.verdict).bg} fg={meta(f.verdict).fg}>{meta(f.verdict).emoji} {f.calories ?? "—"} cal</Badge>
               <DeleteBtn onClick={() => deleteFoodEntry(selectedDate, i)} />
             </div>
@@ -979,16 +1028,18 @@ function SupplementsTab({ selectedDate, setSelectedDate, supplementsForDate, tog
 
 /* ============================== ASK PANEL ============================== */
 function AskPanel({ open, onClose }) {
-  const [messages, setMessages] = useState([{ role: "assistant", text: "Ask me anything — \"Can I eat this?\", \"Is X safe with my liver?\"" }]);
-  const [input, setInput] = useState(""); const [loading, setLoading] = useState(false); const scrollRef = useRef(null);
-  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages, loading]);
-  async function send() {
-    const text = input.trim(); if (!text || loading) return;
-    setInput(""); setMessages(m => [...m, { role: "user", text }]); setLoading(true);
-    const sys = `You are a direct, specific health assistant for Jignesh, 54, Indian vegetarian (Gujarati). Priorities: Triglycerides 257 (HIGH, target <150), GGT 105 (ELEVATED, target <64), TSH 4.57 (target 1.5-3.0), LDL 82 (OPTIMAL, protect it). Supplements: Omega-3, Isabgol, Ashwagandha, Liv.52, Silymarin, B12, Turmeric, Zinc, D3. Banned: alcohol, fruit juice, sugar, maida, fried food, large mango. Answer in 2-4 short sentences, direct and specific — never generic.`;
-    const outcome = await callClaude(sys, text, false);
-    setLoading(false);
-    setMessages(m => [...m, { role: "assistant", text: outcome.ok ? outcome.data : `Couldn't reach the health engine: ${outcome.error}` }]);
+  const [messages, setMessages] = useState([{ role: "assistant", text: "Ask me anything — \"Can I eat this?\", \"Is X safe with my liver?\", \"What happens if I skip Omega-3?\"" }]);
+  const [input, setInput] = useState(""); const scrollRef = useRef(null);
+  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages]);
+  function send() {
+    const text = input.trim(); if (!text) return;
+    setInput(""); setMessages(m => [...m, { role: "user", text }]);
+    const answer = localAnswer(text);
+    if (answer) {
+      setMessages(m => [...m, { role: "assistant", text: answer }]);
+    } else {
+      setMessages(m => [...m, { role: "assistant", text: "That's not one of the pre-loaded topics — tap below to search it with his health context included.", searchUrl: contextSearchUrl(text) }]);
+    }
   }
   if (!open) return null;
   return (
@@ -996,8 +1047,18 @@ function AskPanel({ open, onClose }) {
       <div className="askPanel" onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", borderBottom: `1px solid ${T.border}` }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, color: T.teal }}>Ask about anything</div><button onClick={onClose} style={{ background: "none", border: "none" }}><Icon name="x" size={20} color={T.inkSoft} /></button></div>
         <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-          {messages.map((m, i) => <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", background: m.role === "user" ? T.saffron : T.tealPale, color: m.role === "user" ? T.white : T.ink, padding: "10px 13px", borderRadius: 14, maxWidth: "82%", fontFamily: "Inter", fontSize: 13.5, lineHeight: 1.45 }}>{m.text}</div>)}
-          {loading && <div style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 6, color: T.inkSoft, fontFamily: "Inter", fontSize: 12.5 }}><Icon name="loader" size={14} /> thinking…</div>}
+          {messages.map((m, i) => (
+            <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", background: m.role === "user" ? T.saffron : T.tealPale, color: m.role === "user" ? T.white : T.ink, padding: "10px 13px", borderRadius: 14, maxWidth: "85%", fontFamily: "Inter", fontSize: 13.5, lineHeight: 1.45 }}>
+              {m.text}
+              {m.searchUrl && (
+                <div style={{ marginTop: 8 }}>
+                  <a href={m.searchUrl} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, color: T.saffronDeep, fontFamily: "Manrope", fontWeight: 700, fontSize: 12, textDecoration: "none" }}>
+                    Search online <Icon name="external" size={12} color={T.saffronDeep} />
+                  </a>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
         <div style={{ display: "flex", gap: 8, padding: 12, borderTop: `1px solid ${T.border}` }}>
           <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} placeholder="Type your question…" style={{ flex: 1, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", fontFamily: "Inter", fontSize: 13.5 }} />
