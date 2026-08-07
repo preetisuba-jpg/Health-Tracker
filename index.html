@@ -865,11 +865,20 @@ function HabitsTab({ selectedDate, setSelectedDate, habitsForDate, toggleHabit, 
       </Card>
       <div style={{ height: 18 }} />
       <ActivityLog selectedDate={selectedDate} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} />
-      <SectionLabel>Last 7 days — overview</SectionLabel>
+      <SectionLabel>Last 7 days — overview ({dates[0].toLocaleDateString("en-IN", { day: "numeric", month: "short" })} – {dates[6].toLocaleDateString("en-IN", { day: "numeric", month: "short" })})</SectionLabel>
       <Card>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 480 }}>
-            <thead><tr><th></th>{dates.map((d, i) => <th key={i} style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11, color: T.inkSoft, paddingBottom: 8 }}>{dayLabel(d)}</th>)}</tr></thead>
+            <thead><tr><th></th>{dates.map((d, i) => {
+              const key = d.toISOString().slice(0, 10);
+              const isToday = key === todayKey();
+              return (
+                <th key={i} style={{ fontFamily: "Manrope", fontWeight: isToday ? 800 : 700, fontSize: 11, color: isToday ? T.saffronDeep : T.inkSoft, paddingBottom: 8 }}>
+                  <div>{dayLabel(d)}</div>
+                  <div style={{ fontSize: 13, marginTop: 1 }}>{d.getDate()}</div>
+                </th>
+              );
+            })}</tr></thead>
             <tbody>{HABITS.map(h => (
               <tr key={h.id}>
                 <td style={{ fontFamily: "Inter", fontSize: 12.5, paddingRight: 8, whiteSpace: "nowrap" }}>{h.label}</td>
