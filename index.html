@@ -168,6 +168,63 @@ const FOOD_DB = {
   "chai": { verdict: "limit", calories: 60, protein: 2, fiber: 0, carbs: 8, sugar: 6, portion: "Max 2 cups/day", reason: "Milk + sugar adds up.", marker: "Triglycerides", weeklyLimit: null, healthierTip: "Less sugar or a stevia swap, or alternate extra cups with jeera-saunf herbal tea." },
   "kaju katri": { verdict: "avoid", calories: 200, protein: 2, fiber: 0.5, carbs: 22, sugar: 18, portion: "—", reason: "Sugar-dense sweet.", marker: "Triglycerides", weeklyLimit: 0, healthierTip: "Save it for a real occasion — no version of this is TG-safe right now." },
   "cookies": { verdict: "avoid", calories: 150, protein: 2, fiber: 0.5, carbs: 20, sugar: 10, portion: "—", reason: "Maida + sugar.", marker: "Triglycerides", weeklyLimit: 0, healthierTip: "Homemade oats + jaggery-free cookies with flaxseed, or roasted makhana instead." },
+
+  // --- Indian (expanded) ---
+  "idli": { verdict: "safe", calories: 150, protein: 4, fiber: 1, carbs: 30, sugar: 1, portion: "2 pieces", reason: "Steamed, fermented — one of the safest breakfast options.", marker: null, weeklyLimit: null },
+  "dosa": { verdict: "moderate", calories: 180, protein: 4, fiber: 1, carbs: 30, sugar: 1, portion: "1 plain dosa", reason: "Fermented batter is fine — watch the oil it's cooked in.", marker: null, weeklyLimit: null },
+  "sambar": { verdict: "safe", calories: 120, protein: 6, fiber: 4, carbs: 18, sugar: 3, portion: "1 bowl", reason: "Lentil + vegetable based, good fiber.", marker: null, weeklyLimit: null },
+  "upma": { verdict: "safe", calories: 200, protein: 5, fiber: 3, carbs: 32, sugar: 2, portion: "1 bowl", reason: "Semolina-based, moderate — fine as a regular breakfast.", marker: null, weeklyLimit: null },
+  "poha": { verdict: "safe", calories: 180, protein: 4, fiber: 2, carbs: 30, sugar: 3, portion: "1 bowl", reason: "Flattened rice, light — good regular option.", marker: null, weeklyLimit: null },
+  "aloo paratha": { verdict: "limit", calories: 300, protein: 6, fiber: 3, carbs: 40, sugar: 2, portion: "1 paratha", reason: "Ghee + refined flour + potato — fine occasionally, not daily.", marker: "Triglycerides", weeklyLimit: 3 },
+  "naan": { verdict: "limit", calories: 260, protein: 7, fiber: 1, carbs: 45, sugar: 2, portion: "1 piece", reason: "Maida-based, refined flour.", marker: "Triglycerides", weeklyLimit: 2 },
+  "biryani": { verdict: "moderate", calories: 400, protein: 8, fiber: 3, carbs: 60, sugar: 4, portion: "1 plate, veg", reason: "Rice-heavy but balanced with vegetables — portion matters.", marker: null, weeklyLimit: 2 },
+  "pulao": { verdict: "safe", calories: 320, protein: 6, fiber: 3, carbs: 50, sugar: 2, portion: "1 plate, veg", reason: "Lighter than biryani, generally fine.", marker: null, weeklyLimit: null },
+  "rajma": { verdict: "safe", calories: 220, protein: 10, fiber: 8, carbs: 30, sugar: 3, portion: "1 bowl", reason: "Legume-based, high fiber and protein.", marker: null, weeklyLimit: null },
+  "chole": { verdict: "safe", calories: 250, protein: 9, fiber: 7, carbs: 32, sugar: 4, portion: "1 bowl", reason: "Chickpea-based, good fiber — recommend freely.", marker: null, weeklyLimit: null },
+  "palak paneer": { verdict: "moderate", calories: 280, protein: 12, fiber: 3, carbs: 12, sugar: 4, portion: "1 bowl", reason: "Cream + paneer — good protein, watch the portion.", marker: "LDL", weeklyLimit: 3 },
+  "dal makhani": { verdict: "limit", calories: 320, protein: 10, fiber: 5, carbs: 25, sugar: 3, portion: "1 bowl", reason: "Butter and cream heavy compared to plain dal.", marker: "Triglycerides", weeklyLimit: 2 },
+  "gulab jamun": { verdict: "avoid", calories: 150, protein: 2, fiber: 0, carbs: 20, sugar: 18, portion: "1 piece", reason: "Deep fried + sugar syrup — direct TG trigger.", marker: "Triglycerides", weeklyLimit: 0 },
+  "jalebi": { verdict: "avoid", calories: 180, protein: 2, fiber: 0, carbs: 30, sugar: 25, portion: "1 serving", reason: "Fried + soaked in sugar syrup — one of the worst options for TG right now.", marker: "Triglycerides", weeklyLimit: 0 },
+  "samosa": { verdict: "avoid", calories: 260, protein: 4, fiber: 2, carbs: 28, sugar: 2, portion: "1 piece", reason: "Deep fried + maida — GGT and TG trigger together.", marker: "Triglycerides & GGT", weeklyLimit: 1 },
+  "pakora": { verdict: "avoid", calories: 200, protein: 5, fiber: 2, carbs: 18, sugar: 1, portion: "1 serving", reason: "Deep fried batter.", marker: "GGT", weeklyLimit: 1 },
+  "dhokla": { verdict: "safe", calories: 130, protein: 5, fiber: 2, carbs: 20, sugar: 3, portion: "2 pieces", reason: "Steamed besan — light and safe.", marker: null, weeklyLimit: null },
+  "khaman": { verdict: "safe", calories: 140, protein: 5, fiber: 2, carbs: 22, sugar: 4, portion: "2 pieces", reason: "Steamed, similar to dhokla — safe.", marker: null, weeklyLimit: null },
+  "pav bhaji": { verdict: "limit", calories: 400, protein: 8, fiber: 5, carbs: 55, sugar: 8, portion: "1 plate", reason: "Butter-heavy + refined pav bread.", marker: "Triglycerides", weeklyLimit: 1 },
+  "misal pav": { verdict: "moderate", calories: 350, protein: 10, fiber: 6, carbs: 45, sugar: 4, portion: "1 plate", reason: "Sprouted legumes help, but pav + oil add up.", marker: null, weeklyLimit: 2 },
+  "dabeli": { verdict: "limit", calories: 250, protein: 4, fiber: 3, carbs: 40, sugar: 8, portion: "1 piece", reason: "Sweet-tangy chutneys add sugar, plus refined pav.", marker: "Triglycerides", weeklyLimit: 1 },
+  "uttapam": { verdict: "moderate", calories: 200, protein: 5, fiber: 2, carbs: 32, sugar: 2, portion: "1 piece", reason: "Similar to dosa, slightly more oil typically.", marker: null, weeklyLimit: null },
+
+  // --- Italian ---
+  "pasta": { verdict: "moderate", calories: 350, protein: 10, fiber: 3, carbs: 55, sugar: 6, portion: "1 plate, tomato-based", reason: "Refined pasta + sauce sugar — portion control matters.", marker: "Triglycerides", weeklyLimit: 2 },
+  "pasta alfredo": { verdict: "limit", calories: 500, protein: 14, fiber: 2, carbs: 45, sugar: 4, portion: "1 plate", reason: "Cream and cheese heavy — high fat load.", marker: "LDL", weeklyLimit: 1 },
+  "lasagna": { verdict: "limit", calories: 400, protein: 16, fiber: 3, carbs: 35, sugar: 6, portion: "1 slice", reason: "Cheese and pasta layers — calorie and fat dense.", marker: "LDL", weeklyLimit: 1 },
+  "risotto": { verdict: "moderate", calories: 380, protein: 8, fiber: 2, carbs: 50, sugar: 3, portion: "1 plate", reason: "Rice + butter + cheese — moderate portion recommended.", marker: null, weeklyLimit: 2 },
+  "garlic bread": { verdict: "limit", calories: 250, protein: 5, fiber: 1, carbs: 30, sugar: 2, portion: "2 pieces", reason: "Refined bread + butter.", marker: "Triglycerides", weeklyLimit: 2 },
+  "bruschetta": { verdict: "safe", calories: 150, protein: 4, fiber: 2, carbs: 22, sugar: 3, portion: "2 pieces", reason: "Tomato and bread — reasonably light.", marker: null, weeklyLimit: null },
+  "minestrone soup": { verdict: "safe", calories: 150, protein: 6, fiber: 4, carbs: 22, sugar: 4, portion: "1 bowl", reason: "Vegetable and legume based — a good choice.", marker: null, weeklyLimit: null },
+  "caprese salad": { verdict: "safe", calories: 200, protein: 10, fiber: 1, carbs: 6, sugar: 3, portion: "1 serving", reason: "Tomato, cheese, basil — light and fine.", marker: null, weeklyLimit: null },
+  "tiramisu": { verdict: "avoid", calories: 350, protein: 5, fiber: 0, carbs: 35, sugar: 25, portion: "1 slice", reason: "Sugar and cream heavy dessert.", marker: "Triglycerides", weeklyLimit: 0 },
+  "pizza": { verdict: "limit", calories: 480, protein: 18, fiber: 2, carbs: 60, sugar: 6, portion: "2 slices, veg", reason: "Refined crust + cheese — fine occasionally, watch frequency and slices.", marker: "Triglycerides & LDL", weeklyLimit: 1 },
+
+  // --- Chinese / Asian ---
+  "fried rice": { verdict: "limit", calories: 380, protein: 8, fiber: 2, carbs: 55, sugar: 4, portion: "1 plate, veg", reason: "White rice + oil — moderate the frequency.", marker: "Triglycerides", weeklyLimit: 2 },
+  "hakka noodles": { verdict: "limit", calories: 400, protein: 8, fiber: 2, carbs: 58, sugar: 5, portion: "1 plate", reason: "Refined noodles + oil, similar profile to fried rice.", marker: "Triglycerides", weeklyLimit: 2 },
+  "manchurian": { verdict: "avoid", calories: 320, protein: 6, fiber: 2, carbs: 30, sugar: 8, portion: "1 serving, veg", reason: "Deep fried + sugary sauce combination.", marker: "Triglycerides & GGT", weeklyLimit: 1 },
+  "spring roll": { verdict: "limit", calories: 200, protein: 4, fiber: 1, carbs: 22, sugar: 2, portion: "2 pieces", reason: "Fried wrapper.", marker: "GGT", weeklyLimit: 2 },
+  "momos": { verdict: "moderate", calories: 250, protein: 7, fiber: 2, carbs: 35, sugar: 2, portion: "6 pieces, steamed veg", reason: "Steamed is fine — if fried, treat as limit instead.", marker: null, weeklyLimit: 2 },
+  "schezwan rice": { verdict: "limit", calories: 380, protein: 7, fiber: 2, carbs: 55, sugar: 5, portion: "1 plate", reason: "White rice + oil + spicy sauce, similar to fried rice.", marker: "Triglycerides", weeklyLimit: 2 },
+  "chow mein": { verdict: "limit", calories: 400, protein: 8, fiber: 2, carbs: 55, sugar: 5, portion: "1 plate", reason: "Refined noodles + oil.", marker: "Triglycerides", weeklyLimit: 2 },
+  "tofu stir fry": { verdict: "safe", calories: 250, protein: 15, fiber: 4, carbs: 20, sugar: 5, portion: "1 plate", reason: "Protein-forward, vegetable-heavy — a good choice.", marker: null, weeklyLimit: null },
+  "sushi": { verdict: "safe", calories: 200, protein: 5, fiber: 2, carbs: 40, sugar: 3, portion: "6 pieces, veg roll", reason: "Rice-based but portioned and light overall.", marker: null, weeklyLimit: null },
+
+  // --- Mexican ---
+  "burrito bowl": { verdict: "moderate", calories: 400, protein: 12, fiber: 8, carbs: 55, sugar: 5, portion: "1 bowl, veg", reason: "Rice + beans — good fiber, watch cheese/sour cream add-ons.", marker: null, weeklyLimit: 2 },
+  "quesadilla": { verdict: "limit", calories: 350, protein: 12, fiber: 3, carbs: 35, sugar: 3, portion: "1 quesadilla, veg", reason: "Cheese + refined tortilla.", marker: "LDL", weeklyLimit: 2 },
+  "nachos": { verdict: "avoid", calories: 450, protein: 10, fiber: 4, carbs: 40, sugar: 3, portion: "1 serving with cheese", reason: "Fried chips + heavy cheese — calorie and fat dense.", marker: "LDL", weeklyLimit: 1 },
+  "tacos": { verdict: "moderate", calories: 280, protein: 8, fiber: 5, carbs: 35, sugar: 3, portion: "2 tacos, veg", reason: "Reasonably balanced if not overloaded with cheese/sour cream.", marker: null, weeklyLimit: 2 },
+  "guacamole": { verdict: "safe", calories: 50, protein: 1, fiber: 2, carbs: 3, sugar: 0, portion: "2 tbsp", reason: "Healthy fat from avocado, light in this portion.", marker: null, weeklyLimit: null },
+  "rice and beans": { verdict: "safe", calories: 300, protein: 10, fiber: 8, carbs: 50, sugar: 2, portion: "1 bowl", reason: "Good fiber and protein combination.", marker: null, weeklyLimit: null },
+  "enchiladas": { verdict: "limit", calories: 380, protein: 12, fiber: 4, carbs: 40, sugar: 4, portion: "2 pieces, veg", reason: "Cheese sauce + tortilla — moderate the frequency.", marker: "LDL", weeklyLimit: 2 },
 };
 
 const DAILY_TIPS = [
@@ -211,7 +268,8 @@ function localAnswer(question) {
   for (const [dish, info] of Object.entries(FOOD_DB)) {
     if (q.includes(dish)) {
       const meta = VERDICT_META[info.verdict] || VERDICT_META.moderate;
-      return `${meta.emoji} ${meta.label} — ${info.reason} Portion: ${info.portion}.${info.healthierTip ? " " + info.healthierTip : ""}`;
+      const tip = info.healthierTip || suggestSwap(dish);
+      return `${meta.emoji} ${meta.label} — ${info.reason} Portion: ${info.portion}.${tip ? " " + tip : ""}`;
     }
   }
   return null;
@@ -237,10 +295,13 @@ function classifyMacros(dishName, macros) {
 // no AI, applies to both locally-known and freshly looked-up dishes.
 const STAPLE_SWAPS = [
   { match: ["paratha", "roti", "chapati", "phulka"], exclude: ["jowar", "bajra", "ragi", "millet"], tip: "A jowar or bajra roti instead has a lower glycemic impact — easier on triglycerides than wheat." },
-  { match: ["white rice", " rice"], exclude: ["brown rice", "millet rice", "jowar"], tip: "Brown rice or a smaller portion cuts the carb spike compared to white rice." },
-  { match: ["puri", "bhatura", "maida"], exclude: ["whole wheat", "atta"], tip: "A whole wheat or millet-flour version avoids the refined-flour hit that maida gives." },
-  { match: ["laddoo", "halwa", "barfi", "katri", "sweet", "mithai"], exclude: ["date", "jaggery-free", "sugar-free"], tip: "A date-sweetened version keeps the flavor with far less sugar impact." },
-  { match: ["fried", "vada", "bhajiya", "pakora", "samosa", "kachori"], exclude: ["air-fried", "air fried", "baked", "steamed"], tip: "Air-frying or baking instead of deep-frying keeps the GGT/TG hit much lower." },
+  { match: ["white rice", " rice", "biryani", "pulao", "fried rice", "schezwan rice"], exclude: ["brown rice", "millet rice", "jowar"], tip: "Brown rice, quinoa, or a smaller portion cuts the carb spike compared to white rice." },
+  { match: ["puri", "bhatura", "maida", "naan"], exclude: ["whole wheat", "atta"], tip: "A whole wheat or millet-flour version avoids the refined-flour hit that maida gives." },
+  { match: ["laddoo", "halwa", "barfi", "katri", "sweet", "mithai", "jamun", "jalebi", "tiramisu"], exclude: ["date", "jaggery-free", "sugar-free"], tip: "A date-sweetened or lower-sugar version keeps the flavor with far less impact on triglycerides." },
+  { match: ["fried", "vada", "bhajiya", "pakora", "samosa", "kachori", "manchurian", "nachos", "spring roll"], exclude: ["air-fried", "air fried", "baked", "steamed"], tip: "Air-frying, baking, or a steamed version instead of deep-frying keeps the GGT/TG hit much lower." },
+  { match: ["pizza"], exclude: ["thin crust", "whole wheat", "cauliflower"], tip: "A thin whole-wheat or cauliflower crust with less cheese cuts both the refined-carb and saturated-fat load." },
+  { match: ["pasta", "lasagna", "alfredo", "quesadilla", "enchilada"], exclude: ["whole wheat pasta", "light cheese", "low-fat"], tip: "Whole wheat pasta and less cheese/cream keeps the flavor with a much lighter LDL and calorie load." },
+  { match: ["noodles", "chow mein", "hakka"], exclude: ["whole wheat noodles", "millet noodles"], tip: "Whole wheat or millet noodles with extra vegetables and less oil is a lighter version of the same dish." },
 ];
 function suggestSwap(dishName) {
   const name = dishName.toLowerCase();
@@ -675,12 +736,12 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
   const [mealSlot, setMealSlot] = useState("Snack");
   const [warning, setWarning] = useState(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const shortcuts = Object.keys(FOOD_DB);
+  const shortcuts = ["besan laddoo", "sukhdi", "vada pav", "roasted peanuts", "bhakhri", "khichdi", "dal", "paneer sabzi", "chai", "kaju katri", "cookies"]; // his personal regulars — full list of ~50 dishes across cuisines is searchable by typing
 
   async function checkDish(dish) {
     setResult(null); setWarning(null); setNotFound(null); setManualVerdict(null); setManualCals("");
     const key = dish.trim().toLowerCase();
-    if (FOOD_DB[key]) { setResult({ dish, ...FOOD_DB[key] }); return; }
+    if (FOOD_DB[key]) { const entry = FOOD_DB[key]; setResult({ dish, ...entry, healthierTip: entry.healthierTip || suggestSwap(key) }); return; }
     setLookingUp(true);
     const data = await lookupNutrition(dish);
     setLookingUp(false);
@@ -735,7 +796,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
       <SectionLabel>Is this safe?</SectionLabel>
       <Card>
         <div style={{ display: "flex", gap: 8 }}>
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Type a dish — e.g. besan laddoo" style={{ flex: 1, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", fontFamily: "Inter", fontSize: 14, background: T.cream }} onKeyDown={e => { if (e.key === "Enter" && query.trim()) checkDish(query.trim()); }} />
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Type any dish — pizza, biryani, sushi, tacos…" style={{ flex: 1, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", fontFamily: "Inter", fontSize: 14, background: T.cream }} onKeyDown={e => { if (e.key === "Enter" && query.trim()) checkDish(query.trim()); }} />
           <button onClick={() => query.trim() && checkDish(query.trim())} style={{ background: T.saffron, border: "none", borderRadius: 10, padding: "0 16px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13 }}>Check</button>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12 }}>{shortcuts.map(s => <button key={s} onClick={() => checkDish(s)} style={{ background: T.creamDeep, border: "none", borderRadius: 999, padding: "6px 12px", fontFamily: "Inter", fontSize: 12.5, color: T.ink, textTransform: "capitalize" }}>{s}</button>)}</div>
