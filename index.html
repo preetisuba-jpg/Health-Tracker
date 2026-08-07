@@ -220,6 +220,52 @@ function contextSearchUrl(question) {
   return `https://www.google.com/search?q=${encodeURIComponent(question + " for someone with high triglycerides and elevated GGT liver enzyme")}`;
 }
 
+// Deterministic verdict from macros — rules-based on his current priorities (TG 257, GGT 105),
+// not an AI judgment. Used for dishes looked up via the free nutrition API.
+function classifyMacros(dishName, macros) {
+  const name = dishName.toLowerCase();
+  const friedWords = ["fried", " fry", "vada", "bhajiya", "puri", "pakora", "chips", "samosa", "kachori", "bhatura"];
+  const isFried = friedWords.some(k => name.includes(k));
+  const sugar = macros.sugar || 0, fat = macros.fat || 0, carbs = macros.carbs || 0;
+  if (isFried || sugar >= 15) return "avoid";
+  if (sugar >= 8 || fat >= 18 || carbs >= 55) return "limit";
+  if (sugar >= 4 || fat >= 10 || carbs >= 35) return "moderate";
+  return "safe";
+}
+
+// Keyword-based swap suggestions — e.g. "roti" -> suggest jowar/bajra roti. Deterministic,
+// no AI, applies to both locally-known and freshly looked-up dishes.
+const STAPLE_SWAPS = [
+  { match: ["paratha", "roti", "chapati", "phulka"], exclude: ["jowar", "bajra", "ragi", "millet"], tip: "A jowar or bajra roti instead has a lower glycemic impact — easier on triglycerides than wheat." },
+  { match: ["white rice", " rice"], exclude: ["brown rice", "millet rice", "jowar"], tip: "Brown rice or a smaller portion cuts the carb spike compared to white rice." },
+  { match: ["puri", "bhatura", "maida"], exclude: ["whole wheat", "atta"], tip: "A whole wheat or millet-flour version avoids the refined-flour hit that maida gives." },
+  { match: ["laddoo", "halwa", "barfi", "katri", "sweet", "mithai"], exclude: ["date", "jaggery-free", "sugar-free"], tip: "A date-sweetened version keeps the flavor with far less sugar impact." },
+  { match: ["fried", "vada", "bhajiya", "pakora", "samosa", "kachori"], exclude: ["air-fried", "air fried", "baked", "steamed"], tip: "Air-frying or baking instead of deep-frying keeps the GGT/TG hit much lower." },
+];
+function suggestSwap(dishName) {
+  const name = dishName.toLowerCase();
+  for (const rule of STAPLE_SWAPS) {
+    if (rule.match.some(k => name.includes(k)) && !rule.exclude.some(k => name.includes(k))) return rule.tip;
+  }
+  return null;
+}
+
+// Free nutrition lookup via your own backend proxy (calls a free-tier nutrition API,
+// never Anthropic). Returns null on any failure so the caller can fall back gracefully.
+async function lookupNutrition(dish) {
+  try {
+    const res = await fetch("/api/nutrition", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dish }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 // Omega-3 and Isabgol removed from here — they're already tracked precisely (dose + time)
 // in the Supplements checklist, so keeping them here was double-counting the same action.
 const HABITS = [
@@ -622,7 +668,8 @@ function MiniStat({ v, l }) { return <div><div style={{ fontFamily: "Manrope", f
 function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, activities, weekSupplements, addFoodEntry, deleteFoodEntry, onOpenAsk }) {
   const [query, setQuery] = useState("");
   const [result, setResult] = useState(null);
-  const [notFound, setNotFound] = useState(null); // dish name when not in local DB
+  const [notFound, setNotFound] = useState(null); // dish name when no local or looked-up match
+  const [lookingUp, setLookingUp] = useState(false);
   const [manualVerdict, setManualVerdict] = useState(null);
   const [manualCals, setManualCals] = useState("");
   const [mealSlot, setMealSlot] = useState("Snack");
@@ -630,11 +677,31 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
   const [calendarOpen, setCalendarOpen] = useState(false);
   const shortcuts = Object.keys(FOOD_DB);
 
-  function checkDish(dish) {
+  async function checkDish(dish) {
     setResult(null); setWarning(null); setNotFound(null); setManualVerdict(null); setManualCals("");
     const key = dish.trim().toLowerCase();
     if (FOOD_DB[key]) { setResult({ dish, ...FOOD_DB[key] }); return; }
-    setNotFound(dish);
+    setLookingUp(true);
+    const data = await lookupNutrition(dish);
+    setLookingUp(false);
+    if (data) {
+      const verdict = classifyMacros(dish, data);
+      setResult({
+        dish, verdict,
+        calories: data.calories != null ? Math.round(data.calories) : null,
+        protein: data.protein != null ? Math.round(data.protein) : null,
+        fiber: data.fiber != null ? Math.round(data.fiber) : null,
+        carbs: data.carbs != null ? Math.round(data.carbs) : null,
+        sugar: data.sugar != null ? Math.round(data.sugar) : null,
+        portion: data.servingDesc || "as typically served",
+        reason: `Estimated from ${data.source || "nutrition database"} data for ${data.servingDesc || "a standard serving"} — verdict is a rules-based estimate, not a clinical judgment.`,
+        marker: null, weeklyLimit: null,
+        healthierTip: suggestSwap(dish),
+        lookedUp: true, source: data.source,
+      });
+    } else {
+      setNotFound(dish);
+    }
   }
   function meta(v) { return VERDICT_META[v] || VERDICT_META.moderate; }
   function weeklyCountFor(dishName) {
@@ -673,6 +740,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12 }}>{shortcuts.map(s => <button key={s} onClick={() => checkDish(s)} style={{ background: T.creamDeep, border: "none", borderRadius: 999, padding: "6px 12px", fontFamily: "Inter", fontSize: 12.5, color: T.ink, textTransform: "capitalize" }}>{s}</button>)}</div>
       </Card>
+      {lookingUp && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 14, fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}><Icon name="loader" size={16} /> Looking it up (free nutrition database)…</div>}
       {notFound && (
         <>
           <div style={{ height: 10 }} />
@@ -709,7 +777,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
         <>
           <div style={{ height: 12 }} />
           <Card style={{ borderColor: meta(result.verdict).fg }}>
-            <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, textTransform: "capitalize", marginBottom: 4 }}>{result.dish}</div>
+            <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, textTransform: "capitalize", marginBottom: 4 }}>{result.dish} {result.lookedUp && <Badge bg={T.creamDeep} fg={T.inkSoft}>estimated{result.source ? ` · ${result.source}` : ""}</Badge>}</div>
             {result.ingredients && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>Likely: {result.ingredients}</div>}
             <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: meta(result.verdict).bg, color: meta(result.verdict).fg, padding: "6px 12px", borderRadius: 999, fontFamily: "Manrope", fontWeight: 800, fontSize: 13, marginBottom: 10 }}>{meta(result.verdict).emoji} {meta(result.verdict).label}</div>
             <div style={{ fontFamily: "Inter", fontSize: 13.5, color: T.ink, lineHeight: 1.5, marginBottom: 10 }}>{result.reason}</div>
