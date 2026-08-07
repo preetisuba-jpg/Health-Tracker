@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LinkedIn Leads Extractor</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; color: #1a1a1a; min-height: 100vh; }
+.topbar { background: #0a66c2; color: #fff; padding: 14px 24px; display: flex; align-items: center; gap: 12px; }
+.topbar h1 { font-size: 16px; font-weight: 600; }
+.topbar .sub { font-size: 12px; opacity: 0.8; margin-left: auto; }
+.container { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+.tabs { display: flex; background: #fff; border-radius: 10px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem; overflow: hidden; }
+.tab { flex: 1; padding: 12px 10px; font-size: 13px; cursor: pointer; border: none; background: none; color: #666; border-bottom: 3px solid transparent; text-align: center; }
+.tab:hover { background: #f5f7fa; }
+.tab.active { color: #0a66c2; border-bottom-color: #0a66c2; font-weight: 600; background: #f0f4ff; }
+.panel { display: none; }
+.panel.active { display: block; }
+.card { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem; }
+.card h3 { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+.card p, .card li { font-size: 13px; color: #444; line-height: 1.9; }
+.card ol { padding-left: 1.3rem; }
+.bm-wrap { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 14px 0 6px; }
+.bm-link { display: inline-flex; align-items: center; gap: 8px; padding: 12px 26px; background: #0a66c2; color: #fff; border-radius: 8px; font-size: 14px; font-weight: 700; text-decoration: none; cursor: grab; box-shadow: 0 2px 8px rgba(10,102,194,0.3); user-select: none; }
+.bm-link:hover { background: #004182; }
+.hint { font-size: 12px; color: #888; line-height: 1.6; }
+.notice { font-size: 12px; color: #2c5282; padding: 10px 14px; background: #ebf4ff; border-radius: 8px; border-left: 3px solid #0a66c2; line-height: 1.7; margin-top: 8px; }
+.warn { font-size: 12px; color: #7a4f00; padding: 10px 14px; background: #fffbeb; border-radius: 8px; border-left: 3px solid #d97706; line-height: 1.7; margin-top: 8px; }
+.drop-zone { border: 2px dashed #93c5fd; border-radius: 10px; padding: 2rem; text-align: center; background: #f0f7ff; cursor: pointer; transition: all 0.2s; margin-bottom: 1rem; }
+.drop-zone:hover, .drop-zone.drag-over { border-color: #0a66c2; background: #dbeafe; }
+.drop-zone .dz-icon { font-size: 32px; display: block; margin-bottom: 8px; }
+.drop-zone p { font-size: 13px; color: #1d4ed8; font-weight: 500; margin-bottom: 4px; }
+.drop-zone span { font-size: 12px; color: #6b7280; }
+textarea { width: 100%; height: 130px; font-size: 12px; font-family: monospace; resize: vertical; border: 1px solid #ddd; border-radius: 8px; padding: 10px; background: #fafafa; color: #1a1a1a; line-height: 1.5; margin-top: 8px; }
+textarea:focus { outline: none; border-color: #0a66c2; background: #fff; }
+.btn-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+.btn { padding: 8px 18px; font-size: 13px; border: 1px solid #ddd; border-radius: 6px; background: #fff; color: #1a1a1a; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
+.btn:hover { background: #f5f5f5; }
+.btn.primary { background: #0a66c2; color: #fff; border-color: #0a66c2; }
+.btn.primary:hover { background: #004182; }
+.btn.green { background: #059669; color: #fff; border-color: #059669; }
+.btn.green:hover { background: #047857; }
+.btn.red { color: #dc2626; border-color: #fca5a5; }
+.btn.red:hover { background: #fff5f5; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-bottom: 1rem; }
+.stat { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 14px 12px; text-align: center; }
+.stat .n { font-size: 26px; font-weight: 700; color: #0a66c2; }
+.stat .l { font-size: 11px; color: #888; margin-top: 3px; font-weight: 500; }
+.toolbar { display: flex; gap: 8px; margin-bottom: 1rem; flex-wrap: wrap; align-items: center; background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 10px 12px; }
+.toolbar input[type=text] { padding: 7px 10px; font-size: 13px; border: 1px solid #ddd; border-radius: 6px; background: #fafafa; width: 200px; }
+.toolbar input[type=text]:focus { outline: none; border-color: #0a66c2; background: #fff; }
+.toolbar select { padding: 7px 10px; font-size: 13px; border: 1px solid #ddd; border-radius: 6px; background: #fafafa; }
+.toolbar .spacer { flex: 1; }
+.table-wrap { overflow-x: auto; border: 1px solid #e0e0e0; border-radius: 10px; background: #fff; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 900px; }
+th { background: #f8f9fa; padding: 10px; text-align: left; font-weight: 700; color: #444; font-size: 11px; border-bottom: 1px solid #e0e0e0; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.04em; }
+td { padding: 8px 10px; border-bottom: 1px solid #f2f2f2; color: #1a1a1a; vertical-align: middle; }
+td[contenteditable="true"] { cursor: text; min-width: 80px; }
+td[contenteditable="true"]:focus { outline: 2px solid #0a66c2; outline-offset: -2px; border-radius: 3px; background: #f0f7ff; }
+td[contenteditable="true"]:empty:before { content: attr(data-ph); color: #bbb; font-style: italic; pointer-events: none; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: #f9fbff; }
+.badge { display: inline-block; padding: 3px 9px; border-radius: 20px; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.b1 { background: #d1fae5; color: #065f46; }
+.b2 { background: #ede9fe; color: #4c1d95; }
+.b3 { background: #fef3c7; color: #78350f; }
+.bx { background: #f3f4f6; color: #6b7280; }
+.url-link { color: #0a66c2; text-decoration: none; font-size: 11px; font-weight: 500; white-space: nowrap; }
+.url-link:hover { text-decoration: underline; }
+.del-btn { padding: 3px 8px; font-size: 11px; border: 1px solid #e5e7eb; border-radius: 4px; background: none; color: #9ca3af; cursor: pointer; }
+.del-btn:hover { background: #fef2f2; color: #dc2626; border-color: #fca5a5; }
+.empty { text-align: center; padding: 4rem 1rem; color: #9ca3af; font-size: 14px; }
+.empty .icon { font-size: 36px; display: block; margin-bottom: 10px; }
+.page-info { font-size: 12px; color: #9ca3af; margin-top: 10px; }
+#count-badge { font-size: 11px; padding: 2px 9px; background: #dbeafe; color: #1d4ed8; border-radius: 10px; margin-left: 6px; font-weight: 700; display: none; }
+input[type=file] { display: none; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span style="font-size:20px;">&#128101;</span>
+  <h1>LinkedIn Leads Extractor</h1>
+  <span class="sub">Auto-paginating &bull; Resume/Stop/Restart &bull; No clipboard limit &bull; CSV export</span>
+</div>
+
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('bm')">&#128278; Step 1 &mdash; Bookmarklet</button>
+    <button class="tab" onclick="switchTab('paste')">&#128203; Step 2 &mdash; Import Leads</button>
+    <button class="tab" onclick="switchTab('results')">&#128202; Step 3 &mdash; Results &amp; Export <span id="count-badge"></span></button>
+  </div>
+
+  <!-- STEP 1 -->
+  <div class="panel active" id="panel-bm">
+    <div class="card">
+      <h3>&#9889; How this works now — no clipboard limits</h3>
+      <p>The bookmarklet saves all leads directly to a file as it goes. When done (or when you stop), it shows a <strong>Download JSON</strong> button on the Sales Navigator page. Click it to save the file, then drag it into the extractor in Step 2. No clipboard, no paste errors, works for 2000+ leads.</p>
+      <br>
+      <ol>
+        <li>Drag the blue button below into your browser bookmarks bar</li>
+        <li>Go to <strong>page 1</strong> of your Sales Navigator saved search (logged in)</li>
+        <li>Click the bookmark — status box appears with Stop / Restart buttons</li>
+        <li>It scrolls each page to force all 25 leads to render, then extracts and moves to next</li>
+        <li>When done or stopped — click the <strong>Download JSON</strong> button that appears</li>
+        <li>Come to Step 2 here and drag that JSON file into the drop zone</li>
+      </ol>
+    </div>
+    <div class="bm-wrap">
+      <a class="bm-link" id="bm-link" href="#">&#128278; Extract All LinkedIn Leads</a>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">&#8592; Drag into bookmarks bar. Don't click here.</p>
+    <div class="notice">
+      <strong>Resume:</strong> If you stop mid-way, the bookmarklet remembers where it left off (stored in LinkedIn's page memory). Click Stop, download what's collected, then click Resume to continue from the same page.<br><br>
+      <strong>Restart:</strong> Click Restart to clear progress and start from page 1 again.<br><br>
+      <strong>LinkedIn URLs:</strong> Converted to <code>linkedin.com/in/MEMBER_ID</code> — works after your Sales Nav subscription ends.
+    </div>
+    <div class="warn">
+      <strong>Email &amp; phone:</strong> Not available on search results pages. Email and Phone columns are in the CSV for you to fill in manually or enrich with Apollo, Clay, or Hunter.io.
+    </div>
+  </div>
+
+  <!-- STEP 2 -->
+  <div class="panel" id="panel-paste">
+    <div class="card">
+      <h3>&#128203; Import leads</h3>
+      <p>Drag the JSON file downloaded from Sales Navigator into the box below, or click to browse. You can also paste JSON text directly if you have it.</p>
+    </div>
+
+    <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+      <span class="dz-icon">&#128229;</span>
+      <p>Drag JSON file here or click to browse</p>
+      <span>The file downloaded from the bookmarklet when it finishes</span>
+    </div>
+    <input type="file" id="file-input" accept=".json" onchange="handleFile(this)">
+
+    <div class="card" style="margin-top:0;">
+      <p style="margin-bottom:6px;font-weight:500;font-size:13px;">Or paste JSON text directly</p>
+      <textarea id="json-paste" placeholder='Paste raw JSON here if you have it. The extractor will auto-clean any extra characters around the data.'></textarea>
+      <div class="btn-row">
+        <button class="btn primary" onclick="parsePaste()">&#9654;&nbsp; Parse &amp; Load</button>
+        <button class="btn" onclick="document.getElementById('json-paste').value=''">&#128465;&nbsp; Clear</button>
+      </div>
+    </div>
+    <div class="notice">Leads are saved in your browser. Closing and reopening this file restores everything. Run the bookmarklet on multiple saved searches and import each file — all leads stack up with duplicate detection.</div>
+  </div>
+
+  <!-- STEP 3 -->
+  <div class="panel" id="panel-results">
+    <div class="stats" id="stats" style="display:none;">
+      <div class="stat"><div class="n" id="s-total">0</div><div class="l">Total leads</div></div>
+      <div class="stat"><div class="n" id="s-url">0</div><div class="l">With URL</div></div>
+      <div class="stat"><div class="n" id="s-email">0</div><div class="l">Email filled</div></div>
+      <div class="stat"><div class="n" id="s-phone">0</div><div class="l">Phone filled</div></div>
+      <div class="stat"><div class="n" id="s-1st">0</div><div class="l">1st degree</div></div>
+      <div class="stat"><div class="n" id="s-2nd">0</div><div class="l">2nd degree</div></div>
+      <div class="stat"><div class="n" id="s-3rd">0</div><div class="l">3rd degree</div></div>
+    </div>
+    <div class="toolbar" id="toolbar" style="display:none;">
+      <input type="text" id="q" placeholder="&#128269; Search name, title, company..." oninput="render()">
+      <select id="deg" onchange="render()">
+        <option value="">All connections</option>
+        <option value="1st">1st degree</option>
+        <option value="2nd">2nd degree</option>
+        <option value="3rd">3rd degree</option>
+      </select>
+      <select id="has-email" onchange="render()">
+        <option value="">All leads</option>
+        <option value="yes">Has email</option>
+        <option value="no">No email</option>
+      </select>
+      <div class="spacer"></div>
+      <button class="btn green" onclick="downloadCSV()">&#8595;&nbsp; Download CSV</button>
+      <button class="btn red" onclick="clearAll()">&#128465;&nbsp; Clear all</button>
+    </div>
+    <div id="tbl"><div class="empty"><span class="icon">&#128202;</span>No leads yet. Complete Steps 1 and 2.</div></div>
+    <p class="page-info" id="page-info"></p>
+  </div>
+</div>
+
+<script>
+// ── STORAGE ──────────────────────────────────────────────────────────────────
+var STORE_KEY = 'li_leads_v5';
+var leads = [];
+function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(leads)); } catch(e) {} }
+function load() { try { var r = localStorage.getItem(STORE_KEY); if (r) { leads = JSON.parse(r); updateBadge(); } } catch(e) {} }
+
+// ── BOOKMARKLET ───────────────────────────────────────────────────────────────
+// Key design decisions:
+// - No clipboard — downloads a JSON file instead (no size limit)
+// - scrollIntoView on each card before extracting (confirmed fix for lazy rendering)
+// - Stop / Resume / Restart buttons injected on the page
+// - Progress stored in window.__LIX_STATE__ so Resume works after Stop
+// - Restart clears state and starts from page 1
+
+var BM = `javascript:(function(){
+
+// Prevent double-run
+if(window.__LIX_RUNNING__){
+  alert('Extractor is already running. Use the Stop button on the page.');
+  return;
+}
+
+// Restore or init state
+var STATE = window.__LIX_STATE__ || {all:[], pg:0, stopped:false};
+window.__LIX_STATE__ = STATE;
+window.__LIX_RUNNING__ = true;
+STATE.stopped = false;
+
+var MAX = 300;
+
+// ── UI ──
+function makeUI(){
+  var old = document.getElementById('__lix_wrap__');
+  if(old) old.remove();
+  var wrap = document.createElement('div');
+  wrap.id = '__lix_wrap__';
+  wrap.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:2147483647;display:flex;flex-direction:column;gap:8px;align-items:stretch;min-width:240px;';
+
+  var box = document.createElement('div');
+  box.id = '__lix_status__';
+  box.style.cssText = 'background:#0a66c2;color:#fff;padding:12px 16px;border-radius:10px;font:600 13px/1.6 -apple-system,sans-serif;box-shadow:0 4px 20px rgba(0,0,0,.3);';
+  box.innerHTML = 'Starting...';
+
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:6px;';
+
+  var stopBtn = document.createElement('button');
+  stopBtn.id = '__lix_stop__';
+  stopBtn.textContent = 'Stop';
+  stopBtn.style.cssText = 'flex:1;background:#dc2626;color:#fff;border:none;padding:8px;border-radius:7px;font:600 12px -apple-system,sans-serif;cursor:pointer;';
+  stopBtn.onclick = function(){ STATE.stopped=true; stopBtn.disabled=true; stopBtn.textContent='Stopping...'; setStatus('Stopping after this page...'); };
+
+  var restartBtn = document.createElement('button');
+  restartBtn.textContent = 'Restart';
+  restartBtn.style.cssText = 'flex:1;background:#6b7280;color:#fff;border:none;padding:8px;border-radius:7px;font:600 12px -apple-system,sans-serif;cursor:pointer;';
+  restartBtn.onclick = function(){
+    if(!confirm('Restart from page 1? Current progress will be cleared.')) return;
+    window.__LIX_STATE__ = {all:[], pg:0, stopped:false};
+    window.__LIX_RUNNING__ = false;
+    var old=document.getElementById('__lix_wrap__');if(old)old.remove();
+    setTimeout(function(){ var bm=document.querySelector('a[href*="__LIX"]'); },100);
+    // re-invoke
+    window.__LIX_RUNNING__ = true;
+    STATE = window.__LIX_STATE__;
+    makeUI();
+    run();
+  };
+
+  btnRow.appendChild(stopBtn);
+  btnRow.appendChild(restartBtn);
+  wrap.appendChild(box);
+  wrap.appendChild(btnRow);
+  document.body.appendChild(wrap);
+}
+
+function setStatus(msg){ var el=document.getElementById('__lix_status__'); if(el) el.innerHTML=msg; }
+
+function showDownload(){
+  var wrap=document.getElementById('__lix_wrap__');
+  if(!wrap)return;
+  // remove stop/restart
+  wrap.innerHTML='';
+  var box=document.createElement('div');
+  box.style.cssText='background:#065f46;color:#fff;padding:12px 16px;border-radius:10px;font:600 13px/1.6 -apple-system,sans-serif;box-shadow:0 4px 20px rgba(0,0,0,.3);margin-bottom:6px;';
+  box.innerHTML='&#9989; Done! <strong>'+STATE.all.length+' leads</strong> from '+STATE.pg+' pages.<br><span style="font-weight:400;font-size:12px;">Click below to download the file, then import it in the extractor app.</span>';
+  var dlBtn=document.createElement('button');
+  dlBtn.textContent='Download leads JSON';
+  dlBtn.style.cssText='width:100%;background:#0a66c2;color:#fff;border:none;padding:10px;border-radius:7px;font:700 13px -apple-system,sans-serif;cursor:pointer;margin-top:6px;';
+  dlBtn.onclick=function(){ downloadJSON(); };
+  var resumeBtn=document.createElement('button');
+  resumeBtn.textContent='Resume from page '+(STATE.pg+1);
+  resumeBtn.style.cssText='width:100%;background:#d97706;color:#fff;border:none;padding:8px;border-radius:7px;font:600 12px -apple-system,sans-serif;cursor:pointer;margin-top:6px;';
+  resumeBtn.onclick=function(){
+    STATE.stopped=false;
+    window.__LIX_RUNNING__=true;
+    makeUI();
+    run();
+  };
+  var closeBtn=document.createElement('button');
+  closeBtn.textContent='Close';
+  closeBtn.style.cssText='width:100%;background:none;color:#fff;border:1px solid rgba(255,255,255,0.4);padding:6px;border-radius:7px;font:500 12px -apple-system,sans-serif;cursor:pointer;margin-top:4px;';
+  closeBtn.onclick=function(){ wrap.remove(); window.__LIX_RUNNING__=false; };
+  wrap.appendChild(box);
+  wrap.appendChild(dlBtn);
+  wrap.appendChild(resumeBtn);
+  wrap.appendChild(closeBtn);
+}
+
+function downloadJSON(){
+  var json=JSON.stringify(STATE.all);
+  var blob=new Blob([json],{type:'application/json'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='linkedin_leads_page1_to_'+STATE.pg+'_'+Date.now()+'.json';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+}
+
+// ── EXTRACT ──
+function forceRender(callback){
+  var cards=Array.from(document.querySelectorAll('li.artdeco-list__item'));
+  if(!cards.length){callback();return;}
+  var idx=0;
+  function next(){
+    if(idx>=cards.length){setTimeout(callback,800);return;}
+    cards[idx].scrollIntoView({behavior:'instant',block:'center'});
+    idx+=2;
+    setTimeout(next,80);
+  }
+  next();
+}
+
+function extract(){
+  var cards=document.querySelectorAll('li.artdeco-list__item');
+  var out=[];
+  cards.forEach(function(c){
+    var name=((c.querySelector('[data-anonymize="person-name"]')||{}).innerText||'').replace(/\s+/g,' ').trim();
+    if(!name)return;
+    var title=((c.querySelector('[data-anonymize="title"]')||{}).innerText||'').replace(/\s+/g,' ').trim();
+    var company=((c.querySelector('[data-anonymize="company-name"]')||{}).innerText||'').replace(/\s+/g,' ').trim();
+    var location=((c.querySelector('[data-anonymize="location"]')||{}).innerText||'').replace(/\s+/g,' ').trim();
+    var dEl=c.querySelector('.artdeco-entity-lockup__degree');
+    var degree=dEl?dEl.innerText.replace(/[·\u00b7\xa0\s]/g,'').trim():'';
+    var lEl=c.querySelector('a.link--mercado[href*="/sales/lead/"]');
+    var url='';
+    if(lEl){var m=(lEl.getAttribute('href')||'').match(/\/sales\/lead\/([^,?]+)/);if(m&&m[1])url='https://www.linkedin.com/in/'+m[1];}
+    out.push({name:name,title:title,company:company,location:location,degree:degree,url:url,email:'',phone:''});
+  });
+  return out;
+}
+
+function getNext(){
+  var b=document.querySelector('button[aria-label="Next"]');
+  if(b&&!b.disabled&&!b.hasAttribute('disabled')&&b.offsetParent!==null)return b;
+  return null;
+}
+
+// ── RUN ──
+function run(){
+  if(STATE.stopped){done();return;}
+  STATE.pg++;
+  if(STATE.pg>MAX){done();return;}
+  setStatus('Page '+STATE.pg+' — loading cards...<br><span style="font-weight:400;font-size:11px;">Total so far: '+STATE.all.length+'</span>');
+  forceRender(function(){
+    if(STATE.stopped){done();return;}
+    var page=extract();
+    if(!page.length&&STATE.pg===1){
+      document.getElementById('__lix_wrap__').remove();
+      window.__LIX_RUNNING__=false;
+      alert('No leads found. Make sure you are on a Sales Navigator search results page with leads loaded.');
+      return;
+    }
+    STATE.all=STATE.all.concat(page);
+    setStatus('Page '+STATE.pg+' &#10004; got '+page.length+' leads<br><strong>Total: '+STATE.all.length+'</strong>');
+    var nb=getNext();
+    if(!nb){done();return;}
+    window.scrollTo(0,0);
+    setTimeout(function(){
+      var firstCard=document.querySelectorAll('li.artdeco-list__item')[0];
+      nb.click();
+      var waited=0;
+      var iv=setInterval(function(){
+        if(STATE.stopped){clearInterval(iv);done();return;}
+        waited+=500;
+        var cur=document.querySelectorAll('li.artdeco-list__item')[0];
+        if(cur&&cur!==firstCard&&cur.querySelector('[data-anonymize="person-name"]')){
+          clearInterval(iv);setTimeout(run,1200);
+        }
+        if(waited>25000){clearInterval(iv);done();}
+      },500);
+    },600);
+  });
+}
+
+function done(){
+  window.__LIX_RUNNING__=false;
+  showDownload();
+}
+
+makeUI();
+run();
+
+})();`;
+
+document.getElementById('bm-link').href = BM.replace(/\n/g, ' ');
+
+// ── DROP ZONE ────────────────────────────────────────────────────────────────
+var dz = document.getElementById('drop-zone');
+dz.addEventListener('dragover', function(e){ e.preventDefault(); dz.classList.add('drag-over'); });
+dz.addEventListener('dragleave', function(){ dz.classList.remove('drag-over'); });
+dz.addEventListener('drop', function(e){
+  e.preventDefault(); dz.classList.remove('drag-over');
+  var file = e.dataTransfer.files[0];
+  if (file) readFile(file);
+});
+
+function handleFile(input){ if (input.files[0]) readFile(input.files[0]); }
+
+function readFile(file){
+  var reader = new FileReader();
+  reader.onload = function(e){ importJSON(e.target.result); };
+  reader.readAsText(file);
+}
+
+// ── TABS ─────────────────────────────────────────────────────────────────────
+function switchTab(t){
+  document.querySelectorAll('.tab').forEach(function(el){ el.classList.remove('active'); });
+  document.querySelectorAll('.panel').forEach(function(el){ el.classList.remove('active'); });
+  document.querySelectorAll('.tab')[t==='bm'?0:t==='paste'?1:2].classList.add('active');
+  document.getElementById('panel-'+t).classList.add('active');
+  if(t==='results') render();
+}
+
+// ── IMPORT ───────────────────────────────────────────────────────────────────
+function parsePaste(){
+  var raw = document.getElementById('json-paste').value.trim();
+  if(!raw){ alert('Nothing to parse.'); return; }
+  // Auto-clean: find first [ and last ]
+  var start = raw.indexOf('[');
+  var end = raw.lastIndexOf(']');
+  if(start === -1 || end === -1){ alert('Could not find JSON array in pasted text. Make sure you pasted the output from the bookmarklet.'); return; }
+  importJSON(raw.slice(start, end+1));
+  document.getElementById('json-paste').value = '';
+}
+
+function importJSON(raw){
+  var parsed;
+  try {
+    // Auto-clean just in case
+    var s = raw.indexOf('['), en = raw.lastIndexOf(']');
+    if(s !== -1 && en !== -1) raw = raw.slice(s, en+1);
+    parsed = JSON.parse(raw);
+    if(!Array.isArray(parsed)) throw new Error();
+  } catch(e) {
+    alert('Could not parse the file. Make sure it is the JSON file downloaded from the bookmarklet.');
+    return;
+  }
+  var existing = {};
+  leads.forEach(function(l){ existing[dupKey(l)] = true; });
+  var added = 0, dupes = 0;
+  parsed.forEach(function(l, i){
+    var name = cl(l.name || '');
+    if(!name) return;
+    var lead = {
+      id: Date.now()+leads.length+i+Math.random(),
+      name: name, title: cl(l.title||''), company: cl(l.company||''),
+      location: cl(l.location||l.country||''), degree: cl(l.degree||''),
+      url: l.url||'', email: cl(l.email||''), phone: cl(l.phone||'')
+    };
+    if(existing[dupKey(lead)]){ dupes++; return; }
+    existing[dupKey(lead)] = true;
+    leads.push(lead);
+    added++;
+  });
+  save(); updateBadge(); switchTab('results');
+  var msg = added + ' leads added. Total: ' + leads.length;
+  if(dupes > 0) msg += '\n(' + dupes + ' duplicates skipped)';
+  alert(msg);
+}
+
+function dupKey(l){ return (l.name+'|'+l.company).toLowerCase().replace(/\s+/g,''); }
+function cl(s){ return String(s).replace(/\s+/g,' ').trim(); }
+
+// ── RENDER ───────────────────────────────────────────────────────────────────
+function render(){
+  var tbl=document.getElementById('tbl'), stats=document.getElementById('stats'),
+      toolbar=document.getElementById('toolbar'), pageInfo=document.getElementById('page-info');
+  if(!leads.length){
+    tbl.innerHTML='<div class="empty"><span class="icon">&#128202;</span>No leads yet. Complete Steps 1 and 2.</div>';
+    stats.style.display='none'; toolbar.style.display='none'; pageInfo.textContent=''; return;
+  }
+  var q=document.getElementById('q').value.toLowerCase();
+  var df=document.getElementById('deg').value;
+  var ef=document.getElementById('has-email').value;
+  var filtered=leads.filter(function(l){
+    return (!q||(l.name+' '+l.title+' '+l.company+' '+l.location).toLowerCase().includes(q))
+      &&(!df||l.degree.toLowerCase().startsWith(df.toLowerCase()))
+      &&(!ef||(ef==='yes'?!!l.email:!l.email));
+  });
+  document.getElementById('s-total').textContent=leads.length;
+  document.getElementById('s-url').textContent=leads.filter(function(l){return l.url;}).length;
+  document.getElementById('s-email').textContent=leads.filter(function(l){return l.email;}).length;
+  document.getElementById('s-phone').textContent=leads.filter(function(l){return l.phone;}).length;
+  document.getElementById('s-1st').textContent=leads.filter(function(l){return /^1st/i.test(l.degree);}).length;
+  document.getElementById('s-2nd').textContent=leads.filter(function(l){return /^2nd/i.test(l.degree);}).length;
+  document.getElementById('s-3rd').textContent=leads.filter(function(l){return /^3rd/i.test(l.degree);}).length;
+  stats.style.display='grid'; toolbar.style.display='flex';
+  if(!filtered.length){ tbl.innerHTML='<div class="empty"><span class="icon">&#128269;</span>No leads match your filter.</div>'; pageInfo.textContent=''; return; }
+  tbl.innerHTML='<div class="table-wrap"><table><thead><tr>'+
+    '<th>Name</th><th>Job Title</th><th>Company</th><th>Location</th><th>Degree</th>'+
+    '<th>LinkedIn</th><th>Email <span style="font-weight:400;color:#9ca3af;">(editable)</span></th>'+
+    '<th>Phone <span style="font-weight:400;color:#9ca3af;">(editable)</span></th><th></th>'+
+    '</tr></thead><tbody>'+
+    filtered.map(function(l){
+      var bc=/^1st/i.test(l.degree)?'b1':/^2nd/i.test(l.degree)?'b2':/^3rd/i.test(l.degree)?'b3':'bx';
+      return '<tr>'+
+        '<td style="min-width:130px;font-weight:500;">'+e(l.name)+'</td>'+
+        '<td style="min-width:150px;">'+e(l.title)+'</td>'+
+        '<td style="min-width:130px;">'+e(l.company)+'</td>'+
+        '<td style="min-width:110px;color:#6b7280;font-size:11px;">'+e(l.location)+'</td>'+
+        '<td><span class="badge '+bc+'">'+e(l.degree||'—')+'</span></td>'+
+        '<td>'+(l.url?'<a class="url-link" href="'+e(l.url)+'" target="_blank" rel="noopener">Open &#8599;</a>':'<span style="color:#d1d5db;">—</span>')+'</td>'+
+        '<td contenteditable="true" data-ph="add email" data-id="'+l.id+'" data-field="email" style="min-width:150px;" onblur="cellEdit(this)">'+e(l.email)+'</td>'+
+        '<td contenteditable="true" data-ph="add phone" data-id="'+l.id+'" data-field="phone" style="min-width:120px;" onblur="cellEdit(this)">'+e(l.phone)+'</td>'+
+        '<td><button class="del-btn" onclick="delLead('+l.id+')">&#x2715;</button></td>'+
+        '</tr>';
+    }).join('')+
+    '</tbody></table></div>';
+  pageInfo.textContent='Showing '+filtered.length+' of '+leads.length+' leads. Click Email or Phone cells to edit directly.';
+}
+
+// ── INLINE EDIT ──────────────────────────────────────────────────────────────
+function cellEdit(td){
+  var id=parseFloat(td.dataset.id), field=td.dataset.field, val=td.innerText.trim();
+  var lead=leads.find(function(l){return l.id===id;});
+  if(lead){ lead[field]=val; save(); document.getElementById('s-email').textContent=leads.filter(function(l){return l.email;}).length; document.getElementById('s-phone').textContent=leads.filter(function(l){return l.phone;}).length; }
+}
+
+// ── DELETE / CLEAR ────────────────────────────────────────────────────────────
+function delLead(id){ leads=leads.filter(function(l){return l.id!==id;}); save(); updateBadge(); render(); }
+function clearAll(){ if(!leads.length)return; if(confirm('Clear all '+leads.length+' leads? Cannot be undone.')){ leads=[]; save(); updateBadge(); render(); } }
+
+// ── BADGE ─────────────────────────────────────────────────────────────────────
+function updateBadge(){ var b=document.getElementById('count-badge'); if(leads.length){b.textContent=leads.length;b.style.display='inline';}else b.style.display='none'; }
+
+// ── CSV ───────────────────────────────────────────────────────────────────────
+function downloadCSV(){
+  if(!leads.length){ alert('No leads to download.'); return; }
+  var q=document.getElementById('q').value.toLowerCase(), df=document.getElementById('deg').value, ef=document.getElementById('has-email').value;
+  var filtered=leads.filter(function(l){
+    return(!q||(l.name+' '+l.title+' '+l.company+' '+l.location).toLowerCase().includes(q))
+      &&(!df||l.degree.toLowerCase().startsWith(df.toLowerCase()))
+      &&(!ef||(ef==='yes'?!!l.email:!l.email));
+  });
+  var csv=['Name,Job Title,Company,Location,Degree of Connection,LinkedIn URL,Email,Phone'].concat(
+    filtered.map(function(l){
+      return[l.name,l.title,l.company,l.location,l.degree,l.url,l.email,l.phone]
+        .map(function(v){return'"'+String(v||'').replace(/"/g,'""')+'"';}).join(',');
+    })
+  ).join('\r\n');
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));
+  a.download='linkedin_leads_'+new Date().toISOString().slice(0,10)+'.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+function e(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+load();
+if(leads.length) render();
+</script>
+</body>
+</html>

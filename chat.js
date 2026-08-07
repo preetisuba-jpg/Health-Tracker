@@ -1,26 +1,24 @@
-// Vercel serverless function. Deployed at /api/chat.
-// Keeps the real Anthropic API key server-side (set as an env var in Vercel's dashboard,
-// never shipped to the phone). The app calls this instead of api.anthropic.com directly.
-
-export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    res.status(405).json({ error: "Use POST" });
-    return;
-  }
+// Vercel serverless function, /api/chat. CommonJS on purpose — avoids any ESM/CJS
+// ambiguity that can cause the function to fail silently on some Vercel configs.
+module.exports = async (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") { res.status(200).end(); return; }
+  if (req.method !== "POST") { res.status(405).json({ error: "Use POST" }); return; }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    res.status(500).json({ error: "ANTHROPIC_API_KEY is not set on the server. Add it in Vercel → Project → Settings → Environment Variables." });
+    res.status(500).json({ error: "ANTHROPIC_API_KEY is not set on the server. Vercel -> Settings -> Environment Variables, then redeploy." });
     return;
   }
 
-  try {
-    const { system, message } = req.body || {};
-    if (!message) {
-      res.status(400).json({ error: "Missing 'message' in request body." });
-      return;
-    }
+  let body = req.body;
+  if (typeof body === "string") { try { body = JSON.parse(body); } catch (e) { body = {}; } }
+  const { system, message } = body || {};
+  if (!message) { res.status(400).json({ error: "Missing 'message' in request body." }); return; }
 
+  try {
     const upstream = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -38,13 +36,13 @@ export default async function handler(req, res) {
 
     const data = await upstream.json();
     if (!upstream.ok) {
-      res.status(upstream.status).json({ error: data?.error?.message || "Upstream error from Anthropic API." });
+      res.status(upstream.status).json({ error: (data && data.error && data.error.message) || "Upstream error from Anthropic API." });
       return;
     }
 
     const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
     res.status(200).json({ text });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    res.status(500).json({ error: String((err && err.message) || err) });
   }
-}
+};

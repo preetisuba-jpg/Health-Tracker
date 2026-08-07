@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#1B4B4A" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Health" />
 <link rel="manifest" href="manifest.json" />
@@ -45,7 +46,7 @@ const T = {
   border: "#E7DCC7", white: "#FFFFFF",
 };
 
-/* ============================== ICONS (custom, no external icon lib) ============================== */
+/* ============================== ICONS ============================== */
 function Icon({ name, size = 18, color = T.ink, style }) {
   const s = { width: size, height: size, ...style };
   const common = { viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", style: s };
@@ -69,6 +70,7 @@ function Icon({ name, size = 18, color = T.ink, style }) {
     case "trash": return <svg {...common}><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M6 6l1 14h10l1-14" /></svg>;
     case "arrowRight": return <svg {...common}><path d="M5 12h14" /><path d="M13 6l6 6-6 6" /></svg>;
     case "settings": return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M4.2 4.2l2 2M17.8 17.8l2 2M2 12h3M19 12h3M4.2 19.8l2-2M17.8 6.2l2-2" /></svg>;
+    case "external": return <svg {...common}><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><path d="M15 3h6v6" /><path d="M10 14L21 3" /></svg>;
     default: return null;
   }
 }
@@ -153,18 +155,19 @@ const MEAL_IDEAS = { breakfast: ["Besan chilla with grated carrot, no butter", "
 const MEAL_SLOTS = ["Breakfast", "Lunch", "Snack", "Dinner", "After Dinner"];
 const ACTIVITY_TYPES = ["Walk", "Gym / Strength", "Yoga", "Cycling", "Swimming", "Other"];
 
+// verdict, macros, weeklyLimit, healthierTip (used regardless of what's typed in)
 const FOOD_DB = {
-  "besan laddoo": { verdict: "caution", calories: 150, protein: 3, fiber: 1, carbs: 18, sugar: 12, portion: "1 small piece", reason: "Ghee + sugar — flag both.", marker: "Triglycerides", weeklyLimit: 2 },
-  "sukhdi": { verdict: "limit", calories: 180, protein: 2, fiber: 0.5, carbs: 20, sugar: 14, portion: "1 small piece, occasional only", reason: "High ghee + jaggery.", marker: "Triglycerides", weeklyLimit: 1 },
-  "vada pav": { verdict: "avoid", calories: 290, protein: 6, fiber: 2, carbs: 35, sugar: 3, portion: "—", reason: "Deep fried + maida + potato.", marker: "Triglycerides & GGT", weeklyLimit: 0 },
-  "roasted peanuts": { verdict: "limit", calories: 160, protein: 7, fiber: 2, carbs: 5, sugar: 1, portion: "20–25g max", reason: "Healthy fat but calorie-dense — your daily post-dinner habit.", marker: "Weight / calories", weeklyLimit: 7 },
-  "bhakhri": { verdict: "safe", calories: 120, protein: 3, fiber: 2, carbs: 20, sugar: 0, portion: "2 pieces", reason: "Whole wheat, dry roasted.", marker: null, weeklyLimit: null },
-  "khichdi": { verdict: "safe", calories: 250, protein: 8, fiber: 3, carbs: 40, sugar: 1, portion: "1 bowl", reason: "Balanced, recommend freely.", marker: null, weeklyLimit: null },
-  "dal": { verdict: "safe", calories: 180, protein: 9, fiber: 5, carbs: 22, sugar: 1, portion: "1 bowl", reason: "Protein anchor — eat daily.", marker: null, weeklyLimit: null },
-  "paneer sabzi": { verdict: "moderate", calories: 220, protein: 12, fiber: 2, carbs: 8, sugar: 3, portion: "50–75g paneer max", reason: "Watch the portion.", marker: "LDL", weeklyLimit: 4 },
-  "chai": { verdict: "limit", calories: 60, protein: 2, fiber: 0, carbs: 8, sugar: 6, portion: "Max 2 cups/day", reason: "Milk + sugar adds up.", marker: "Triglycerides", weeklyLimit: null },
-  "kaju katri": { verdict: "avoid", calories: 200, protein: 2, fiber: 0.5, carbs: 22, sugar: 18, portion: "—", reason: "Sugar-dense sweet.", marker: "Triglycerides", weeklyLimit: 0 },
-  "cookies": { verdict: "avoid", calories: 150, protein: 2, fiber: 0.5, carbs: 20, sugar: 10, portion: "—", reason: "Maida + sugar.", marker: "Triglycerides", weeklyLimit: 0 },
+  "besan laddoo": { verdict: "caution", calories: 150, protein: 3, fiber: 1, carbs: 18, sugar: 12, portion: "1 small piece", reason: "Ghee + sugar — flag both.", marker: "Triglycerides", weeklyLimit: 2, healthierTip: "Same besan laddoo, made with dates instead of sugar and half the ghee." },
+  "sukhdi": { verdict: "limit", calories: 180, protein: 2, fiber: 0.5, carbs: 20, sugar: 14, portion: "1 small piece, occasional only", reason: "High ghee + jaggery.", marker: "Triglycerides", weeklyLimit: 1, healthierTip: "Swap jaggery for date paste, use 1 tsp ghee instead of 3." },
+  "vada pav": { verdict: "avoid", calories: 290, protein: 6, fiber: 2, carbs: 35, sugar: 3, portion: "—", reason: "Deep fried + maida + potato.", marker: "Triglycerides & GGT", weeklyLimit: 0, healthierTip: "Air-fried patty on a whole wheat bun instead of deep fried on maida." },
+  "roasted peanuts": { verdict: "limit", calories: 160, protein: 7, fiber: 2, carbs: 5, sugar: 1, portion: "20–25g max", reason: "Healthy fat but calorie-dense — your daily post-dinner habit.", marker: "Weight / calories", weeklyLimit: 7, healthierTip: "Already a good fat source — just weigh 20–25g so it doesn't turn into a mindless refill." },
+  "bhakhri": { verdict: "safe", calories: 120, protein: 3, fiber: 2, carbs: 20, sugar: 0, portion: "2 pieces", reason: "Whole wheat, dry roasted.", marker: null, weeklyLimit: null, healthierTip: "Already a great choice — no swap needed." },
+  "khichdi": { verdict: "safe", calories: 250, protein: 8, fiber: 3, carbs: 40, sugar: 1, portion: "1 bowl", reason: "Balanced, recommend freely.", marker: null, weeklyLimit: null, healthierTip: "Already excellent — no swap needed." },
+  "dal": { verdict: "safe", calories: 180, protein: 9, fiber: 5, carbs: 22, sugar: 1, portion: "1 bowl", reason: "Protein anchor — eat daily.", marker: null, weeklyLimit: null, healthierTip: "Already excellent — no swap needed." },
+  "paneer sabzi": { verdict: "moderate", calories: 220, protein: 12, fiber: 2, carbs: 8, sugar: 3, portion: "50–75g paneer max", reason: "Watch the portion.", marker: "LDL", weeklyLimit: 4, healthierTip: "Use low-fat paneer and less oil for an even lighter version." },
+  "chai": { verdict: "limit", calories: 60, protein: 2, fiber: 0, carbs: 8, sugar: 6, portion: "Max 2 cups/day", reason: "Milk + sugar adds up.", marker: "Triglycerides", weeklyLimit: null, healthierTip: "Less sugar or a stevia swap, or alternate extra cups with jeera-saunf herbal tea." },
+  "kaju katri": { verdict: "avoid", calories: 200, protein: 2, fiber: 0.5, carbs: 22, sugar: 18, portion: "—", reason: "Sugar-dense sweet.", marker: "Triglycerides", weeklyLimit: 0, healthierTip: "Save it for a real occasion — no version of this is TG-safe right now." },
+  "cookies": { verdict: "avoid", calories: 150, protein: 2, fiber: 0.5, carbs: 20, sugar: 10, portion: "—", reason: "Maida + sugar.", marker: "Triglycerides", weeklyLimit: 0, healthierTip: "Homemade oats + jaggery-free cookies with flaxseed, or roasted makhana instead." },
 };
 
 const DAILY_TIPS = [
@@ -174,7 +177,16 @@ const DAILY_TIPS = [
   { marker: "Activity", tip: "A 30-minute brisk walk is your single most effective lever for HDL and triglycerides." },
   { marker: "LDL", tip: "Your LDL win took 2 years of Omega-3 + Isabgol. Don't relax that streak." },
 ];
-const HABITS = [{ id: "walk", label: "Walk done" }, { id: "noAlcohol", label: "No alcohol" }, { id: "noFried", label: "No fried food" }, { id: "isabgol", label: "Isabgol taken" }, { id: "omega3", label: "Omega-3 taken" }, { id: "noSugar", label: "Sugar avoided" }, { id: "water", label: "Adequate water" }];
+
+// Omega-3 and Isabgol removed from here — they're already tracked precisely (dose + time)
+// in the Supplements checklist, so keeping them here was double-counting the same action.
+const HABITS = [
+  { id: "walk", label: "Walk done" },
+  { id: "noAlcohol", label: "No alcohol" },
+  { id: "noFried", label: "No fried food" },
+  { id: "noSugar", label: "Sugar avoided" },
+  { id: "water", label: "Adequate water" },
+];
 const DEMO_WEEK = { 6: { score: 42 }, 5: { score: 68 }, 4: { score: 81 }, 3: { score: 55 }, 2: { score: 88 }, 1: { score: 74 } };
 
 /* ============================== HELPERS ============================== */
@@ -196,6 +208,12 @@ function summarizeActivitiesByMonth(activities) {
   return byMonth;
 }
 function monthLabel(mk) { const [y, m] = mk.split("-").map(Number); return new Date(y, m - 1, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" }); }
+function formatDateLabel(dateKey) {
+  if (dateKey === todayKey()) return "Today";
+  if (dateKey === dateKeyOffset(1)) return "Yesterday";
+  const d = new Date(dateKey + "T00:00:00");
+  return d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
+}
 
 const STATUS_COLORS = { good: { bg: T.forestPale, fg: T.forest, label: "✅ Normal" }, watch: { bg: T.amberPale, fg: T.amber, label: "🟡 Watch" }, bad: { bg: T.alertPale, fg: T.alert, label: "🔴 High" } };
 const VERDICT_META = { safe: { emoji: "✅", label: "Safe to eat freely", bg: T.forestPale, fg: T.forest }, moderate: { emoji: "🟡", label: "OK in moderation", bg: T.amberPale, fg: T.amber }, limit: { emoji: "⚠️", label: "Limit strongly", bg: T.amberPale, fg: T.amber }, caution: { emoji: "🟡", label: "OK in moderation", bg: T.amberPale, fg: T.amber }, avoid: { emoji: "🔴", label: "Avoid for now", bg: T.alertPale, fg: T.alert } };
@@ -211,25 +229,44 @@ function dayScore(entries, habitsForDay, supplementsForDay) {
   const supScore = Math.round((supplementsDone / SUPPLEMENTS.length) * 100);
   return Math.max(0, Math.min(100, Math.round(foodScore * 0.4 + habitScore * 0.35 + supScore * 0.25)));
 }
+function hasAnyData(dateKey, weekFood, weekHabits, weekSupplements) {
+  return (weekFood[dateKey] || []).length > 0 || Object.keys(weekHabits[dateKey] || {}).length > 0 || Object.keys(weekSupplements[dateKey] || {}).length > 0;
+}
+function rangeScoreAvg(startOffset, endOffset, weekFood, weekHabits, weekSupplements) {
+  let total = 0, count = 0;
+  for (let o = startOffset; o <= endOffset; o++) {
+    const dk = dateKeyOffset(o);
+    if (hasAnyData(dk, weekFood, weekHabits, weekSupplements)) { total += dayScore(weekFood[dk] || [], weekHabits[dk] || {}, weekSupplements[dk] || {}); count++; }
+  }
+  return count ? Math.round(total / count) : null;
+}
+function monthScoreAvg(mk, weekFood, weekHabits, weekSupplements) {
+  const dates = new Set([...Object.keys(weekFood), ...Object.keys(weekHabits), ...Object.keys(weekSupplements)].filter(dk => dk.startsWith(mk)));
+  if (dates.size === 0) return null;
+  let total = 0;
+  dates.forEach(dk => { total += dayScore(weekFood[dk] || [], weekHabits[dk] || {}, weekSupplements[dk] || {}); });
+  return Math.round(total / dates.size);
+}
 
-// Calls YOUR backend proxy (/api/chat), not Anthropic directly — the proxy holds the real key.
+// Calls YOUR backend proxy (/api/chat), never Anthropic directly.
 async function callClaude(systemPrompt, userText, jsonMode) {
   try {
     const res = await fetch("/api/chat", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ system: systemPrompt, message: userText }),
     });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
+    let data;
+    try { data = await res.json(); } catch { throw new Error(`Server returned ${res.status} with no JSON body — the /api/chat function may not be deployed.`); }
+    if (!res.ok || data.error) throw new Error(data.error || `Server returned ${res.status}.`);
     const text = data.text || "";
-    if (jsonMode) { try { return JSON.parse(text.replace(/```json|```/g, "").trim()); } catch { return null; } }
-    return text;
+    if (jsonMode) { try { return { ok: true, data: JSON.parse(text.replace(/```json|```/g, "").trim()) }; } catch { return { ok: false, error: "Got a reply but couldn't parse it as data." }; } }
+    return { ok: true, data: text };
   } catch (e) {
-    return jsonMode ? null : "Couldn't reach the health engine (" + e.message + "). Check that the backend proxy is deployed with an API key set.";
+    return { ok: false, error: e.message || String(e) };
   }
 }
 
-/* ============================== STORAGE (real localStorage — this is a standalone site) ============================== */
+/* ============================== STORAGE ============================== */
 function useKV(key, initial) {
   const [value, setValue] = useState(() => {
     try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : initial; } catch { return initial; }
@@ -295,8 +332,86 @@ function QuickAction({ label, icon, onClick }) {
     </button>
   );
 }
+function DeleteBtn({ onClick }) {
+  return <button onClick={onClick} aria-label="Delete entry" style={{ background: "none", border: "none", padding: 4, cursor: "pointer", flexShrink: 0 }}><Icon name="trash" size={14} color={T.inkSoft} /></button>;
+}
 
-/* ============================== SIMPLE CUSTOM CHARTS (no chart library) ============================== */
+/* ============================== DATE BAR + CALENDAR PICKER ============================== */
+function DateBar({ selectedDate, onOpenCalendar, onBackToToday }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+      <button onClick={onOpenCalendar} style={{ display: "flex", alignItems: "center", gap: 6, background: T.tealPale, border: "none", borderRadius: 999, padding: "7px 12px", cursor: "pointer" }}>
+        <Icon name="calendar" size={14} color={T.teal} />
+        <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.teal }}>{formatDateLabel(selectedDate)}</span>
+      </button>
+      {selectedDate !== todayKey() && <button onClick={onBackToToday} style={{ background: "none", border: "none", fontFamily: "Inter", fontSize: 12, color: T.saffronDeep, cursor: "pointer" }}>Back to today</button>}
+    </div>
+  );
+}
+
+function CalendarPicker({ selectedDate, onSelect, onClose, weekFood, activities, weekSupplements }) {
+  const [viewDate, setViewDate] = useState(new Date(selectedDate + "T00:00:00"));
+  const year = viewDate.getFullYear(), month = viewDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const startWeekday = firstDay.getDay();
+  const daysInMo = new Date(year, month + 1, 0).getDate();
+  const todayStr = todayKey();
+  const cells = [];
+  for (let i = 0; i < startWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMo; d++) cells.push(d);
+  function dk(d) { return `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`; }
+
+  return (
+    <div className="askOverlay" onClick={onClose}>
+      <div className="askPanel" onClick={e => e.stopPropagation()} style={{ height: "auto", maxHeight: "82vh", borderRadius: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", borderBottom: `1px solid ${T.border}` }}>
+          <button onClick={() => setViewDate(new Date(year, month - 1, 1))} style={{ background: "none", border: "none" }}><Icon name="chevron" size={18} color={T.teal} style={{ transform: "rotate(180deg)" }} /></button>
+          <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, color: T.teal }}>{viewDate.toLocaleDateString("en-IN", { month: "long", year: "numeric" })}</div>
+          <button onClick={() => setViewDate(new Date(year, month + 1, 1))} style={{ background: "none", border: "none" }}><Icon name="chevron" size={18} color={T.teal} /></button>
+          <button onClick={onClose} style={{ background: "none", border: "none", marginLeft: 8 }}><Icon name="x" size={18} color={T.inkSoft} /></button>
+        </div>
+        <div style={{ padding: 16, overflowY: "auto" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 4, marginBottom: 6 }}>
+            {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => <div key={i} style={{ textAlign: "center", fontFamily: "Inter", fontSize: 10, color: T.inkSoft }}>{d}</div>)}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 4 }}>
+            {cells.map((d, i) => {
+              if (d == null) return <div key={i} />;
+              const key = dk(d);
+              const isFuture = key > todayStr;
+              const hasFood = (weekFood[key] || []).length > 0;
+              const hasAct = (activities[key] || []).length > 0;
+              const hasSupp = Object.values(weekSupplements[key] || {}).some(Boolean);
+              const isSelected = key === selectedDate;
+              const isToday = key === todayStr;
+              return (
+                <button key={i} disabled={isFuture} onClick={() => { onSelect(key); onClose(); }} style={{
+                  aspectRatio: "1", border: isSelected ? `2px solid ${T.saffron}` : isToday ? `1px solid ${T.teal}` : "1px solid transparent",
+                  borderRadius: 8, background: isSelected ? T.tealPale : T.white, opacity: isFuture ? 0.3 : 1, cursor: isFuture ? "default" : "pointer",
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 2
+                }}>
+                  <span style={{ fontFamily: "Inter", fontSize: 11, color: T.ink }}>{d}</span>
+                  <div style={{ display: "flex", gap: 2, marginTop: 2 }}>
+                    {hasFood && <span style={{ width: 4, height: 4, borderRadius: 2, background: T.forest, display: "inline-block" }} />}
+                    {hasAct && <span style={{ width: 4, height: 4, borderRadius: 2, background: T.teal, display: "inline-block" }} />}
+                    {hasSupp && <span style={{ width: 4, height: 4, borderRadius: 2, background: T.amber, display: "inline-block" }} />}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", gap: 12, marginTop: 14, fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft, flexWrap: "wrap" }}>
+            <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: T.forest, marginRight: 4 }} />Food logged</span>
+            <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: T.teal, marginRight: 4 }} />Activity logged</span>
+            <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: T.amber, marginRight: 4 }} />Supplement taken</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================== SIMPLE CUSTOM CHARTS ============================== */
 function MiniLineChart({ periods, series, width = 560, height = 220 }) {
   const padL = 34, padB = 24, padT = 10, padR = 10;
   const allVals = series.flatMap(s => s.points.filter(v => v != null));
@@ -305,21 +420,13 @@ function MiniLineChart({ periods, series, width = 560, height = 220 }) {
   const y = (v) => padT + (1 - (v - min) / (max - min || 1)) * (height - padT - padB);
   return (
     <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`}>
-      {[0, 0.5, 1].map((f, i) => (
-        <line key={i} x1={padL} x2={width - padR} y1={padT + f * (height - padT - padB)} y2={padT + f * (height - padT - padB)} stroke={T.border} strokeWidth="1" />
-      ))}
+      {[0, 0.5, 1].map((f, i) => <line key={i} x1={padL} x2={width - padR} y1={padT + f * (height - padT - padB)} y2={padT + f * (height - padT - padB)} stroke={T.border} strokeWidth="1" />)}
       {periods.map((p, i) => <text key={i} x={x(i)} y={height - 6} fontSize="9" fill={T.inkSoft} textAnchor="middle" fontFamily="Inter">{p}</text>)}
       {series.map(s => {
-        const segments = [];
-        let current = [];
-        s.points.forEach((v, i) => {
-          if (v == null) { if (current.length) segments.push(current); current = []; }
-          else current.push([x(i), y(v)]);
-        });
+        const segments = []; let current = [];
+        s.points.forEach((v, i) => { if (v == null) { if (current.length) segments.push(current); current = []; } else current.push([x(i), y(v)]); });
         if (current.length) segments.push(current);
-        return segments.map((seg, si) => (
-          <polyline key={s.key + si} points={seg.map(p => p.join(",")).join(" ")} fill="none" stroke={s.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-        ));
+        return segments.map((seg, si) => <polyline key={s.key + si} points={seg.map(p => p.join(",")).join(" ")} fill="none" stroke={s.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />);
       })}
       {series.map(s => s.points.map((v, i) => v != null && <circle key={s.key + i} cx={x(i)} cy={y(v)} r="3" fill={s.color} />))}
     </svg>
@@ -332,8 +439,7 @@ function MiniBarChart({ bars, height = 100 }) {
   return (
     <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`}>
       {bars.map((b, i) => {
-        const slot = width / bars.length;
-        const cx = slot * i + slot / 2;
+        const slot = width / bars.length; const cx = slot * i + slot / 2;
         const h = b.value < 0 ? 6 : Math.max(4, (Math.abs(b.value) / max) * (height - padB - padT));
         return (
           <g key={i}>
@@ -347,6 +453,22 @@ function MiniBarChart({ bars, height = 100 }) {
 }
 
 /* ============================== TAB 1: TODAY ============================== */
+function TrendRow({ label, value, compareLabel, compareValue }) {
+  const delta = value != null && compareValue != null ? value - compareValue : null;
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${T.creamDeep}` }}>
+      <div>
+        <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13 }}>{label}</div>
+        <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft }}>{compareLabel}: {compareValue ?? "no data"}</div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <span style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>{value ?? "—"}</span>
+        {delta != null && <Icon name={delta >= 0 ? "trendUp" : "trendDown"} size={14} color={delta >= 0 ? T.forest : T.alert} />}
+      </div>
+    </div>
+  );
+}
+
 function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, weekFood, weekHabits, weekSupplements, toggleHabit, onOpenAsk, onNavigate, demoCleared, clearDemo }) {
   const day = new Date();
   const dateStr = day.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
@@ -372,6 +494,15 @@ function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, w
     return { label: dayLabel(d), value: 2, color: T.creamDeep };
   });
   const anyDemo = weekBars.some(b => b.opacity);
+
+  const thisWeek = rangeScoreAvg(0, 6, weekFood, weekHabits, weekSupplements);
+  const lastWeek = rangeScoreAvg(7, 13, weekFood, weekHabits, weekSupplements);
+  const now = new Date();
+  const thisMonthKey = now.toISOString().slice(0, 7);
+  const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastMonthKey = prevMonthDate.toISOString().slice(0, 7);
+  const thisMonth = monthScoreAvg(thisMonthKey, weekFood, weekHabits, weekSupplements);
+  const lastMonth = monthScoreAvg(lastMonthKey, weekFood, weekHabits, weekSupplements);
 
   return (
     <div className="tabPane">
@@ -448,6 +579,13 @@ function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, w
         {anyDemo && <div style={{ fontFamily: "Inter", fontSize: 11, color: T.amber, marginBottom: 8 }}>Faded bars are placeholder demo data — clear anytime.</div>}
         <MiniBarChart bars={weekBars} />
       </Card>
+      <div style={{ height: 14 }} />
+      <Card>
+        <SectionLabel>Trends</SectionLabel>
+        <TrendRow label="This week (avg)" value={thisWeek} compareLabel="Last week" compareValue={lastWeek} />
+        <TrendRow label={`This month (${monthLabel(thisMonthKey)})`} value={thisMonth} compareLabel={`Last month (${monthLabel(lastMonthKey)})`} compareValue={lastMonth} />
+        <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 8 }}>Averages only count days with at least one logged item — empty days don't drag the average down.</div>
+      </Card>
       <div style={{ height: 90 }} />
       <FabButton onOpenAsk={onOpenAsk} />
     </div>
@@ -457,23 +595,26 @@ function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, w
 /* ============================== TAB 2: FOOD CHECK ============================== */
 function MiniStat({ v, l }) { return <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15 }}>{v ?? "—"}</div><div style={{ fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft }}>{l}</div></div>; }
 
-function FoodCheckTab({ foodToday, weekFood, addFoodEntry, onOpenAsk }) {
+function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, activities, weekSupplements, addFoodEntry, deleteFoodEntry, onOpenAsk }) {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const [errorMsg, setErrorMsg] = useState(null);
   const [mealSlot, setMealSlot] = useState("Snack");
   const [warning, setWarning] = useState(null);
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const shortcuts = Object.keys(FOOD_DB);
 
   async function checkDish(dish) {
-    setResult(null); setWarning(null);
+    setResult(null); setWarning(null); setErrorMsg(null);
     const key = dish.trim().toLowerCase();
     if (FOOD_DB[key]) { setResult({ dish, ...FOOD_DB[key] }); return; }
     setLoading(true);
-    const sys = `You are a clinical nutrition assistant for Jignesh, 54, Indian vegetarian (Gujarati), current priorities: Triglycerides 257 (HIGH, target <150), GGT 105 (ELEVATED liver, target <64), TSH 4.57 (high-normal, target 1.5-3.0), LDL 82 (OPTIMAL — protect this). Given a dish name, respond ONLY with JSON, no markdown fences: {"ingredients": "...", "calories": <int>, "protein": <int>, "fiber": <int>, "carbs": <int>, "sugar": <int>, "portion": "...", "verdict": "safe"|"moderate"|"limit"|"avoid", "reason": "...", "marker": "..." or null, "weeklyLimit": <int> or null}`;
-    const parsed = await callClaude(sys, `Dish: ${dish}`, true);
+    const sys = `You are a clinical nutrition assistant for Jignesh, 54, Indian vegetarian (Gujarati), current priorities: Triglycerides 257 (HIGH, target <150), GGT 105 (ELEVATED liver, target <64), TSH 4.57 (high-normal, target 1.5-3.0), LDL 82 (OPTIMAL — protect this). Given a dish name, respond ONLY with JSON, no markdown fences: {"ingredients": "...", "calories": <int>, "protein": <int>, "fiber": <int>, "carbs": <int>, "sugar": <int>, "portion": "...", "verdict": "safe"|"moderate"|"limit"|"avoid", "reason": "...", "marker": "..." or null, "weeklyLimit": <int> or null, "healthierTip": "one sentence, a specific healthier way to make or order this exact dish"}`;
+    const outcome = await callClaude(sys, `Dish: ${dish}`, true);
     setLoading(false);
-    setResult(parsed ? { dish, ...parsed } : { dish, verdict: "moderate", calories: 200, protein: 5, fiber: 1, carbs: 25, sugar: 5, portion: "small serving", reason: "Could not analyze automatically.", marker: null, weeklyLimit: null });
+    if (outcome.ok) setResult({ dish, ...outcome.data });
+    else setErrorMsg(outcome.error);
   }
   function meta(v) { return VERDICT_META[v] || VERDICT_META.moderate; }
   function weeklyCountFor(dishName) {
@@ -482,18 +623,20 @@ function FoodCheckTab({ foodToday, weekFood, addFoodEntry, onOpenAsk }) {
     return count;
   }
   function logMeal() {
-    const entry = { dish: result.dish, calories: result.calories || 0, protein: result.protein || 0, fiber: result.fiber || 0, carbs: result.carbs || 0, sugar: result.sugar || 0, verdict: result.verdict, mealSlot, time: Date.now() };
-    addFoodEntry(entry);
+    const entry = { dish: result.dish, calories: result.calories ?? null, protein: result.protein ?? null, fiber: result.fiber ?? null, carbs: result.carbs ?? null, sugar: result.sugar ?? null, verdict: result.verdict, mealSlot, time: Date.now() };
+    addFoodEntry(selectedDate, entry);
     const countAfter = weeklyCountFor(result.dish) + 1;
     if (result.weeklyLimit != null && countAfter > result.weeklyLimit) setWarning(`⚠️ This is your ${countAfter}${countAfter === 1 ? "st" : countAfter === 2 ? "nd" : countAfter === 3 ? "rd" : "th"} "${result.dish}" this week — recommended cap is ${result.weeklyLimit}/week.`);
     else if (mealSlot === "After Dinner" && (result.verdict === "limit" || result.verdict === "avoid")) setWarning(`Post-dinner + ${meta(result.verdict).label.toLowerCase()} — flagged habit pattern. Small portion or skip tonight.`);
     else { setWarning(null); setResult(null); setQuery(""); }
   }
-  const totalCals = foodToday.reduce((s, f) => s + (f.calories || 0), 0);
-  const badCount = foodToday.filter(f => f.verdict === "avoid" || f.verdict === "limit").length;
+  const totalCals = foodForDate.reduce((s, f) => s + (f.calories || 0), 0);
+  const badCount = foodForDate.filter(f => f.verdict === "avoid" || f.verdict === "limit").length;
+  const recipeUrl = (dish) => `https://www.google.com/search?q=${encodeURIComponent("healthy " + dish + " recipe low sugar low ghee")}`;
 
   return (
     <div className="tabPane">
+      <DateBar selectedDate={selectedDate} onOpenCalendar={() => setCalendarOpen(true)} onBackToToday={() => setSelectedDate(todayKey())} />
       <SectionLabel>Is this safe?</SectionLabel>
       <Card>
         <div style={{ display: "flex", gap: 8 }}>
@@ -503,6 +646,16 @@ function FoodCheckTab({ foodToday, weekFood, addFoodEntry, onOpenAsk }) {
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12 }}>{shortcuts.map(s => <button key={s} onClick={() => checkDish(s)} style={{ background: T.creamDeep, border: "none", borderRadius: 999, padding: "6px 12px", fontFamily: "Inter", fontSize: 12.5, color: T.ink, textTransform: "capitalize" }}>{s}</button>)}</div>
       </Card>
       {loading && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 14, fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}><Icon name="loader" size={16} /> Checking ingredients…</div>}
+      {errorMsg && !loading && (
+        <>
+          <div style={{ height: 10 }} />
+          <Card style={{ background: T.alertPale, border: "none" }}>
+            <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.alert, marginBottom: 4 }}>Couldn't check that dish</div>
+            <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.4, marginBottom: 8 }}>{errorMsg}</div>
+            <button onClick={() => checkDish(query)} style={{ background: T.teal, border: "none", borderRadius: 8, padding: "7px 12px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 12 }}>Try again</button>
+          </Card>
+        </>
+      )}
       {result && !loading && (
         <>
           <div style={{ height: 12 }} />
@@ -513,6 +666,15 @@ function FoodCheckTab({ foodToday, weekFood, addFoodEntry, onOpenAsk }) {
             <div style={{ fontFamily: "Inter", fontSize: 13.5, color: T.ink, lineHeight: 1.5, marginBottom: 10 }}>{result.reason}</div>
             <div style={{ display: "flex", gap: 14, marginBottom: 12, flexWrap: "wrap" }}><MiniStat v={result.calories} l="cal" /><MiniStat v={result.protein} l="protein g" /><MiniStat v={result.fiber} l="fiber g" /><MiniStat v={result.sugar} l="sugar g" /></div>
             {result.weeklyLimit != null && <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>You've had this {weeklyCountFor(result.dish)}x this week · cap: {result.weeklyLimit}/week</div>}
+            {result.healthierTip && (
+              <div style={{ background: T.tealPale, borderRadius: 10, padding: 10, marginBottom: 12 }}>
+                <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11.5, color: T.teal, marginBottom: 3 }}>💡 HEALTHIER TWIST</div>
+                <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.4, marginBottom: 6 }}>{result.healthierTip}</div>
+                <a href={recipeUrl(result.dish)} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, color: T.saffronDeep, fontFamily: "Manrope", fontWeight: 700, fontSize: 12, textDecoration: "none" }}>
+                  Search a healthier recipe <Icon name="external" size={12} color={T.saffronDeep} />
+                </a>
+              </div>
+            )}
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 6 }}>When?</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{MEAL_SLOTS.map(s => <button key={s} onClick={() => setMealSlot(s)} style={{ background: mealSlot === s ? T.teal : T.creamDeep, color: mealSlot === s ? T.white : T.ink, border: "none", borderRadius: 999, padding: "5px 11px", fontFamily: "Inter", fontSize: 12 }}>{s}</button>)}</div>
@@ -531,24 +693,26 @@ function FoodCheckTab({ foodToday, weekFood, addFoodEntry, onOpenAsk }) {
         </>
       )}
       <div style={{ height: 18 }} />
-      <SectionLabel>What I ate today</SectionLabel>
+      <SectionLabel>What {selectedDate === todayKey() ? "I ate today" : `was eaten — ${formatDateLabel(selectedDate)}`}</SectionLabel>
       <Card>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 20 }}>{totalCals}</div><div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft }}>calories today</div></div>
+          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 20 }}>{totalCals}</div><div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft }}>calories</div></div>
           <div style={{ textAlign: "right" }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 20, color: badCount > 1 ? T.alert : T.forest }}>{badCount}</div><div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft }}>flagged items</div></div>
         </div>
-        <div style={{ height: 8, borderRadius: 999, background: T.creamDeep, overflow: "hidden", display: "flex", marginBottom: 10 }}>{foodToday.length === 0 ? <div style={{ flex: 1 }} /> : foodToday.map((f, i) => <div key={i} style={{ flex: 1, background: meta(f.verdict).fg }} />)}</div>
-        {foodToday.length === 0 ? <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>Nothing logged yet today.</div> : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{foodToday.map((f, i) => (
-            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div><div style={{ fontFamily: "Inter", fontSize: 13.5, textTransform: "capitalize" }}>{f.dish}</div><div style={{ fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft }}>{f.mealSlot || "—"}</div></div>
-              <Badge bg={meta(f.verdict).bg} fg={meta(f.verdict).fg}>{meta(f.verdict).emoji} {f.calories} cal</Badge>
+        <div style={{ height: 8, borderRadius: 999, background: T.creamDeep, overflow: "hidden", display: "flex", marginBottom: 10 }}>{foodForDate.length === 0 ? <div style={{ flex: 1 }} /> : foodForDate.map((f, i) => <div key={i} style={{ flex: 1, background: meta(f.verdict).fg }} />)}</div>
+        {foodForDate.length === 0 ? <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>Nothing logged for this date.</div> : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{foodForDate.map((f, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+              <div style={{ flex: 1 }}><div style={{ fontFamily: "Inter", fontSize: 13.5, textTransform: "capitalize" }}>{f.dish}</div><div style={{ fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft }}>{f.mealSlot || "—"}</div></div>
+              <Badge bg={meta(f.verdict).bg} fg={meta(f.verdict).fg}>{meta(f.verdict).emoji} {f.calories ?? "—"} cal</Badge>
+              <DeleteBtn onClick={() => deleteFoodEntry(selectedDate, i)} />
             </div>
           ))}</div>
         )}
       </Card>
       <div style={{ height: 90 }} />
       <FabButton onOpenAsk={onOpenAsk} />
+      {calendarOpen && <CalendarPicker selectedDate={selectedDate} onSelect={setSelectedDate} onClose={() => setCalendarOpen(false)} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} />}
     </div>
   );
 }
@@ -620,12 +784,11 @@ function MyHealthTab({ metrics, periods, supplementsToday, toggleSupplement, onO
 }
 
 /* ============================== TAB 4: HABITS ============================== */
-function ActivityLog({ activities, addActivity }) {
+function ActivityLog({ selectedDate, activities, addActivity, deleteActivity }) {
   const [type, setType] = useState("Walk");
   const [duration, setDuration] = useState("");
-  const tk = todayKey();
-  function add() { const mins = parseInt(duration, 10); if (!mins || mins <= 0) return; addActivity({ type, duration: mins, time: Date.now() }); setDuration(""); }
-  const allEntries = Object.keys(activities).sort((a, b) => b.localeCompare(a)).flatMap(dk => (activities[dk] || []).map(e => ({ ...e, dateKey: dk }))).sort((a, b) => b.time - a.time).slice(0, 10);
+  function add() { const mins = parseInt(duration, 10); if (!mins || mins <= 0) return; addActivity(selectedDate, { type, duration: mins, time: Date.now() }); setDuration(""); }
+  const allEntries = Object.keys(activities).sort((a, b) => b.localeCompare(a)).flatMap(dk => (activities[dk] || []).map((e, idx) => ({ ...e, dateKey: dk, idx }))).sort((a, b) => b.time - a.time).slice(0, 10);
   const byMonth = summarizeActivitiesByMonth(activities);
   const now = new Date(); const curMk = now.toISOString().slice(0, 7);
   const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1); const prevMk = prevDate.toISOString().slice(0, 7);
@@ -635,7 +798,7 @@ function ActivityLog({ activities, addActivity }) {
   const prevPct = prevStats ? Math.round((prevStats.activeDays.size / daysInPrevMonth) * 100) : null;
   return (
     <>
-      <SectionLabel>Activity log</SectionLabel>
+      <SectionLabel>Activity log — {formatDateLabel(selectedDate)}</SectionLabel>
       <Card>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>{ACTIVITY_TYPES.map(t => <button key={t} onClick={() => setType(t)} style={{ background: type === t ? T.teal : T.creamDeep, color: type === t ? T.white : T.ink, border: "none", borderRadius: 999, padding: "6px 12px", fontFamily: "Inter", fontSize: 12 }}>{t}</button>)}</div>
         <div style={{ display: "flex", gap: 8 }}>
@@ -647,7 +810,11 @@ function ActivityLog({ activities, addActivity }) {
       <SectionLabel>Recent activity</SectionLabel>
       <Card>{allEntries.length === 0 ? <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>Nothing logged yet.</div> : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{allEntries.map((e, i) => (
-          <div key={i} style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontFamily: "Inter", fontSize: 13 }}>{e.type}</span><span style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{e.duration} min · {e.dateKey === tk ? "Today" : e.dateKey}</span></div>
+          <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+            <span style={{ fontFamily: "Inter", fontSize: 13 }}>{e.type}</span>
+            <span style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, flex: 1, textAlign: "right" }}>{e.duration} min · {e.dateKey === todayKey() ? "Today" : formatDateLabel(e.dateKey)}</span>
+            <DeleteBtn onClick={() => deleteActivity(e.dateKey, e.idx)} />
+          </div>
         ))}</div>
       )}</Card>
       <div style={{ height: 12 }} />
@@ -669,17 +836,36 @@ function ActivityLog({ activities, addActivity }) {
   );
 }
 
-function HabitsTab({ habitsWeek, toggleHabit, activities, addActivity, onOpenAsk }) {
+function HabitsTab({ selectedDate, setSelectedDate, habitsForDate, toggleHabit, weekHabits, weekFood, weekSupplements, activities, addActivity, deleteActivity, onOpenAsk }) {
   const dates = last7Dates();
-  function streakFor(habitId) { let streak = 0; for (let i = dates.length - 1; i >= 0; i--) { const d = dates[i]; const key = d.toISOString().slice(0, 10); if (isSunday(d)) continue; if (habitsWeek[key]?.[habitId]) streak++; else break; } return streak; }
-  const weekBars = dates.map(d => { const key = d.toISOString().slice(0, 10); if (isSunday(d)) return { label: dayLabel(d), value: 0.3, color: T.creamDeep }; const done = HABITS.filter(h => habitsWeek[key]?.[h.id]).length; return { label: dayLabel(d), value: done || 0.3, color: done >= HABITS.length - 1 ? T.forest : done >= HABITS.length / 2 ? T.amber : T.alert }; });
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  function streakFor(habitId) { let streak = 0; for (let i = dates.length - 1; i >= 0; i--) { const d = dates[i]; const key = d.toISOString().slice(0, 10); if (isSunday(d)) continue; if (weekHabits[key]?.[habitId]) streak++; else break; } return streak; }
+  const weekBars = dates.map(d => { const key = d.toISOString().slice(0, 10); if (isSunday(d)) return { label: dayLabel(d), value: 0.3, color: T.creamDeep }; const done = HABITS.filter(h => weekHabits[key]?.[h.id]).length; return { label: dayLabel(d), value: done || 0.3, color: done >= HABITS.length - 1 ? T.forest : done >= HABITS.length / 2 ? T.amber : T.alert }; });
   const totalPossible = dates.filter(d => !isSunday(d)).length * HABITS.length;
-  const totalDone = dates.reduce((sum, d) => { if (isSunday(d)) return sum; const key = d.toISOString().slice(0, 10); return sum + HABITS.filter(h => habitsWeek[key]?.[h.id]).length; }, 0);
+  const totalDone = dates.reduce((sum, d) => { if (isSunday(d)) return sum; const key = d.toISOString().slice(0, 10); return sum + HABITS.filter(h => weekHabits[key]?.[h.id]).length; }, 0);
   const weekPct = totalPossible === 0 ? 0 : Math.round((totalDone / totalPossible) * 100);
+  const selDate = new Date(selectedDate + "T00:00:00");
+  const selIsSunday = isSunday(selDate);
+
   return (
     <div className="tabPane">
-      <ActivityLog activities={activities} addActivity={addActivity} />
-      <SectionLabel>This week — tap today's column to log</SectionLabel>
+      <DateBar selectedDate={selectedDate} onOpenCalendar={() => setCalendarOpen(true)} onBackToToday={() => setSelectedDate(todayKey())} />
+      <SectionLabel>Habits — {formatDateLabel(selectedDate)}</SectionLabel>
+      <Card>
+        {selIsSunday ? (
+          <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>Sunday — rest day, no tracking needed.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{HABITS.map(h => (
+            <label key={h.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+              <button onClick={() => toggleHabit(selectedDate, h.id)} style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${habitsForDate[h.id] ? T.forest : T.border}`, background: habitsForDate[h.id] ? T.forest : T.white, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{habitsForDate[h.id] && <Icon name="check" size={14} color={T.white} />}</button>
+              <span style={{ fontFamily: "Inter", fontSize: 13.5 }}>{h.label}</span>
+            </label>
+          ))}</div>
+        )}
+      </Card>
+      <div style={{ height: 18 }} />
+      <ActivityLog selectedDate={selectedDate} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} />
+      <SectionLabel>Last 7 days — overview</SectionLabel>
       <Card>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 480 }}>
@@ -688,18 +874,19 @@ function HabitsTab({ habitsWeek, toggleHabit, activities, addActivity, onOpenAsk
               <tr key={h.id}>
                 <td style={{ fontFamily: "Inter", fontSize: 12.5, paddingRight: 8, whiteSpace: "nowrap" }}>{h.label}</td>
                 {dates.map((d, i) => {
-                  const key = d.toISOString().slice(0, 10); const rest = isSunday(d); const done = habitsWeek[key]?.[h.id]; const isToday = key === todayKey();
-                  return <td key={i} style={{ textAlign: "center", padding: 3 }}><button disabled={rest || !isToday} onClick={() => isToday && toggleHabit(key, h.id)} style={{ width: 26, height: 26, borderRadius: 7, border: "none", background: rest ? T.creamDeep : done ? T.forest : T.alertPale, opacity: isToday ? 1 : rest ? 1 : 0.55, cursor: isToday && !rest ? "pointer" : "default" }} /></td>;
+                  const key = d.toISOString().slice(0, 10); const rest = isSunday(d); const done = weekHabits[key]?.[h.id];
+                  return <td key={i} style={{ textAlign: "center", padding: 3 }}><button onClick={() => !rest && setSelectedDate(key)} style={{ width: 26, height: 26, borderRadius: 7, border: key === selectedDate ? `2px solid ${T.saffron}` : "none", background: rest ? T.creamDeep : done ? T.forest : T.alertPale, cursor: rest ? "default" : "pointer" }} /></td>;
                 })}
               </tr>
             ))}</tbody>
           </table>
         </div>
-        <div style={{ display: "flex", gap: 12, marginTop: 12, fontFamily: "Inter", fontSize: 11, color: T.inkSoft }}>
+        <div style={{ display: "flex", gap: 12, marginTop: 12, fontFamily: "Inter", fontSize: 11, color: T.inkSoft, flexWrap: "wrap" }}>
           <span><span style={{ display: "inline-block", width: 10, height: 10, background: T.forest, borderRadius: 3, marginRight: 4 }} />Done</span>
           <span><span style={{ display: "inline-block", width: 10, height: 10, background: T.alertPale, borderRadius: 3, marginRight: 4 }} />Missed</span>
           <span><span style={{ display: "inline-block", width: 10, height: 10, background: T.creamDeep, borderRadius: 3, marginRight: 4 }} />Sunday</span>
         </div>
+        <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 6 }}>Tap any day to jump the whole tab to that date, or use the calendar above for further back.</div>
       </Card>
       <div style={{ height: 14 }} />
       <SectionLabel>Streaks</SectionLabel>
@@ -717,18 +904,21 @@ function HabitsTab({ habitsWeek, toggleHabit, activities, addActivity, onOpenAsk
       </Card>
       <div style={{ height: 90 }} />
       <FabButton onOpenAsk={onOpenAsk} />
+      {calendarOpen && <CalendarPicker selectedDate={selectedDate} onSelect={setSelectedDate} onClose={() => setCalendarOpen(false)} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} />}
     </div>
   );
 }
 
 /* ============================== TAB 5: PLAN ============================== */
-function SupplementsTab({ supplementsToday, toggleSupplement, weekFood, onOpenAsk }) {
+function SupplementsTab({ selectedDate, setSelectedDate, supplementsForDate, toggleSupplement, weekFood, activities, weekSupplements, onOpenAsk }) {
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const groups = [{ key: "morning", label: "🌅 Morning" }, { key: "afternoon", label: "☀️ After lunch" }, { key: "evening", label: "🌆 Evening" }, { key: "night", label: "🌙 Before bed" }, { key: "weekly", label: "📅 Weekly" }];
   const freqMap = {};
   Object.values(weekFood || {}).flat().forEach(f => { const key = f.dish.trim().toLowerCase(); freqMap[key] = (freqMap[key] || 0) + 1; });
   const frequentlyEaten = Object.entries(freqMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
   return (
     <div className="tabPane">
+      <DateBar selectedDate={selectedDate} onOpenCalendar={() => setCalendarOpen(true)} onBackToToday={() => setSelectedDate(todayKey())} />
       <SectionLabel>Healthier versions of what you love</SectionLabel>
       <Card style={{ marginBottom: 18 }}><div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{SWAPS.map((s, i) => (
         <div key={i}><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13 }}>{s.craving}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, lineHeight: 1.4 }}>{s.swap}</div></div>
@@ -747,13 +937,13 @@ function SupplementsTab({ supplementsToday, toggleSupplement, weekFood, onOpenAs
           })}</div></Card>
         </>
       )}
-      <SectionLabel>Supplement schedule</SectionLabel>
+      <SectionLabel>Supplements — {formatDateLabel(selectedDate)}</SectionLabel>
       {groups.map(g => { const items = SUPPLEMENTS.filter(s => s.time === g.key); if (items.length === 0) return null; return (
         <div key={g.key} style={{ marginBottom: 14 }}>
           <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.inkSoft, marginBottom: 6 }}>{g.label}</div>
           <Card><div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{items.map(s => (
             <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <button onClick={() => toggleSupplement(s.id)} style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${supplementsToday[s.id] ? T.forest : T.border}`, background: supplementsToday[s.id] ? T.forest : T.white, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{supplementsToday[s.id] && <Icon name="check" size={14} color={T.white} />}</button>
+              <button onClick={() => toggleSupplement(selectedDate, s.id)} style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${supplementsForDate[s.id] ? T.forest : T.border}`, background: supplementsForDate[s.id] ? T.forest : T.white, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{supplementsForDate[s.id] && <Icon name="check" size={14} color={T.white} />}</button>
               <div style={{ flex: 1 }}><div style={{ fontFamily: "Inter", fontSize: 13.5, fontWeight: 600 }}>{s.name}</div><div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft }}>{s.dose} · {s.why}</div></div>
             </div>
           ))}</div></Card>
@@ -773,6 +963,7 @@ function SupplementsTab({ supplementsToday, toggleSupplement, weekFood, onOpenAs
         </div>
       ))}</Card>
       <FabButton onOpenAsk={onOpenAsk} />
+      {calendarOpen && <CalendarPicker selectedDate={selectedDate} onSelect={setSelectedDate} onClose={() => setCalendarOpen(false)} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} />}
     </div>
   );
 }
@@ -786,8 +977,9 @@ function AskPanel({ open, onClose }) {
     const text = input.trim(); if (!text || loading) return;
     setInput(""); setMessages(m => [...m, { role: "user", text }]); setLoading(true);
     const sys = `You are a direct, specific health assistant for Jignesh, 54, Indian vegetarian (Gujarati). Priorities: Triglycerides 257 (HIGH, target <150), GGT 105 (ELEVATED, target <64), TSH 4.57 (target 1.5-3.0), LDL 82 (OPTIMAL, protect it). Supplements: Omega-3, Isabgol, Ashwagandha, Liv.52, Silymarin, B12, Turmeric, Zinc, D3. Banned: alcohol, fruit juice, sugar, maida, fried food, large mango. Answer in 2-4 short sentences, direct and specific — never generic.`;
-    const reply = await callClaude(sys, text, false);
-    setLoading(false); setMessages(m => [...m, { role: "assistant", text: reply || "Couldn't reach the health engine." }]);
+    const outcome = await callClaude(sys, text, false);
+    setLoading(false);
+    setMessages(m => [...m, { role: "assistant", text: outcome.ok ? outcome.data : `Couldn't reach the health engine: ${outcome.error}` }]);
   }
   if (!open) return null;
   return (
@@ -808,13 +1000,15 @@ function AskPanel({ open, onClose }) {
 }
 
 /* ============================== SETTINGS PANEL ============================== */
-function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveGoalToggles, customGoals, saveCustomGoals, metrics, saveMetrics, periods, savePeriods, initialSection }) {
+function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveGoalToggles, customGoals, saveCustomGoals, metrics, saveMetrics, periods, savePeriods, initialSection, onClearDate, onClearAll }) {
   const [section, setSection] = useState(initialSection || "profile");
   const [form, setForm] = useState(profile);
   const [newGoalText, setNewGoalText] = useState("");
   const [newPeriodLabel, setNewPeriodLabel] = useState("");
   const [newValues, setNewValues] = useState({});
   const [addingReport, setAddingReport] = useState(false);
+  const [clearDateVal, setClearDateVal] = useState(todayKey());
+  const [confirmingClearAll, setConfirmingClearAll] = useState(false);
   useEffect(() => { setForm(profile); }, [profile, open]);
   useEffect(() => { if (open) setSection(initialSection || "profile"); }, [open, initialSection]);
   if (!open) return null;
@@ -828,12 +1022,12 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
     saveMetrics(metrics.map(m => ({ ...m, points: [...m.points, newValues[m.key] != null && newValues[m.key] !== "" ? Number(newValues[m.key]) : null] })));
     setNewPeriodLabel(""); setNewValues({}); setAddingReport(false);
   }
-  const SECTIONS = [{ id: "profile", label: "Profile" }, { id: "goals", label: "Goals" }, { id: "reports", label: "Reports" }];
+  const SECTIONS = [{ id: "profile", label: "Profile" }, { id: "goals", label: "Goals" }, { id: "reports", label: "Reports" }, { id: "data", label: "Data" }];
   return (
     <div className="askOverlay" onClick={onClose}>
       <div className="askPanel" onClick={e => e.stopPropagation()} style={{ height: "88vh" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", borderBottom: `1px solid ${T.border}` }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, color: T.teal }}>Profile & Reports</div><button onClick={onClose} style={{ background: "none", border: "none" }}><Icon name="x" size={20} color={T.inkSoft} /></button></div>
-        <div style={{ display: "flex", gap: 6, padding: "10px 16px", borderBottom: `1px solid ${T.border}` }}>{SECTIONS.map(s => <button key={s.id} onClick={() => setSection(s.id)} style={{ background: section === s.id ? T.teal : T.creamDeep, color: section === s.id ? T.white : T.ink, border: "none", borderRadius: 999, padding: "6px 14px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5 }}>{s.label}</button>)}</div>
+        <div style={{ display: "flex", gap: 6, padding: "10px 16px", borderBottom: `1px solid ${T.border}`, overflowX: "auto" }}>{SECTIONS.map(s => <button key={s.id} onClick={() => setSection(s.id)} style={{ background: section === s.id ? T.teal : T.creamDeep, color: section === s.id ? T.white : T.ink, border: "none", borderRadius: 999, padding: "6px 14px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, whiteSpace: "nowrap" }}>{s.label}</button>)}</div>
         <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
           {section === "profile" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -889,6 +1083,29 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
               <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 14, lineHeight: 1.5 }}>Manual entry only — this app can't read an uploaded PDF/Excel file itself.</div>
             </div>
           )}
+          {section === "data" && (
+            <div>
+              <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>CLEAR A SPECIFIC DATE</div>
+              <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 8 }}>Removes food, activity, habit, and supplement entries for one day only.</div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                <input type="date" value={clearDateVal} max={todayKey()} onChange={e => setClearDateVal(e.target.value)} style={{ flex: 1, border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", fontFamily: "Inter", fontSize: 13.5 }} />
+                <button onClick={() => onClearDate(clearDateVal)} style={{ background: T.alert, border: "none", borderRadius: 10, padding: "0 14px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5 }}>Clear</button>
+              </div>
+              <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>CLEAR EVERYTHING</div>
+              <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 8 }}>Deletes all food, activity, habit, and supplement history permanently. Profile, goals, and report history are not affected.</div>
+              {!confirmingClearAll ? (
+                <button onClick={() => setConfirmingClearAll(true)} style={{ width: "100%", background: T.alertPale, border: `1px solid ${T.alert}`, borderRadius: 10, padding: "10px 0", color: T.alert, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5 }}>Clear all history</button>
+              ) : (
+                <div style={{ background: T.alertPale, borderRadius: 10, padding: 12 }}>
+                  <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, marginBottom: 10 }}>This can't be undone. Delete every logged day permanently?</div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => setConfirmingClearAll(false)} style={{ flex: 1, background: T.white, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 0", fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5 }}>Cancel</button>
+                    <button onClick={() => { onClearAll(); setConfirmingClearAll(false); }} style={{ flex: 1, background: T.alert, border: "none", borderRadius: 8, padding: "8px 0", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5 }}>Yes, delete everything</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -898,6 +1115,7 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
 /* ============================== ROOT APP ============================== */
 function App() {
   const [tab, setTab] = useState("today");
+  const [selectedDate, setSelectedDate] = useState(todayKey());
   const [askOpen, setAskOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState("profile");
@@ -917,14 +1135,26 @@ function App() {
   const foodToday = weekFood[tk] || [];
   const supplementsToday = weekSupplements[tk] || {};
   const habitToday = weekHabits[tk] || {};
+  const foodForDate = weekFood[selectedDate] || [];
+  const supplementsForDate = weekSupplements[selectedDate] || {};
+  const habitsForDate = weekHabits[selectedDate] || {};
   const targets = computeTargets(profile.weight, goalToggles);
 
-  const addFoodEntry = (entry) => setWeekFood(prev => ({ ...prev, [tk]: [...(prev[tk] || []), entry] }));
-  const toggleSupplement = (id) => setWeekSupplements(prev => ({ ...prev, [tk]: { ...(prev[tk] || {}), [id]: !(prev[tk]?.[id]) } }));
+  const addFoodEntry = (dateKey, entry) => setWeekFood(prev => ({ ...prev, [dateKey]: [...(prev[dateKey] || []), entry] }));
+  const deleteFoodEntry = (dateKey, index) => setWeekFood(prev => ({ ...prev, [dateKey]: (prev[dateKey] || []).filter((_, i) => i !== index) }));
+  const toggleSupplement = (dateKey, id) => setWeekSupplements(prev => ({ ...prev, [dateKey]: { ...(prev[dateKey] || {}), [id]: !(prev[dateKey]?.[id]) } }));
   const toggleHabit = (dateKey, habitId) => setWeekHabits(prev => ({ ...prev, [dateKey]: { ...(prev[dateKey] || {}), [habitId]: !(prev[dateKey]?.[habitId]) } }));
   const clearDemo = () => setDemoCleared(true);
-  const addActivity = (entry) => setActivities(prev => ({ ...prev, [tk]: [...(prev[tk] || []), entry] }));
+  const addActivity = (dateKey, entry) => setActivities(prev => ({ ...prev, [dateKey]: [...(prev[dateKey] || []), entry] }));
+  const deleteActivity = (dateKey, index) => setActivities(prev => ({ ...prev, [dateKey]: (prev[dateKey] || []).filter((_, i) => i !== index) }));
   const openSettings = (section) => { setSettingsSection(section || "profile"); setSettingsOpen(true); };
+  const clearDateData = (dateKey) => {
+    setWeekFood(prev => { const n = { ...prev }; delete n[dateKey]; return n; });
+    setWeekSupplements(prev => { const n = { ...prev }; delete n[dateKey]; return n; });
+    setWeekHabits(prev => { const n = { ...prev }; delete n[dateKey]; return n; });
+    setActivities(prev => { const n = { ...prev }; delete n[dateKey]; return n; });
+  };
+  const clearAllData = () => { setWeekFood({}); setWeekSupplements({}); setWeekHabits({}); setActivities({}); };
 
   const TABS = [
     { id: "today", label: "Today", icon: "home" },
@@ -943,17 +1173,17 @@ function App() {
         @media (max-width: 460px) { .fab { right: 16px; } }
         .askOverlay { position: fixed; inset: 0; background: rgba(38,48,46,0.45); z-index: 50; display: flex; align-items: flex-end; justify-content: center; }
         .askPanel { background: ${T.cream}; width: 100%; max-width: 420px; height: 78vh; border-radius: 20px 20px 0 0; display: flex; flex-direction: column; }
-        .tabPane { padding: 18px 16px 16px; }
+        .tabPane { padding: calc(56px + env(safe-area-inset-top, 0px)) 16px 16px; }
         .spin { animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
       <div style={{ width: "100%", maxWidth: 420, background: T.cream, minHeight: "100vh", position: "relative", boxShadow: "0 0 40px rgba(0,0,0,0.06)" }}>
-        <button onClick={() => openSettings("profile")} aria-label="Profile and reports" style={{ position: "absolute", top: 14, right: 14, zIndex: 15, background: T.white, border: `1px solid ${T.border}`, borderRadius: 999, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><Icon name="settings" size={16} color={T.teal} /></button>
+        <button onClick={() => openSettings("profile")} aria-label="Profile and reports" style={{ position: "absolute", top: "calc(14px + env(safe-area-inset-top, 0px))", right: 14, zIndex: 15, background: T.white, border: `1px solid ${T.border}`, borderRadius: 999, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.08)" }}><Icon name="settings" size={17} color={T.teal} /></button>
         {tab === "today" && <TodayTab profile={profile} targets={targets} foodToday={foodToday} habitToday={habitToday} supplementsToday={supplementsToday} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} toggleHabit={toggleHabit} onOpenAsk={() => setAskOpen(true)} onNavigate={setTab} demoCleared={demoCleared} clearDemo={clearDemo} />}
-        {tab === "food" && <FoodCheckTab foodToday={foodToday} weekFood={weekFood} addFoodEntry={addFoodEntry} onOpenAsk={() => setAskOpen(true)} />}
-        {tab === "health" && <MyHealthTab metrics={metrics} periods={periods} supplementsToday={supplementsToday} toggleSupplement={toggleSupplement} onOpenAsk={() => setAskOpen(true)} onAddReport={() => openSettings("reports")} />}
-        {tab === "habits" && <HabitsTab habitsWeek={weekHabits} toggleHabit={toggleHabit} activities={activities} addActivity={addActivity} onOpenAsk={() => setAskOpen(true)} />}
-        {tab === "supplements" && <SupplementsTab supplementsToday={supplementsToday} toggleSupplement={toggleSupplement} weekFood={weekFood} onOpenAsk={() => setAskOpen(true)} />}
+        {tab === "food" && <FoodCheckTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} foodForDate={foodForDate} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} addFoodEntry={addFoodEntry} deleteFoodEntry={deleteFoodEntry} onOpenAsk={() => setAskOpen(true)} />}
+        {tab === "health" && <MyHealthTab metrics={metrics} periods={periods} supplementsToday={supplementsToday} toggleSupplement={(id) => toggleSupplement(tk, id)} onOpenAsk={() => setAskOpen(true)} onAddReport={() => openSettings("reports")} />}
+        {tab === "habits" && <HabitsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} habitsForDate={habitsForDate} toggleHabit={toggleHabit} weekHabits={weekHabits} weekFood={weekFood} weekSupplements={weekSupplements} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} onOpenAsk={() => setAskOpen(true)} />}
+        {tab === "supplements" && <SupplementsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} supplementsForDate={supplementsForDate} toggleSupplement={toggleSupplement} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} onOpenAsk={() => setAskOpen(true)} />}
         <div style={{ position: "fixed", bottom: 0, width: "100%", maxWidth: 420, background: T.teal, display: "flex", justifyContent: "space-around", padding: "10px 4px 12px", zIndex: 30 }}>
           {TABS.map(t => { const active = tab === t.id; return (
             <button key={t.id} onClick={() => setTab(t.id)} style={{ background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, opacity: active ? 1 : 0.6, cursor: "pointer" }}>
@@ -963,7 +1193,7 @@ function App() {
           ); })}
         </div>
         <AskPanel open={askOpen} onClose={() => setAskOpen(false)} />
-        <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} initialSection={settingsSection} profile={profile} saveProfile={setProfile} goalToggles={goalToggles} saveGoalToggles={setGoalToggles} customGoals={customGoals} saveCustomGoals={setCustomGoals} metrics={metrics} saveMetrics={setMetrics} periods={periods} savePeriods={setPeriods} />
+        <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} initialSection={settingsSection} profile={profile} saveProfile={setProfile} goalToggles={goalToggles} saveGoalToggles={setGoalToggles} customGoals={customGoals} saveCustomGoals={setCustomGoals} metrics={metrics} saveMetrics={setMetrics} periods={periods} savePeriods={setPeriods} onClearDate={clearDateData} onClearAll={clearAllData} />
       </div>
     </div>
   );
