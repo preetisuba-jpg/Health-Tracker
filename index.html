@@ -71,6 +71,7 @@ function Icon({ name, size = 18, color = T.ink, style }) {
     case "arrowRight": return <svg {...common}><path d="M5 12h14" /><path d="M13 6l6 6-6 6" /></svg>;
     case "settings": return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M4.2 4.2l2 2M17.8 17.8l2 2M2 12h3M19 12h3M4.2 19.8l2-2M17.8 6.2l2-2" /></svg>;
     case "external": return <svg {...common}><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><path d="M15 3h6v6" /><path d="M10 14L21 3" /></svg>;
+    case "clipboard": return <svg {...common}><rect x="5" y="4" width="14" height="17" rx="2" /><rect x="9" y="2" width="6" height="4" rx="1" /><path d="M8 11h8M8 15h5" /></svg>;
     default: return null;
   }
 }
@@ -128,7 +129,8 @@ function computeTopPriorities(metrics, periods) {
 
 const TEST_NEXT = ["CBC + Ferritin + Iron Studies — flagged 3+ reports running, still not done", "Fasting Blood Sugar + HbA1c — must-do given the TG spike", "Vitamin D + B12 — both borderline/low, not retested since Jul 2025", "T3 / T4 alongside next TSH", "Recheck GGT + Triglycerides in 6–8 weeks"];
 
-const SUPPLEMENTS = [
+let TOTAL_SUPPLEMENTS = 9; // updated by App root each render to reflect the current (editable) supplement list
+const SUPPLEMENTS_SEED = [
   { id: "omega3", name: "Omega-3 (Algal Oil)", dose: "1000–2000mg", time: "afternoon", timeLabel: "After lunch", why: "Core reason LDL dropped 168→82.", critical: true },
   { id: "isabgol", name: "Isabgol (Psyllium Husk)", dose: "1 tsp in warm water", time: "night", timeLabel: "Before bed", why: "Binds LDL cholesterol in gut.", critical: true },
   { id: "ashwagandha", name: "Ashwagandha", dose: "300–600mg", time: "morning", timeLabel: "After breakfast", why: "TSH was 2.8 at its best on this.", critical: true },
@@ -151,8 +153,91 @@ const BANNED = [
   { item: "Large mango portions", reason: "High fructose — small amount only." },
 ];
 const EAT_MORE = ["Dal — every day, protein anchor of every meal", "Jowar / bajra / ragi rotis instead of maida", "Walnuts — 5–7 halves daily, best for LDL", "Green sabzi (methi, palak) — liver + thyroid support", "Curd/dahi — 1 bowl daily for gut health", "Amla — liver protector, highest vitamin C"];
-const MEAL_IDEAS = { breakfast: ["Besan chilla with grated carrot, no butter", "Moong dal chilla + mint chutney", "Vegetable poha with peanuts (small handful)"], lunch: ["Dal + 2 bajra rotis + sabzi + curd", "Khichdi with extra vegetables + kadhi", "Roti + paneer sabzi (50–75g) + salad"], dinner: ["Light dal + jowar roti + sautéed greens", "Vegetable soup + grilled paneer + salad", "Khichdi (light, early dinner)"] };
+const MEAL_POOL = {
+  breakfast: ["Moong chilla with stuffed paneer bhurji", "Khata dhokla", "Lauki chilla", "Paneer dhosa", "Paneer stuffed paratha", "Thepla", "Besan chilla", "Paneer bhurji with Juwar roti", "Overnight soaked Oats", "Oats Idli", "Loki chilla", "Paneer stuffed moong dal chilla", "Mix daal Handvo- thin (patlo - like chilla )", "Moong daal pancake", "Cheese paratha", "Rawa idli with vegetables", "Alu poha with almonds", "Rawa dhosa", "Vegetable Upma", "Uttapam with tomato and paneer"],
+  lunch: ["Frankie with paneer, salad,  soup", "Paneer bhurji wrap, salad", "Bajra roti with palak paneer & Mag salad, Curd", "Stuffed lauki paratha + curd", "Bajra roti with bengan bhartha, salad", "Paneer, onion masala Stuffed jowar roti + garlic chutney, Fruits", "Mix Aata paratha, Chhole, Salad, curd", "Mix Aata paratha, Rajma, Salad, curd", "Mix aata roti, rice, shak, brocolli paneer saute", "Brocolli, paneer stuffed paratha, salad, tomato onion sabji", "Mix Aata paratha, paneer sabji, Salad, curd", "Mix Aata paratha, Dum aloo , Salad, curd", "Puri, chana, rice, kadhi, sambharo, papad", "Roti, sabji, rice, daal, sambharo, papad", "Ragda petis, salad, chhash", "Brown veg rice, soup, papad", "Brown rice, kala chana, kadhi, salad", "Gobhi Paratha, salad, curd", "Mung salad, Dal makhni, rice", "Mexican rice, soup, salad", "Rice, Rajma, salad, chhash,", "Brown rice, daal fry, salad, papad", "Paratha, Bengan bhartha, sadi khichdi", "Sama rice, shak, salad, curd, wafer , chilly fry"],
+  dinner: ["Aluparatha, tomato onion sabji", "Sprouted moong & corn chaat", "Dabeli", "vada pav", "Bhurji, mix Aata paratha", "Chat - panipuri/bhel/sevpuri", "Cheese/cream sandwich", "Chinese bhel", "Dudhi thepla, sabji", "Kachori", "Khaman dhokla, thepla, suki bhaji", "Misal pav", "Paratha , paneer sabji", "Pasta", "Pavbhaji", "Uttapam", "Pizza", "Potato sandwich", "Quesadillas", "Rawa dhokla, thepla", "Rawa idli, chattany", "Rawa oats sandwich, thepla", "Samosa", "Samosa balls, khari bhat", "Thepla", "Vegetable sandwich", "Alu poha", "Biryani, raita", "Chinese - rice, noodles, manchurian", "Idli sambhar", "Khari bhat", "Khichdi, kadhi, potato sabji, cut long carrot", "Lauki dhosa", "Masala dhosa", "Moong daal suji dhokla, chattany, Alu poha", "Palak khichdi", "Schezwan rice", "Tawa pulav, raita, papad", "veg. khichdi", "Veg. swami khichdi, long carrot, papad, tikhari", "Bhajiya", "Bitroot tikki", "Brocolli tikki", "Cutlet sallofry", "Khaman dhokla", "Moong daal suji dhokla, chattany", "Potato vada", "Sabudana khichdi, wafer, chilly fry", "Suki bhaji, wafer, chilly , peanut fry"],
+};
+// Rotates daily and deterministically (based on the actual calendar day, not random) so the
+// same 3 suggestions per meal show all day but change tomorrow — pulled from her real meal
+// rotation (Menu25 sheet), not invented.
+function todaysMealIdeas() {
+  const dayIdx = Math.floor(Date.now() / 86400000);
+  function pick(pool, offset, count) {
+    const picks = [];
+    for (let i = 0; i < count; i++) picks.push(pool[(dayIdx + offset + i * 7) % pool.length]);
+    return picks;
+  }
+  return {
+    breakfast: pick(MEAL_POOL.breakfast, 0, 3),
+    lunch: pick(MEAL_POOL.lunch, 3, 3),
+    dinner: pick(MEAL_POOL.dinner, 6, 3),
+  };
+}
 const MEAL_SLOTS = ["Breakfast", "Lunch", "Snack", "Dinner", "After Dinner"];
+
+// Real meal rotation from her Weekly Menu sheet — used to seed demo history, cycled
+// across the demo window (not tied to the original sheet's own dates).
+const WEEKLY_MENU_LOG = [{b:"Oats Idli",l:"Ragda petis, salad, chhash",d:"Dudhi thepla, sabji"},{b:"Besan chilla",l:"Brown veg rice, soup, papad",d:"veg. khichdi"},{b:"Paneer stuffed moong dal chilla",l:"Frankie with paneer, salad,  soup",d:null},{b:"Vegetable Upma",l:"Roti, sabji, rice, daal, sambharo, papad",d:"Cutlet sallofry"},{b:"Overnight soaked Oats",l:"Paratha, Bengan bhartha, sadi khichdi",d:"Pizza"},{b:"Thepla",l:"Mexican rice, soup, salad",d:"Sabudana khichdi, wafer, chilly fry"},{b:"Paneer bhurji with Juwar roti",l:"Mix Aata paratha, Chhole, Salad, curd",d:"Bhurji, mix Aata paratha"},{b:"Overnight soaked Oats",l:"Mix Aata paratha, Rajma, Salad, curd",d:"Chat - panipuri/bhel/sevpuri"},{b:"Oats Idli",l:"Mix aata roti, rice, shak, brocolli paneer saute",d:"Cheese/cream sandwich"},{b:"Loki chilla",l:"Brocolli, paneer stuffed paratha, salad, tomato onion sabji",d:"Chinese bhel"},{b:"Paneer stuffed moong dal chilla",l:"Mix Aata paratha, paneer sabji, Salad, curd",d:"Dudhi thepla, sabji"},{b:"Mix daal Handvo- thin (patlo - like chilla )",l:"Mix Aata paratha, Dum aloo , Salad, curd",d:"Kachori"},{b:"Moong daal pancake",l:"Puri, chana, rice, kadhi, sambharo, papad",d:"Khaman dhokla, thepla, suki bhaji"},{b:"Cheese paratha",l:"Roti, sabji, rice, daal, sambharo, papad",d:"Misal pav"},{b:"Rawa idli with vegetables",l:"Ragda petis, salad, chhash",d:"Paratha , paneer sabji"},{b:"Alu poha with almonds",l:"Brown veg rice, soup, papad",d:"Pasta"},{b:"Rawa dhosa",l:"Brown rice, kala chana, kadhi, salad",d:"Pavbhaji"},{b:"Vegetable Upma",l:"Gobhi Paratha, salad, curd",d:"Uttapam"},{b:"Uttapam with tomato and paneer",l:"Mung salad, Dal makhni, rice",d:"Pizza"},{b:null,l:"Rice, Rajma, salad, chhash, ",d:null},{b:null,l:"Brown rice, daal fry, salad, papad",d:null},{b:"Juice",l:"Paratha, Bengan bhartha, sadi khichdi",d:"Rawa dhokla, thepla"},{b:null,l:"Sama rice, shak, salad, curd, wafer , chilly fry",d:"Rawa idli, chattany"},{b:"Moong chilla with stuffed paneer bhurji",l:"Frankie with paneer, salad,  soup",d:"Aluparatha, tomato onion sabji"},{b:"Khata dhokla",l:"Paneer bhurji wrap, salad",d:"Sprouted moong & corn chaat"},{b:"Lauki chilla",l:"Bajra roti with palak paneer & Mag salad, Curd",d:"Dabeli"},{b:"Paneer dhosa",l:"Stuffed lauki paratha + curd",d:"vada pav"},{b:"Paneer stuffed paratha",l:"Bajra roti with bengan bhartha, salad",d:null},{b:"Thepla",l:"Paneer, onion masala Stuffed jowar roti + garlic chutney, Fruits",d:null},{b:"Besan chilla",l:"Mix Aata paratha, Chhole, Salad, curd",d:"Bhurji, mix Aata paratha"},{b:"Paneer bhurji with Juwar roti",l:"Mix Aata paratha, Rajma, Salad, curd",d:"Chat - panipuri/bhel/sevpuri"},{b:"Overnight soaked Oats",l:"Mix aata roti, rice, shak, brocolli paneer saute",d:"Cheese/cream sandwich"},{b:"Oats Idli",l:"Brocolli, paneer stuffed paratha, salad, tomato onion sabji",d:"Chinese bhel"},{b:"Loki chilla",l:"Mix Aata paratha, paneer sabji, Salad, curd",d:"Dudhi thepla, sabji"},{b:"Paneer stuffed moong dal chilla",l:"Mix Aata paratha, Dum aloo , Salad, curd",d:"Kachori"},{b:"Mix daal Handvo- thin (patlo - like chilla )",l:"Puri, chana, rice, kadhi, sambharo, papad",d:"Khaman dhokla, thepla, suki bhaji"},{b:"Moong daal pancake",l:"Roti, sabji, rice, daal, sambharo, papad",d:"Misal pav"},{b:"Cheese paratha",l:"Ragda petis, salad, chhash",d:"Paratha , paneer sabji"},{b:"Rawa idli with vegetables",l:"Brown veg rice, soup, papad",d:"Pasta"},{b:"Alu poha with almonds",l:"Brown rice, kala chana, kadhi, salad",d:"Pavbhaji"},{b:"Rawa dhosa",l:"Gobhi Paratha, salad, curd",d:"Uttapam"},{b:"Vegetable Upma",l:"Mung salad, Dal makhni, rice",d:"Pizza"},{b:"Uttapam with tomato and paneer",l:"Mexican rice, soup, salad",d:"Potato sandwich"},{b:null,l:"Rice, Rajma, salad, chhash, ",d:"Quesadillas"},{b:null,l:"Brown rice, daal fry, salad, papad",d:"Rawa dhokla, thepla"},{b:"Juice",l:"Paratha, Bengan bhartha, sadi khichdi",d:"Rawa idli, chattany"},{b:null,l:"Sama rice, shak, salad, curd, wafer , chilly fry",d:"Rawa oats sandwich, thepla"},{b:"Moong chilla with stuffed paneer bhurji",l:"Frankie with paneer, salad,  soup",d:"Samosa"},{b:"Khata dhokla",l:"Paneer bhurji wrap, salad",d:"Samosa balls, khari bhat"},{b:"Lauki chilla",l:"Bajra roti with palak paneer & Mag salad, Curd",d:"Thepla"},{b:"Paneer dhosa",l:"Stuffed lauki paratha + curd",d:"Vegetable sandwich"},{b:"Paneer stuffed paratha",l:"Bajra roti with bengan bhartha, salad",d:"Alu poha"},{b:"Thepla",l:"Paneer, onion masala Stuffed jowar roti + garlic chutney, Fruits",d:"Biryani, raita"},{b:"Besan chilla",l:"Mix Aata paratha, Chhole, Salad, curd",d:"Chinese - rice, noodles, manchurian"},{b:"Paneer bhurji with Juwar roti",l:"Mix Aata paratha, Rajma, Salad, curd",d:"Idli sambhar"},{b:"Overnight soaked Oats",l:"Mix aata roti, rice, shak, brocolli paneer saute",d:"Khari bhat"},{b:"Oats Idli",l:"Brocolli, paneer stuffed paratha, salad, tomato onion sabji",d:"Khichdi, kadhi, potato sabji, cut long carrot"},{b:"Loki chilla",l:"Mix Aata paratha, paneer sabji, Salad, curd",d:"Lauki dhosa"},{b:"Paneer stuffed moong dal chilla",l:"Mix Aata paratha, Dum aloo , Salad, curd",d:"Masala dhosa"},{b:"Mix daal Handvo- thin (patlo - like chilla )",l:"Puri, chana, rice, kadhi, sambharo, papad",d:"Moong daal suji dhokla, chattany, Alu poha"},{b:"Moong daal pancake",l:"Roti, sabji, rice, daal, sambharo, papad",d:"Palak khichdi"},{b:"Cheese paratha",l:"Ragda petis, salad, chhash",d:"Schezwan rice"},{b:"Rawa idli with vegetables",l:"Brown veg rice, soup, papad",d:"Tawa pulav, raita, papad"},{b:"Alu poha with almonds",l:"Brown rice, kala chana, kadhi, salad",d:"veg. khichdi"},{b:"Rawa dhosa",l:"Gobhi Paratha, salad, curd",d:"Veg. swami khichdi, long carrot, papad, tikhari"},{b:"Vegetable Upma",l:"Mung salad, Dal makhni, rice",d:"Bhajiya"},{b:"Uttapam with tomato and paneer",l:"Mexican rice, soup, salad",d:"Bitroot tikki"},{b:null,l:"Rice, Rajma, salad, chhash, ",d:"Brocolli tikki"},{b:null,l:"Brown rice, daal fry, salad, papad",d:"Cutlet sallofry"},{b:"Juice",l:"Paratha, Bengan bhartha, sadi khichdi",d:"Khaman dhokla"},{b:null,l:"Sama rice, shak, salad, curd, wafer , chilly fry",d:"Moong daal suji dhokla, chattany"},{b:"Moong chilla with stuffed paneer bhurji",l:"Frankie with paneer, salad,  soup",d:"Potato vada"},{b:"Khata dhokla",l:"Paneer bhurji wrap, salad",d:"Sabudana khichdi, wafer, chilly fry"},{b:"Lauki chilla",l:"Bajra roti with palak paneer & Mag salad, Curd",d:"Suki bhaji, wafer, chilly , peanut fry"},{b:"Paneer dhosa",l:"Stuffed lauki paratha + curd",d:"Aluparatha, tomato onion sabji"},{b:"Paneer stuffed paratha",l:"Bajra roti with bengan bhartha, salad",d:"Sprouted moong & corn chaat"},{b:"Thepla",l:"Paneer, onion masala Stuffed jowar roti + garlic chutney, Fruits",d:"Dabeli"},{b:"Besan chilla",l:"Mix Aata paratha, Chhole, Salad, curd",d:"vada pav"},{b:"Paneer bhurji with Juwar roti",l:"Mix Aata paratha, Rajma, Salad, curd",d:null},{b:"Overnight soaked Oats",l:"Mix aata roti, rice, shak, brocolli paneer saute",d:null},{b:"Oats Idli",l:"Brocolli, paneer stuffed paratha, salad, tomato onion sabji",d:"Bhurji, mix Aata paratha"},{b:"Loki chilla",l:"Mix Aata paratha, paneer sabji, Salad, curd",d:"Chat - panipuri/bhel/sevpuri"}];
+
+// Matches a meal-plan text entry against FOOD_DB only (kept synchronous/fast — no API
+// calls during bulk demo generation). Falls back to a neutral "moderate" placeholder,
+// clearly tagged demo, when it's a compound description that can't be auto-classified.
+function classifyDemoMeal(dishText) {
+  if (!dishText) return null;
+  const key = normalizeWithAliases(dishText);
+  for (const [k, entry] of Object.entries(FOOD_DB)) {
+    const nk = normalizeWithAliases(k);
+    if (key.includes(nk) || nk.includes(key)) {
+      return { dish: dishText, calories: entry.calories, protein: entry.protein, fiber: entry.fiber, carbs: entry.carbs, sugar: entry.sugar, verdict: entry.verdict, demo: true };
+    }
+  }
+  return { dish: dishText, calories: null, protein: null, fiber: null, carbs: null, sugar: null, verdict: "moderate", demo: true };
+}
+
+// Generates one demo month (Aug 9 – Sep 8, 2026) using her real meal rotation for food,
+// and her specified activity pattern: high-walk Aug 18–30, more-standing-less-walking
+// Sep 1–5, and very light/inactive on every other day. Pure function — returns data,
+// doesn't touch storage directly, so it stays easy to review before applying and easy
+// to wipe via the existing "Clear all history" / "Clear a specific date" controls.
+function generateDemoMonth() {
+  const foodByDate = {}, activitiesByDate = {}, habitsByDate = {};
+  const start = new Date(2026, 7, 9);   // Aug 9, 2026
+  const end = new Date(2026, 8, 8);     // Sep 8, 2026
+  const highWalkStart = new Date(2026, 7, 18), highWalkEnd = new Date(2026, 7, 30);
+  const standingStart = new Date(2026, 8, 1), standingEnd = new Date(2026, 8, 5);
+
+  let i = 0;
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1), i++) {
+    const dk = d.toISOString().slice(0, 10);
+    const menuDay = WEEKLY_MENU_LOG[i % WEEKLY_MENU_LOG.length];
+    const entries = [];
+    [["b", "Breakfast"], ["l", "Lunch"], ["d", "Dinner"]].forEach(([key, slot]) => {
+      const classified = classifyDemoMeal(menuDay[key]);
+      if (classified) entries.push({ ...classified, mealSlot: slot, time: d.getTime() });
+    });
+    if (entries.length) foodByDate[dk] = entries;
+
+    const acts = [];
+    const habits = { demo: true };
+    if (d >= highWalkStart && d <= highWalkEnd) {
+      const steps = 8000 + Math.floor(Math.random() * 12000); // 8k–20k
+      const mins = Math.round(steps / 130); // rough pace proxy
+      acts.push({ type: "Walk", duration: mins, time: d.getTime(), demo: true, note: `~${steps.toLocaleString()} steps` });
+      habits.walk = true; habits.noAlcohol = true; habits.water = true;
+    } else if (d >= standingStart && d <= standingEnd) {
+      acts.push({ type: "Other", duration: 15, time: d.getTime(), demo: true, note: "Mostly standing, minimal walking" });
+      habits.walk = false;
+    } else {
+      if (Math.random() < 0.15) acts.push({ type: "Other", duration: 10, time: d.getTime(), demo: true });
+      habits.walk = false;
+    }
+    if (acts.length) activitiesByDate[dk] = acts;
+    habitsByDate[dk] = habits;
+  }
+  return { foodByDate, activitiesByDate, habitsByDate };
+}
+
 const ACTIVITY_TYPES = ["Walk", "Gym / Strength", "Yoga", "Cycling", "Swimming", "Other"];
 
 // verdict, macros, weeklyLimit, healthierTip (used regardless of what's typed in)
@@ -286,17 +371,87 @@ function contextSearchUrl(question) {
   return `https://www.google.com/search?q=${encodeURIComponent(question + " for someone with high triglycerides and elevated GGT liver enzyme")}`;
 }
 
-// Deterministic verdict from macros — rules-based on his current priorities (TG 257, GGT 105),
-// not an AI judgment. Used for dishes looked up via the free nutrition API.
+// Deterministic verdict from macros — rules-based on current priorities, not an AI
+// judgment. Used for dishes looked up via the free nutrition API or pasted text.
 function classifyMacros(dishName, macros) {
   const name = dishName.toLowerCase();
+  const notFriedOverride = /\bair.?(fry|fri)|baked|steamed|grilled|boiled|roasted(?! peanuts)/.test(name);
   const friedWords = ["fried", " fry", "vada", "bhajiya", "puri", "pakora", "chips", "samosa", "kachori", "bhatura"];
-  const isFried = friedWords.some(k => name.includes(k));
+  const isFried = !notFriedOverride && friedWords.some(k => name.includes(k));
   const sugar = macros.sugar || 0, fat = macros.fat || 0, carbs = macros.carbs || 0;
   if (isFried || sugar >= 15) return "avoid";
   if (sugar >= 8 || fat >= 18 || carbs >= 55) return "limit";
   if (sugar >= 4 || fat >= 10 || carbs >= 35) return "moderate";
   return "safe";
+}
+
+// Detects improving modifiers in a dish name — "air fried", "sugar free", "brown rice",
+// "less oil", "with ghee", "extra vegetables" etc — and upgrades a base verdict
+// accordingly. Applied on top of both curated-DB matches and freshly looked-up dishes,
+// so "air fried veg cutlet" or "sugar free besan laddoo" get credit for the swap
+// already made, instead of being flagged the same as the unmodified dish.
+const VERDICT_ORDER = ["avoid", "limit", "moderate", "safe"];
+const IMPROVING_MODIFIERS = [
+  { match: ["brown bread", "brown rice", "whole wheat", "whole grain", "wholegrain", "multigrain", "jowar", "bajra", "ragi", "millet", "oats aata", "mix aata", "atta"], note: "whole grain / millet base instead of refined flour" },
+  { match: ["air fried", "air-fried", "air fry", "air fryer", "baked", "steamed", "grilled", "boiled"], note: "not deep-fried" },
+  { match: ["sugar free", "sugar-free", "no sugar", "jaggery-free", "date sweetened", "date-sweetened", "stevia"], note: "reduced or no added sugar" },
+  { match: ["less oil", "low oil", "minimal oil", "no oil"], note: "less oil than usual" },
+  { match: ["with ghee"], note: "ghee instead of butter or refined oil" },
+  { match: ["extra vegetables", "more vegetables", "loaded with veg", "broccoli", "beetroot", "capsicum", "added vegetables"], note: "extra vegetables added" },
+];
+function detectModifiers(dishName) {
+  const name = dishName.toLowerCase();
+  const notes = [];
+  for (const m of IMPROVING_MODIFIERS) {
+    if (m.match.some(k => name.includes(k))) notes.push(m.note);
+  }
+  return notes;
+}
+function applyModifierUpgrade(baseVerdict, dishName) {
+  const notes = detectModifiers(dishName);
+  if (notes.length === 0) return { verdict: baseVerdict, notes: [] };
+  // cap the upgrade at 2 tiers regardless of how many modifiers match, so e.g.
+  // "air fried sugar free jalebi" doesn't get waved through as fully "safe"
+  const steps = Math.min(2, notes.length);
+  const normalizedBase = baseVerdict === "caution" ? "moderate" : baseVerdict; // "caution" and "moderate" render identically but only "moderate" is in VERDICT_ORDER
+  const baseIdx = VERDICT_ORDER.indexOf(normalizedBase);
+  const idx = Math.min(VERDICT_ORDER.length - 1, (baseIdx === -1 ? 0 : baseIdx) + steps);
+  return { verdict: VERDICT_ORDER[idx], notes };
+}
+// Strips recognized modifier phrases from a query so the *base dish* can still be
+// matched against the curated list/corpus even when modifiers are typed inline
+// (e.g. "air fried vada pav" -> matches "vada pav", then the verdict is upgraded).
+function stripModifiers(dishName) {
+  let name = dishName;
+  for (const m of IMPROVING_MODIFIERS) {
+    for (const k of m.match) {
+      name = name.replace(new RegExp(k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "");
+    }
+  }
+  // clean up leftover connector words the modifier phrases leave behind
+  // (e.g. "aloo paratha with jowar atta" -> after removing "jowar"/"atta" -> "aloo paratha with")
+  name = name.replace(/\b(with|using|made|instead of|and|no)\b/gi, "");
+  return name.replace(/\s+/g, " ").trim() || dishName;
+}
+
+// Given the CURRENT top-priority markers (from the latest report — updates automatically
+// if the report changes) and a dish's macro profile, generates good/bad tags. Approximate
+// and rules-based on purpose — not a clinical claim, just a rough macro-level signal.
+function computeDynamicTags(macros, priorities) {
+  const tags = [];
+  const sugar = macros.sugar, fat = macros.fat;
+  for (const p of priorities || []) {
+    let verdict = null;
+    if (p.key === "tg" || p.key === "chol") {
+      if (sugar != null) { if (sugar >= 8) verdict = "bad"; else if (sugar <= 3) verdict = "good"; }
+    } else if (p.key === "ggt") {
+      if (fat != null && fat >= 15) verdict = "bad";
+    } else if (p.key === "ldl") {
+      if (fat != null) { if (fat >= 15) verdict = "bad"; else if (fat <= 5) verdict = "good"; }
+    }
+    if (verdict) tags.push({ label: p.label, verdict });
+  }
+  return tags;
 }
 
 // Keyword-based swap suggestions — e.g. "roti" -> suggest jowar/bajra roti. Deterministic,
@@ -350,6 +505,38 @@ async function loadDishCorpus() {
     DISH_CORPUS = { cuisines: [], dishes: [] };
   }
   return DISH_CORPUS;
+}
+
+// 1,479-dish rating corpus — unlike the name-only corpus above, this one's ratings do
+// differentiate real dishes (jalebi scores badly, dhokla scores well), so it's used as a
+// rough verdict fallback when no real macro data is available. Always labeled "approximate"
+// in the UI — the explanatory text behind these ratings is templated, not dish-specific.
+let DISH_RATINGS = null;
+async function loadDishRatings() {
+  if (DISH_RATINGS) return DISH_RATINGS;
+  try {
+    const res = await fetch("dishratings.json");
+    DISH_RATINGS = await res.json();
+  } catch {
+    DISH_RATINGS = { subs: [], portions: [], dishes: [] };
+  }
+  return DISH_RATINGS;
+}
+function ratingToVerdict(avg) {
+  if (avg <= 1.5) return "avoid";
+  if (avg <= 2.5) return "limit";
+  if (avg <= 3.5) return "moderate";
+  return "safe";
+}
+function lookupDishRating(query, ratings) {
+  const nq = normalizeWithAliases(query);
+  if (!ratings || !ratings.dishes) return null;
+  for (const [name, avg, subIdx, portionIdx] of ratings.dishes) {
+    if (normalizeWithAliases(name) === nq) {
+      return { name, verdict: ratingToVerdict(avg), substitution: ratings.subs[subIdx], portion: ratings.portions[portionIdx] };
+    }
+  }
+  return null;
 }
 
 const DISH_ALIASES = {
@@ -499,7 +686,7 @@ function dayScore(entries, habitsForDay, supplementsForDay) {
   const habitsDone = Object.values(habitsForDay || {}).filter(Boolean).length;
   const habitScore = Math.round((habitsDone / HABITS.length) * 100);
   const supplementsDone = Object.values(supplementsForDay || {}).filter(Boolean).length;
-  const supScore = Math.round((supplementsDone / SUPPLEMENTS.length) * 100);
+  const supScore = Math.round((supplementsDone / (TOTAL_SUPPLEMENTS || 1)) * 100);
   return Math.max(0, Math.min(100, Math.round(foodScore * 0.4 + habitScore * 0.35 + supScore * 0.25)));
 }
 function hasAnyData(dateKey, weekFood, weekHabits, weekSupplements) {
@@ -569,14 +756,6 @@ function NutrientBar({ label, value, target, unit, warnOver }) {
       </div>
       <div style={{ height: 7, borderRadius: 999, background: T.creamDeep, overflow: "hidden" }}><div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 999 }} /></div>
     </div>
-  );
-}
-function FabButton({ onOpenAsk }) {
-  return (
-    <button className="fab" onClick={onOpenAsk} aria-label="Ask about a dish">
-      <Icon name="message" size={20} color={T.white} />
-      <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.white }}>Ask</span>
-    </button>
   );
 }
 function QuickAction({ label, icon, onClick }) {
@@ -724,7 +903,7 @@ function TrendRow({ label, value, compareLabel, compareValue }) {
   );
 }
 
-function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, weekFood, weekHabits, weekSupplements, toggleHabit, onOpenAsk, onNavigate, demoCleared, clearDemo }) {
+function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, weekFood, weekHabits, weekSupplements, toggleHabit, supplements, onNavigate, demoCleared, clearDemo }) {
   const day = new Date();
   const dateStr = day.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
   const sunday = isSunday(day);
@@ -769,7 +948,7 @@ function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, w
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, textAlign: "center" }}>
           <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 18, color: score >= 70 ? T.forest : score >= 45 ? T.amber : T.alert }}>{score}</div><div style={{ fontFamily: "Inter", fontSize: 10, color: T.inkSoft }}>score</div></div>
           <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 18, color: habitToday.walk ? T.forest : T.inkSoft }}>{sunday ? "—" : habitToday.walk ? "✓" : "✗"}</div><div style={{ fontFamily: "Inter", fontSize: 10, color: T.inkSoft }}>walk</div></div>
-          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>{supplementsDone}/{SUPPLEMENTS.length}</div><div style={{ fontFamily: "Inter", fontSize: 10, color: T.inkSoft }}>supplements</div></div>
+          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>{supplementsDone}/{supplements.length}</div><div style={{ fontFamily: "Inter", fontSize: 10, color: T.inkSoft }}>supplements</div></div>
           <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>{sums.calories}</div><div style={{ fontFamily: "Inter", fontSize: 10, color: T.inkSoft }}>calories</div></div>
         </div>
       </Card>
@@ -812,9 +991,9 @@ function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, w
       <div style={{ height: 14 }} />
       <Card>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div><SectionLabel>Supplements</SectionLabel><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>{supplementsDone} of {SUPPLEMENTS.length} taken</div></div>
+          <div><SectionLabel>Supplements</SectionLabel><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>{supplementsDone} of {supplements.length} taken</div></div>
           <button onClick={() => onNavigate("supplements")} style={{ background: T.tealPale, border: "none", borderRadius: 10, padding: "8px 12px", display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
-            <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.teal }}>Go to Plan</span><Icon name="arrowRight" size={14} color={T.teal} />
+            <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.teal }}>Go to Supplements</span><Icon name="arrowRight" size={14} color={T.teal} />
           </button>
         </div>
       </Card>
@@ -842,7 +1021,6 @@ function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, w
         <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 8 }}>Averages only count days with at least one logged item — empty days don't drag the average down.</div>
       </Card>
       <div style={{ height: 90 }} />
-      <FabButton onOpenAsk={onOpenAsk} />
     </div>
   );
 }
@@ -850,7 +1028,8 @@ function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, w
 /* ============================== TAB 2: FOOD CHECK ============================== */
 function MiniStat({ v, l }) { return <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15 }}>{v ?? "—"}</div><div style={{ fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft }}>{l}</div></div>; }
 
-function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, activities, weekSupplements, addFoodEntry, deleteFoodEntry, customDishes, saveCustomDish, onOpenAsk }) {
+function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, activities, weekSupplements, addFoodEntry, deleteFoodEntry, customDishes, saveCustomDish, metrics, periods }) {
+  const priorities = computeTopPriorities(metrics, periods);
   const [query, setQuery] = useState("");
   const [result, setResult] = useState(null);
   const [notFound, setNotFound] = useState(null); // dish name when no local or looked-up match
@@ -868,52 +1047,88 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
   async function checkDish(dish) {
     setResult(null); setWarning(null); setNotFound(null); setManualVerdict(null); setManualCals(""); setPasteText(""); setPastePreview(null); setCorrectedFrom(null);
     const raw = dish.trim();
+    const modifierNotes = detectModifiers(raw);
+    const coreDish = modifierNotes.length > 0 ? stripModifiers(raw) : raw;
 
-    // 1. Curated FOOD_DB, exact or fuzzy (typo-tolerant)
+    // 1. Curated FOOD_DB, exact or fuzzy (typo-tolerant), matched on the core dish name
+    //    (modifiers like "air fried" stripped first, then re-applied as a verdict upgrade)
     const foodKeys = Object.keys(FOOD_DB);
-    const matchedFoodKey = fuzzyMatchKey(raw, foodKeys);
+    const matchedFoodKey = fuzzyMatchKey(coreDish, foodKeys);
     if (matchedFoodKey) {
       const entry = FOOD_DB[matchedFoodKey];
-      if (normalizeWithAliases(matchedFoodKey) !== normalizeWithAliases(raw)) setCorrectedFrom(matchedFoodKey);
-      setResult({ dish: matchedFoodKey, ...entry, healthierTip: entry.healthierTip || suggestSwap(matchedFoodKey) });
+      if (normalizeWithAliases(matchedFoodKey) !== normalizeWithAliases(coreDish)) setCorrectedFrom(matchedFoodKey);
+      const { verdict: upgradedVerdict, notes } = applyModifierUpgrade(entry.verdict, raw);
+      setResult({
+        dish: raw, verdict: upgradedVerdict,
+        calories: entry.calories, protein: entry.protein, fiber: entry.fiber, carbs: entry.carbs, sugar: entry.sugar,
+        portion: entry.portion, marker: entry.marker, weeklyLimit: entry.weeklyLimit,
+        reason: entry.reason + (notes.length ? ` Improved because: ${notes.join(", ")}.` : ""),
+        healthierTip: notes.length ? null : (entry.healthierTip || suggestSwap(matchedFoodKey)),
+        dynamicTags: computeDynamicTags(entry, priorities),
+      });
       return;
     }
 
-    // 2. Your own saved dishes (from past pastes), exact or fuzzy
+    // 2. Your own saved dishes (from past pastes/manual entries), exact or fuzzy
     const customKeys = Object.keys(customDishes);
-    const matchedCustomKey = fuzzyMatchKey(raw, customKeys);
+    const matchedCustomKey = fuzzyMatchKey(coreDish, customKeys);
     if (matchedCustomKey) {
       const entry = customDishes[matchedCustomKey];
-      if (normalizeWithAliases(matchedCustomKey) !== normalizeWithAliases(raw)) setCorrectedFrom(matchedCustomKey);
-      setResult({ dish: matchedCustomKey, ...entry, lookedUp: true, source: "your saved dishes" });
+      if (normalizeWithAliases(matchedCustomKey) !== normalizeWithAliases(coreDish)) setCorrectedFrom(matchedCustomKey);
+      const { verdict: upgradedVerdict, notes } = applyModifierUpgrade(entry.verdict, raw);
+      setResult({
+        dish: raw, ...entry, verdict: upgradedVerdict,
+        reason: entry.reason + (notes.length ? ` Improved because: ${notes.join(", ")}.` : ""),
+        lookedUp: true, source: "your saved dishes",
+        dynamicTags: computeDynamicTags(entry, priorities),
+      });
       return;
     }
 
-    // 3. Correct against the 5,200-name spelling corpus, then retry the free API with the cleaned-up name
+    // 3. Correct against the 5,200-name spelling corpus, then retry the free API with the cleaned-up core name
     setLookingUp(true);
     const corpus = await loadDishCorpus();
-    const corrected = fuzzyMatchCorpus(raw, corpus);
-    const queryForApi = corrected || raw;
+    const corrected = fuzzyMatchCorpus(coreDish, corpus);
+    const queryForApi = corrected || coreDish;
     const data = await lookupNutrition(queryForApi);
     setLookingUp(false);
     if (data) {
-      const verdict = classifyMacros(queryForApi, data);
-      if (corrected && normalizeWithAliases(corrected) !== normalizeWithAliases(raw)) setCorrectedFrom(corrected);
+      const baseVerdict = classifyMacros(raw, data); // raw, so the fried-override regex still sees "air fried" etc directly
+      const { verdict: upgradedVerdict, notes } = applyModifierUpgrade(baseVerdict, raw);
+      if (corrected && normalizeWithAliases(corrected) !== normalizeWithAliases(coreDish)) setCorrectedFrom(corrected);
       setResult({
-        dish: corrected || raw, verdict,
+        dish: raw, verdict: upgradedVerdict,
         calories: data.calories != null ? Math.round(data.calories) : null,
         protein: data.protein != null ? Math.round(data.protein) : null,
         fiber: data.fiber != null ? Math.round(data.fiber) : null,
         carbs: data.carbs != null ? Math.round(data.carbs) : null,
         sugar: data.sugar != null ? Math.round(data.sugar) : null,
-        portion: data.servingDesc || "as typically served",
-        reason: `Estimated from ${data.source || "nutrition database"} data for ${data.servingDesc || "a standard serving"} — verdict is a rules-based estimate, not a clinical judgment.`,
+        portion: data.servingDesc || "as typically served (1 person)",
+        reason: `Estimated from ${data.source || "nutrition database"} data for ${data.servingDesc || "a standard serving"} — verdict is a rules-based estimate, not a clinical judgment.${notes.length ? ` Improved because: ${notes.join(", ")}.` : ""}`,
         marker: null, weeklyLimit: null,
-        healthierTip: suggestSwap(corrected || raw),
+        healthierTip: notes.length ? null : suggestSwap(corrected || coreDish),
         lookedUp: true, source: data.source,
+        dynamicTags: computeDynamicTags(data, priorities),
       });
     } else {
-      setNotFound(corrected || raw);
+      // Last automatic attempt: the 1,479-dish rating corpus. No real calorie numbers here,
+      // just a rough verdict + portion + substitution tip — clearly labeled as approximate.
+      const ratings = await loadDishRatings();
+      const ratingMatch = lookupDishRating(corrected || coreDish, ratings) || lookupDishRating(raw, ratings);
+      if (ratingMatch) {
+        const { verdict: upgradedVerdict, notes } = applyModifierUpgrade(ratingMatch.verdict, raw);
+        setResult({
+          dish: raw, verdict: upgradedVerdict,
+          calories: null, protein: null, fiber: null, carbs: null, sugar: null,
+          portion: ratingMatch.portion || "as typically served (1 person)",
+          reason: `Approximate rating from the dish reference list — no exact calorie data available for this one.${notes.length ? ` Improved because: ${notes.join(", ")}.` : ""}`,
+          marker: null, weeklyLimit: null,
+          healthierTip: notes.length ? null : (ratingMatch.substitution || suggestSwap(raw)),
+          lookedUp: true, source: "dish reference list (approximate)",
+        });
+      } else {
+        setNotFound(corrected || raw);
+      }
     }
   }
 
@@ -951,8 +1166,16 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
   }
   function logManual() {
     if (!manualVerdict) return;
-    const entry = { dish: notFound, calories: manualCals ? Number(manualCals) : null, protein: null, fiber: null, carbs: null, sugar: null, verdict: manualVerdict, mealSlot, manual: true, time: Date.now() };
-    addFoodEntry(selectedDate, entry);
+    const savedEntry = {
+      verdict: manualVerdict, calories: manualCals ? Number(manualCals) : null,
+      protein: null, fiber: null, carbs: null, sugar: null,
+      portion: "as typically served (1 person)",
+      reason: "Verdict set manually after checking online.",
+      marker: null, weeklyLimit: null, healthierTip: suggestSwap(notFound),
+    };
+    const key = normalizeWithAliases(notFound);
+    saveCustomDish(key, savedEntry);
+    addFoodEntry(selectedDate, { dish: notFound, ...savedEntry, mealSlot, manual: true, time: Date.now() });
     setNotFound(null); setManualVerdict(null); setManualCals(""); setQuery("");
   }
   const totalCals = foodForDate.reduce((s, f) => s + (f.calories || 0), 0);
@@ -1020,6 +1243,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{MEAL_SLOTS.map(s => <button key={s} onClick={() => setMealSlot(s)} style={{ background: mealSlot === s ? T.teal : T.creamDeep, color: mealSlot === s ? T.white : T.ink, border: "none", borderRadius: 999, padding: "5px 11px", fontFamily: "Inter", fontSize: 12 }}>{s}</button>)}</div>
             </div>
             <button onClick={logManual} disabled={!manualVerdict} style={{ width: "100%", background: manualVerdict ? T.teal : T.creamDeep, border: "none", borderRadius: 10, padding: "10px 0", color: manualVerdict ? T.white : T.inkSoft, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5 }}>Log this meal</button>
+            <div style={{ fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft, marginTop: 6 }}>Saved permanently — typing "{notFound}" again will use this verdict instantly.</div>
           </Card>
         </>
       )}
@@ -1031,6 +1255,13 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
             {correctedFrom && <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginBottom: 8 }}>Matched "{query}" to "{correctedFrom}"</div>}
             {result.ingredients && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>Likely: {result.ingredients}</div>}
             <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: meta(result.verdict).bg, color: meta(result.verdict).fg, padding: "6px 12px", borderRadius: 999, fontFamily: "Manrope", fontWeight: 800, fontSize: 13, marginBottom: 10 }}>{meta(result.verdict).emoji} {meta(result.verdict).label}</div>
+            {result.dynamicTags && result.dynamicTags.length > 0 && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                {result.dynamicTags.map((t, i) => (
+                  <Badge key={i} bg={t.verdict === "bad" ? T.alertPale : T.forestPale} fg={t.verdict === "bad" ? T.alert : T.forest}>{t.verdict === "bad" ? "🔴" : "🟢"} {t.verdict === "bad" ? "Watch for" : "Good for"} {t.label}</Badge>
+                ))}
+              </div>
+            )}
             <div style={{ fontFamily: "Inter", fontSize: 13.5, color: T.ink, lineHeight: 1.5, marginBottom: 10 }}>{result.reason}</div>
             <div style={{ display: "flex", gap: 14, marginBottom: 12, flexWrap: "wrap" }}><MiniStat v={result.calories} l="cal" /><MiniStat v={result.protein} l="protein g" /><MiniStat v={result.fiber} l="fiber g" /><MiniStat v={result.sugar} l="sugar g" /></div>
             {result.weeklyLimit != null && <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>You've had this {weeklyCountFor(result.dish)}x this week · cap: {result.weeklyLimit}/week</div>}
@@ -1079,14 +1310,13 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
         )}
       </Card>
       <div style={{ height: 90 }} />
-      <FabButton onOpenAsk={onOpenAsk} />
       {calendarOpen && <CalendarPicker selectedDate={selectedDate} onSelect={setSelectedDate} onClose={() => setCalendarOpen(false)} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} />}
     </div>
   );
 }
 
 /* ============================== TAB 3: MY HEALTH ============================== */
-function MyHealthTab({ metrics, periods, supplementsToday, toggleSupplement, onOpenAsk, onAddReport }) {
+function MyHealthTab({ metrics, periods, supplementsToday, toggleSupplement, supplements, onAddReport }) {
   const priorities = computeTopPriorities(metrics, periods);
   return (
     <div className="tabPane">
@@ -1133,20 +1363,19 @@ function MyHealthTab({ metrics, periods, supplementsToday, toggleSupplement, onO
       </Card>
       <div style={{ height: 18 }} />
       <SectionLabel>Supplement tracker — today</SectionLabel>
-      <Card><div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{SUPPLEMENTS.map(s => (
-        <label key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+      <Card><div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{supplements.map(s => (
+        <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
           <button onClick={() => toggleSupplement(s.id)} style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${supplementsToday[s.id] ? T.forest : T.border}`, background: supplementsToday[s.id] ? T.forest : T.white, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{supplementsToday[s.id] && <Icon name="check" size={14} color={T.white} />}</button>
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: "Inter", fontSize: 13.5, fontWeight: 600, textDecoration: supplementsToday[s.id] ? "line-through" : "none", color: supplementsToday[s.id] ? T.inkSoft : T.ink }}>{s.name} {s.isNew && <Badge bg={T.amberPale} fg={T.amber}>NEW</Badge>}</div>
             <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft }}>{s.dose} · {s.timeLabel}</div>
           </div>
-        </label>
+        </div>
       ))}</div></Card>
       <div style={{ height: 18 }} />
       <SectionLabel>What to test next</SectionLabel>
       <Card>{TEST_NEXT.map((t, i) => <div key={i} style={{ display: "flex", gap: 8, marginBottom: i === TEST_NEXT.length - 1 ? 0 : 8 }}><Icon name="alert" size={14} color={T.amber} style={{ flexShrink: 0, marginTop: 2 }} /><span style={{ fontFamily: "Inter", fontSize: 13, lineHeight: 1.4 }}>{t}</span></div>)}</Card>
       <div style={{ height: 90 }} />
-      <FabButton onOpenAsk={onOpenAsk} />
     </div>
   );
 }
@@ -1204,7 +1433,7 @@ function ActivityLog({ selectedDate, activities, addActivity, deleteActivity }) 
   );
 }
 
-function HabitsTab({ selectedDate, setSelectedDate, habitsForDate, toggleHabit, weekHabits, weekFood, weekSupplements, activities, addActivity, deleteActivity, onOpenAsk }) {
+function HabitsTab({ selectedDate, setSelectedDate, habitsForDate, toggleHabit, weekHabits, weekFood, weekSupplements, activities, addActivity, deleteActivity }) {
   const dates = last7Dates();
   const [calendarOpen, setCalendarOpen] = useState(false);
   function streakFor(habitId) { let streak = 0; for (let i = dates.length - 1; i >= 0; i--) { const d = dates[i]; const key = d.toISOString().slice(0, 10); if (isSunday(d)) continue; if (weekHabits[key]?.[habitId]) streak++; else break; } return streak; }
@@ -1224,10 +1453,10 @@ function HabitsTab({ selectedDate, setSelectedDate, habitsForDate, toggleHabit, 
           <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>Sunday — rest day, no tracking needed.</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{HABITS.map(h => (
-            <label key={h.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+            <div key={h.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
               <button onClick={() => toggleHabit(selectedDate, h.id)} style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${habitsForDate[h.id] ? T.forest : T.border}`, background: habitsForDate[h.id] ? T.forest : T.white, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{habitsForDate[h.id] && <Icon name="check" size={14} color={T.white} />}</button>
               <span style={{ fontFamily: "Inter", fontSize: 13.5 }}>{h.label}</span>
-            </label>
+            </div>
           ))}</div>
         )}
       </Card>
@@ -1280,42 +1509,24 @@ function HabitsTab({ selectedDate, setSelectedDate, habitsForDate, toggleHabit, 
         <MiniBarChart bars={weekBars} />
       </Card>
       <div style={{ height: 90 }} />
-      <FabButton onOpenAsk={onOpenAsk} />
       {calendarOpen && <CalendarPicker selectedDate={selectedDate} onSelect={setSelectedDate} onClose={() => setCalendarOpen(false)} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} />}
     </div>
   );
 }
 
 /* ============================== TAB 5: PLAN ============================== */
-function SupplementsTab({ selectedDate, setSelectedDate, supplementsForDate, toggleSupplement, weekFood, activities, weekSupplements, onOpenAsk }) {
+function SupplementsTab({ selectedDate, setSelectedDate, supplementsForDate, toggleSupplement, weekFood, activities, weekSupplements, supplements }) {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const groups = [{ key: "morning", label: "🌅 Morning" }, { key: "afternoon", label: "☀️ After lunch" }, { key: "evening", label: "🌆 Evening" }, { key: "night", label: "🌙 Before bed" }, { key: "weekly", label: "📅 Weekly" }];
-  const freqMap = {};
-  Object.values(weekFood || {}).flat().forEach(f => { const key = f.dish.trim().toLowerCase(); freqMap[key] = (freqMap[key] || 0) + 1; });
-  const frequentlyEaten = Object.entries(freqMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const takenToday = supplements.filter(s => supplementsForDate[s.id]).length;
   return (
     <div className="tabPane">
       <DateBar selectedDate={selectedDate} onOpenCalendar={() => setCalendarOpen(true)} onBackToToday={() => setSelectedDate(todayKey())} />
-      <SectionLabel>Healthier versions of what you love</SectionLabel>
-      <Card style={{ marginBottom: 18 }}><div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{SWAPS.map((s, i) => (
-        <div key={i}><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13 }}>{s.craving}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, lineHeight: 1.4 }}>{s.swap}</div></div>
-      ))}</div></Card>
-      {frequentlyEaten.length > 0 && (
-        <>
-          <SectionLabel>What you've actually been eating</SectionLabel>
-          <Card style={{ marginBottom: 18 }}><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{frequentlyEaten.map(([dish, count]) => {
-            const swap = SWAPS.find(s => s.craving.toLowerCase() === dish);
-            return (
-              <div key={dish}>
-                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontFamily: "Inter", fontSize: 13, textTransform: "capitalize" }}>{dish}</span><Badge bg={T.creamDeep} fg={T.inkSoft}>{count}x logged</Badge></div>
-                {swap && <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.saffronDeep, marginTop: 2 }}>💡 {swap.swap}</div>}
-              </div>
-            );
-          })}</div></Card>
-        </>
-      )}
-      <SectionLabel>Supplements — {formatDateLabel(selectedDate)}</SectionLabel>
-      {groups.map(g => { const items = SUPPLEMENTS.filter(s => s.time === g.key); if (items.length === 0) return null; return (
+      <Card style={{ marginBottom: 14, textAlign: "center" }}>
+        <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22 }}>{takenToday} of {supplements.length}</div>
+        <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>taken — {formatDateLabel(selectedDate)}</div>
+      </Card>
+      {groups.map(g => { const items = supplements.filter(s => s.time === g.key); if (items.length === 0) return null; return (
         <div key={g.key} style={{ marginBottom: 14 }}>
           <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.inkSoft, marginBottom: 6 }}>{g.label}</div>
           <Card><div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{items.map(s => (
@@ -1326,70 +1537,80 @@ function SupplementsTab({ selectedDate, setSelectedDate, supplementsForDate, tog
           ))}</div></Card>
         </div>
       ); })}
-      <SectionLabel>Foods to avoid this week</SectionLabel>
-      <Card style={{ marginBottom: 18 }}><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{BANNED.map((b, i) => (
-        <div key={i}><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.alert }}>🔴 {b.item}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{b.reason}</div></div>
-      ))}</div></Card>
-      <SectionLabel>Eat more of</SectionLabel>
-      <Card style={{ marginBottom: 18 }}><div style={{ display: "flex", flexDirection: "column", gap: 6 }}>{EAT_MORE.map((e, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 13, color: T.ink }}>🌿 {e}</div>)}</div></Card>
-      <SectionLabel>This week's meal ideas</SectionLabel>
-      <Card style={{ marginBottom: 90 }}>{["breakfast", "lunch", "dinner"].map(m => (
-        <div key={m} style={{ marginBottom: 10 }}>
-          <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, textTransform: "capitalize", color: T.teal, marginBottom: 4 }}>{m}</div>
-          {MEAL_IDEAS[m].map((idea, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 13, color: T.ink, marginBottom: 2, display: "flex", gap: 6 }}><Icon name="chevron" size={14} color={T.saffron} style={{ flexShrink: 0, marginTop: 3 }} /> {idea}</div>)}
-        </div>
-      ))}</Card>
-      <FabButton onOpenAsk={onOpenAsk} />
+      <div style={{ height: 90 }} />
       {calendarOpen && <CalendarPicker selectedDate={selectedDate} onSelect={setSelectedDate} onClose={() => setCalendarOpen(false)} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} />}
     </div>
   );
 }
 
-/* ============================== ASK PANEL ============================== */
-function AskPanel({ open, onClose, customDishes }) {
-  const [messages, setMessages] = useState([{ role: "assistant", text: "Ask me anything — \"Can I eat this?\", \"Is X safe with my liver?\", \"What happens if I skip Omega-3?\"" }]);
-  const [input, setInput] = useState(""); const scrollRef = useRef(null);
-  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages]);
-  function send() {
-    const text = input.trim(); if (!text) return;
-    setInput(""); setMessages(m => [...m, { role: "user", text }]);
-    const answer = localAnswer(text, customDishes);
-    if (answer) {
-      setMessages(m => [...m, { role: "assistant", text: answer }]);
-    } else {
-      setMessages(m => [...m, { role: "assistant", text: "That's not one of the pre-loaded topics — tap below to search it with his health context included.", searchUrl: contextSearchUrl(text) }]);
-    }
-  }
-  if (!open) return null;
+function PlanTab({ weekFood }) {
+  const mealIdeas = todaysMealIdeas();
+  const freqMap = {};
+  Object.values(weekFood || {}).flat().forEach(f => { const key = f.dish.trim().toLowerCase(); freqMap[key] = (freqMap[key] || 0) + 1; });
+  const frequentlyEaten = Object.entries(freqMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const flaggedFrequent = frequentlyEaten.filter(([dish]) => {
+    const entry = FOOD_DB[dish];
+    return entry && (entry.verdict === "avoid" || entry.verdict === "limit" || entry.verdict === "caution");
+  });
   return (
-    <div className="askOverlay" onClick={onClose}>
-      <div className="askPanel" onClick={e => e.stopPropagation()}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", borderBottom: `1px solid ${T.border}` }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, color: T.teal }}>Ask about anything</div><button onClick={onClose} style={{ background: "none", border: "none" }}><Icon name="x" size={20} color={T.inkSoft} /></button></div>
-        <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-          {messages.map((m, i) => (
-            <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", background: m.role === "user" ? T.saffron : T.tealPale, color: m.role === "user" ? T.white : T.ink, padding: "10px 13px", borderRadius: 14, maxWidth: "85%", fontFamily: "Inter", fontSize: 13.5, lineHeight: 1.45 }}>
-              {m.text}
-              {m.searchUrl && (
-                <div style={{ marginTop: 8 }}>
-                  <a href={m.searchUrl} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, color: T.saffronDeep, fontFamily: "Manrope", fontWeight: 700, fontSize: 12, textDecoration: "none" }}>
-                    Search online <Icon name="external" size={12} color={T.saffronDeep} />
-                  </a>
+    <div className="tabPane">
+      <SectionLabel>Eat more of</SectionLabel>
+      <Card style={{ marginBottom: 18 }}><div style={{ display: "flex", flexDirection: "column", gap: 6 }}>{EAT_MORE.map((e, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 13, color: T.ink }}>🌿 {e}</div>)}</div></Card>
+      <SectionLabel>Foods to avoid this week</SectionLabel>
+      <Card style={{ marginBottom: 18 }}><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{BANNED.map((b, i) => (
+        <div key={i}><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.alert }}>🔴 {b.item}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{b.reason}</div></div>
+      ))}</div></Card>
+      <SectionLabel>Today's meal ideas</SectionLabel>
+      <Card style={{ marginBottom: 18 }}>{["breakfast", "lunch", "dinner"].map(m => (
+        <div key={m} style={{ marginBottom: 10 }}>
+          <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, textTransform: "capitalize", color: T.teal, marginBottom: 4 }}>{m}</div>
+          {mealIdeas[m].map((idea, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 13, color: T.ink, marginBottom: 2, display: "flex", gap: 6 }}><Icon name="chevron" size={14} color={T.saffron} style={{ flexShrink: 0, marginTop: 3 }} /> {idea}</div>)}
+        </div>
+      ))}</Card>
+      <div style={{ fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft, marginTop: -12, marginBottom: 18 }}>Rotates daily from his real meal plan — check back tomorrow for different suggestions.</div>
+      <SectionLabel>How to make your choices healthier</SectionLabel>
+      <Card style={{ marginBottom: 18 }}><div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{SWAPS.map((s, i) => (
+        <div key={i}><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13 }}>{s.craving}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, lineHeight: 1.4 }}>{s.swap}</div></div>
+      ))}</div></Card>
+      {frequentlyEaten.length > 0 && (
+        <>
+          <SectionLabel>What you've been eating this week</SectionLabel>
+          <Card style={{ marginBottom: 18 }}><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{frequentlyEaten.map(([dish, count]) => {
+            const entry = FOOD_DB[dish];
+            const isUnhealthy = entry && (entry.verdict === "avoid" || entry.verdict === "limit" || entry.verdict === "caution");
+            return (
+              <div key={dish}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontFamily: "Inter", fontSize: 13, textTransform: "capitalize" }}>{dish}</span>
+                  <Badge bg={isUnhealthy ? T.alertPale : T.creamDeep} fg={isUnhealthy ? T.alert : T.inkSoft}>{count}x logged{isUnhealthy ? " ⚠️" : ""}</Badge>
                 </div>
-              )}
-            </div>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 8, padding: 12, borderTop: `1px solid ${T.border}` }}>
-          <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} placeholder="Type your question…" style={{ flex: 1, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", fontFamily: "Inter", fontSize: 13.5 }} />
-          <button onClick={send} style={{ background: T.teal, border: "none", borderRadius: 10, width: 42, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="send" size={16} color={T.white} /></button>
-        </div>
-      </div>
+              </div>
+            );
+          })}</div></Card>
+        </>
+      )}
+      {flaggedFrequent.length > 0 && (
+        <>
+          <SectionLabel>How to make them healthier</SectionLabel>
+          <Card style={{ marginBottom: 90 }}><div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{flaggedFrequent.map(([dish]) => {
+            const entry = FOOD_DB[dish];
+            const tip = entry.healthierTip || suggestSwap(dish);
+            return (
+              <div key={dish}>
+                <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, textTransform: "capitalize" }}>{dish}</div>
+                <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, lineHeight: 1.4 }}>{tip || "Cut back on frequency — no lighter version identified for this one."}</div>
+              </div>
+            );
+          })}</div></Card>
+        </>
+      )}
+      {flaggedFrequent.length === 0 && <div style={{ height: 90 }} />}
     </div>
   );
 }
 
-/* ============================== SETTINGS PANEL ============================== */
-function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveGoalToggles, customGoals, saveCustomGoals, metrics, saveMetrics, periods, savePeriods, initialSection, onClearDate, onClearAll }) {
+
+function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveGoalToggles, customGoals, saveCustomGoals, metrics, saveMetrics, periods, savePeriods, supplements, saveSupplements, initialSection, onClearDate, onClearAll, onApplyDemoMonth }) {
   const [section, setSection] = useState(initialSection || "profile");
   const [form, setForm] = useState(profile);
   const [newGoalText, setNewGoalText] = useState("");
@@ -1398,6 +1619,8 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
   const [addingReport, setAddingReport] = useState(false);
   const [clearDateVal, setClearDateVal] = useState(todayKey());
   const [confirmingClearAll, setConfirmingClearAll] = useState(false);
+  const [editingSuppId, setEditingSuppId] = useState(null);
+  const [suppForm, setSuppForm] = useState({ name: "", dose: "", time: "morning", timeLabel: "", why: "" });
   useEffect(() => { setForm(profile); }, [profile, open]);
   useEffect(() => { if (open) setSection(initialSection || "profile"); }, [open, initialSection]);
   if (!open) return null;
@@ -1405,13 +1628,26 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
   function toggleGoal(id) { saveGoalToggles(goalToggles.map(g => g.id === id ? { ...g, active: !g.active } : g)); }
   function addCustomGoal() { if (!newGoalText.trim()) return; saveCustomGoals([...customGoals, { id: `custom-${Date.now()}`, label: newGoalText.trim(), active: true }]); setNewGoalText(""); }
   function removeCustomGoal(id) { saveCustomGoals(customGoals.filter(g => g.id !== id)); }
+  function startAddSupplement() { setEditingSuppId("new"); setSuppForm({ name: "", dose: "", time: "morning", timeLabel: "", why: "" }); }
+  function startEditSupplement(s) { setEditingSuppId(s.id); setSuppForm({ name: s.name, dose: s.dose, time: s.time, timeLabel: s.timeLabel, why: s.why }); }
+  function saveSupplementForm() {
+    if (!suppForm.name.trim()) return;
+    if (editingSuppId === "new") {
+      const id = `supp-${Date.now()}`;
+      saveSupplements([...supplements, { id, ...suppForm, critical: false }]);
+    } else {
+      saveSupplements(supplements.map(s => s.id === editingSuppId ? { ...s, ...suppForm } : s));
+    }
+    setEditingSuppId(null);
+  }
+  function removeSupplement(id) { saveSupplements(supplements.filter(s => s.id !== id)); setEditingSuppId(null); }
   function submitNewReport() {
     if (!newPeriodLabel.trim()) return;
     savePeriods([...periods, newPeriodLabel.trim()]);
     saveMetrics(metrics.map(m => ({ ...m, points: [...m.points, newValues[m.key] != null && newValues[m.key] !== "" ? Number(newValues[m.key]) : null] })));
     setNewPeriodLabel(""); setNewValues({}); setAddingReport(false);
   }
-  const SECTIONS = [{ id: "profile", label: "Profile" }, { id: "goals", label: "Goals" }, { id: "reports", label: "Reports" }, { id: "data", label: "Data" }];
+  const SECTIONS = [{ id: "profile", label: "Profile" }, { id: "goals", label: "Goals" }, { id: "reports", label: "Reports" }, { id: "supplements", label: "Supplements" }, { id: "data", label: "Data" }];
   return (
     <div className="askOverlay" onClick={onClose}>
       <div className="askPanel" onClick={e => e.stopPropagation()} style={{ height: "88vh" }}>
@@ -1431,10 +1667,10 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
             <div>
               <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>BODY COMPOSITION GOALS</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>{goalToggles.map(g => (
-                <label key={g.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
                   <button onClick={() => toggleGoal(g.id)} style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${g.active ? T.forest : T.border}`, background: g.active ? T.forest : T.white, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{g.active && <Icon name="check" size={14} color={T.white} />}</button>
                   <span style={{ fontFamily: "Inter", fontSize: 13.5 }}>{g.label}</span>
-                </label>
+                </div>
               ))}</div>
               <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>OTHER GOALS</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
@@ -1472,8 +1708,53 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
               <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 14, lineHeight: 1.5 }}>Manual entry only — this app can't read an uploaded PDF/Excel file itself.</div>
             </div>
           )}
+          {section === "supplements" && (
+            <div>
+              <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 12, lineHeight: 1.5 }}>
+                Edit this list yourself when a doctor changes the plan — the app won't change what's on it automatically based on report data.
+              </div>
+              {editingSuppId ? (
+                <div style={{ background: T.creamDeep, borderRadius: 10, padding: 12, marginBottom: 12 }}>
+                  <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginBottom: 4 }}>Name</div>
+                  <input value={suppForm.name} onChange={e => setSuppForm({ ...suppForm, name: e.target.value })} style={{ width: "100%", border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px", fontFamily: "Inter", fontSize: 13, marginBottom: 8 }} />
+                  <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginBottom: 4 }}>Dose</div>
+                  <input value={suppForm.dose} onChange={e => setSuppForm({ ...suppForm, dose: e.target.value })} placeholder="e.g. 500mg" style={{ width: "100%", border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px", fontFamily: "Inter", fontSize: 13, marginBottom: 8 }} />
+                  <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginBottom: 4 }}>Time of day</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                    {[{ k: "morning", l: "Morning" }, { k: "afternoon", l: "After lunch" }, { k: "evening", l: "Evening" }, { k: "night", l: "Before bed" }, { k: "weekly", l: "Weekly" }].map(t => (
+                      <button key={t.k} onClick={() => setSuppForm({ ...suppForm, time: t.k })} style={{ background: suppForm.time === t.k ? T.teal : T.white, color: suppForm.time === t.k ? T.white : T.ink, border: `1px solid ${T.border}`, borderRadius: 999, padding: "5px 10px", fontFamily: "Inter", fontSize: 11.5 }}>{t.l}</button>
+                    ))}
+                  </div>
+                  <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginBottom: 4 }}>Timing note (shown under the dose)</div>
+                  <input value={suppForm.timeLabel} onChange={e => setSuppForm({ ...suppForm, timeLabel: e.target.value })} placeholder="e.g. After breakfast" style={{ width: "100%", border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px", fontFamily: "Inter", fontSize: 13, marginBottom: 8 }} />
+                  <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginBottom: 4 }}>Why (optional)</div>
+                  <input value={suppForm.why} onChange={e => setSuppForm({ ...suppForm, why: e.target.value })} style={{ width: "100%", border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px", fontFamily: "Inter", fontSize: 13, marginBottom: 10 }} />
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => setEditingSuppId(null)} style={{ flex: 1, background: T.white, border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 0", fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5 }}>Cancel</button>
+                    {editingSuppId !== "new" && <button onClick={() => removeSupplement(editingSuppId)} style={{ background: T.alertPale, border: "none", borderRadius: 8, padding: "9px 12px", color: T.alert, fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5 }}>Remove</button>}
+                    <button onClick={saveSupplementForm} style={{ flex: 1, background: T.teal, border: "none", borderRadius: 8, padding: "9px 0", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5 }}>Save</button>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={startAddSupplement} style={{ width: "100%", background: T.saffron, border: "none", borderRadius: 10, padding: "10px 0", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, marginBottom: 14 }}>+ Add supplement</button>
+              )}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {supplements.map(s => (
+                  <div key={s.id} onClick={() => startEditSupplement(s)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: T.white, border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", cursor: "pointer" }}>
+                    <div><div style={{ fontFamily: "Inter", fontWeight: 600, fontSize: 13 }}>{s.name}</div><div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft }}>{s.dose} · {s.timeLabel}</div></div>
+                    <Icon name="chevron" size={14} color={T.inkSoft} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {section === "data" && (
             <div>
+              <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>DEMO DATA</div>
+              <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 8, lineHeight: 1.5 }}>
+                Fills Aug 9 – Sep 8, 2026 with real meals from the uploaded rotation and the activity pattern you described (high-walk Aug 18–30, more standing Sep 1–5, light otherwise). Won't overwrite any date you've already logged real data for.
+              </div>
+              <button onClick={onApplyDemoMonth} style={{ width: "100%", background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 10, padding: "10px 0", color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, marginBottom: 20 }}>Generate demo month</button>
               <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>CLEAR A SPECIFIC DATE</div>
               <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 8 }}>Removes food, activity, habit, and supplement entries for one day only.</div>
               <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
@@ -1505,7 +1786,6 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
 function App() {
   const [tab, setTab] = useState("today");
   const [selectedDate, setSelectedDate] = useState(todayKey());
-  const [askOpen, setAskOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState("profile");
   const tk = todayKey();
@@ -1520,6 +1800,8 @@ function App() {
   const [customGoals, setCustomGoals] = useKV("goals:custom", []);
   const [metrics, setMetrics] = useKV("reports:metrics", METRICS_SEED);
   const [periods, setPeriods] = useKV("reports:periods", PERIODS_SEED);
+  const [supplements, setSupplements] = useKV("supplements:list", SUPPLEMENTS_SEED);
+  TOTAL_SUPPLEMENTS = supplements.length;
   const [customDishes, setCustomDishes] = useKV("dishes:custom", {});
   const [corpusLoaded, setCorpusLoaded] = useState(false);
   useEffect(() => { loadDishCorpus().then(() => setCorpusLoaded(true)); }, []);
@@ -1548,13 +1830,20 @@ function App() {
     setActivities(prev => { const n = { ...prev }; delete n[dateKey]; return n; });
   };
   const clearAllData = () => { setWeekFood({}); setWeekSupplements({}); setWeekHabits({}); setActivities({}); };
+  const applyDemoMonth = () => {
+    const { foodByDate, activitiesByDate, habitsByDate } = generateDemoMonth();
+    setWeekFood(prev => ({ ...foodByDate, ...prev }));
+    setActivities(prev => ({ ...activitiesByDate, ...prev }));
+    setWeekHabits(prev => ({ ...habitsByDate, ...prev }));
+  };
 
   const TABS = [
     { id: "today", label: "Today", icon: "home" },
-    { id: "food", label: "Food Check", icon: "food" },
-    { id: "health", label: "My Health", icon: "activity" },
+    { id: "food", label: "Food", icon: "food" },
+    { id: "health", label: "Health", icon: "activity" },
     { id: "habits", label: "Habits", icon: "calendar" },
-    { id: "supplements", label: "Plan", icon: "pill" },
+    { id: "supplements", label: "Supps", icon: "pill" },
+    { id: "plan", label: "Plan", icon: "clipboard" },
   ];
 
   return (
@@ -1562,8 +1851,6 @@ function App() {
       <style>{`
         .pulseWrap { animation: pulse 3s ease-in-out infinite; }
         @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.03); } }
-        .fab { position: fixed; bottom: 78px; right: calc(50% - 190px); background: ${T.saffron}; border: none; border-radius: 999px; padding: 12px 18px; display: flex; align-items: center; gap: 7px; box-shadow: 0 6px 18px rgba(232,133,61,0.45); cursor: pointer; z-index: 20; }
-        @media (max-width: 460px) { .fab { right: 16px; } }
         .askOverlay { position: fixed; inset: 0; background: rgba(38,48,46,0.45); z-index: 50; display: flex; align-items: flex-end; justify-content: center; }
         .askPanel { background: ${T.cream}; width: 100%; max-width: 420px; height: 78vh; border-radius: 20px 20px 0 0; display: flex; flex-direction: column; }
         .tabPane { padding: calc(56px + env(safe-area-inset-top, 0px)) 16px 16px; }
@@ -1572,21 +1859,21 @@ function App() {
       `}</style>
       <div style={{ width: "100%", maxWidth: 420, background: T.cream, minHeight: "100vh", position: "relative", boxShadow: "0 0 40px rgba(0,0,0,0.06)" }}>
         <button onClick={() => openSettings("profile")} aria-label="Profile and reports" style={{ position: "absolute", top: "calc(14px + env(safe-area-inset-top, 0px))", right: 14, zIndex: 15, background: T.white, border: `1px solid ${T.border}`, borderRadius: 999, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.08)" }}><Icon name="settings" size={17} color={T.teal} /></button>
-        {tab === "today" && <TodayTab profile={profile} targets={targets} foodToday={foodToday} habitToday={habitToday} supplementsToday={supplementsToday} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} toggleHabit={toggleHabit} onOpenAsk={() => setAskOpen(true)} onNavigate={setTab} demoCleared={demoCleared} clearDemo={clearDemo} />}
-        {tab === "food" && <FoodCheckTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} foodForDate={foodForDate} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} addFoodEntry={addFoodEntry} deleteFoodEntry={deleteFoodEntry} customDishes={customDishes} saveCustomDish={saveCustomDish} onOpenAsk={() => setAskOpen(true)} />}
-        {tab === "health" && <MyHealthTab metrics={metrics} periods={periods} supplementsToday={supplementsToday} toggleSupplement={(id) => toggleSupplement(tk, id)} onOpenAsk={() => setAskOpen(true)} onAddReport={() => openSettings("reports")} />}
-        {tab === "habits" && <HabitsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} habitsForDate={habitsForDate} toggleHabit={toggleHabit} weekHabits={weekHabits} weekFood={weekFood} weekSupplements={weekSupplements} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} onOpenAsk={() => setAskOpen(true)} />}
-        {tab === "supplements" && <SupplementsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} supplementsForDate={supplementsForDate} toggleSupplement={toggleSupplement} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} onOpenAsk={() => setAskOpen(true)} />}
-        <div style={{ position: "fixed", bottom: 0, width: "100%", maxWidth: 420, background: T.teal, display: "flex", justifyContent: "space-around", padding: "10px 4px 12px", zIndex: 30 }}>
+        {tab === "today" && <TodayTab profile={profile} targets={targets} foodToday={foodToday} habitToday={habitToday} supplementsToday={supplementsToday} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} toggleHabit={toggleHabit} supplements={supplements} onNavigate={setTab} demoCleared={demoCleared} clearDemo={clearDemo} />}
+        {tab === "food" && <FoodCheckTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} foodForDate={foodForDate} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} addFoodEntry={addFoodEntry} deleteFoodEntry={deleteFoodEntry} customDishes={customDishes} saveCustomDish={saveCustomDish} metrics={metrics} periods={periods} />}
+        {tab === "health" && <MyHealthTab metrics={metrics} periods={periods} supplementsToday={supplementsToday} toggleSupplement={(id) => toggleSupplement(tk, id)} supplements={supplements} onAddReport={() => openSettings("reports")} />}
+        {tab === "habits" && <HabitsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} habitsForDate={habitsForDate} toggleHabit={toggleHabit} weekHabits={weekHabits} weekFood={weekFood} weekSupplements={weekSupplements} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} />}
+        {tab === "supplements" && <SupplementsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} supplementsForDate={supplementsForDate} toggleSupplement={toggleSupplement} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} supplements={supplements} />}
+        {tab === "plan" && <PlanTab weekFood={weekFood} />}
+        <div style={{ position: "fixed", bottom: 0, width: "100%", maxWidth: 420, background: T.teal, display: "flex", justifyContent: "space-around", padding: "8px 2px 10px", zIndex: 30 }}>
           {TABS.map(t => { const active = tab === t.id; return (
-            <button key={t.id} onClick={() => setTab(t.id)} style={{ background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, opacity: active ? 1 : 0.6, cursor: "pointer" }}>
-              <Icon name={t.icon} size={20} color={active ? T.saffron : T.white} />
-              <span style={{ fontFamily: "Inter", fontSize: 10, fontWeight: active ? 700 : 500, color: T.white }}>{t.label}</span>
+            <button key={t.id} onClick={() => setTab(t.id)} style={{ background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, opacity: active ? 1 : 0.6, cursor: "pointer", flex: 1, minWidth: 0 }}>
+              <Icon name={t.icon} size={18} color={active ? T.saffron : T.white} />
+              <span style={{ fontFamily: "Inter", fontSize: 9.5, fontWeight: active ? 700 : 500, color: T.white }}>{t.label}</span>
             </button>
           ); })}
         </div>
-        <AskPanel open={askOpen} onClose={() => setAskOpen(false)} customDishes={customDishes} />
-        <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} initialSection={settingsSection} profile={profile} saveProfile={setProfile} goalToggles={goalToggles} saveGoalToggles={setGoalToggles} customGoals={customGoals} saveCustomGoals={setCustomGoals} metrics={metrics} saveMetrics={setMetrics} periods={periods} savePeriods={setPeriods} onClearDate={clearDateData} onClearAll={clearAllData} />
+        <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} initialSection={settingsSection} profile={profile} saveProfile={setProfile} goalToggles={goalToggles} saveGoalToggles={setGoalToggles} customGoals={customGoals} saveCustomGoals={setCustomGoals} metrics={metrics} saveMetrics={setMetrics} periods={periods} savePeriods={setPeriods} supplements={supplements} saveSupplements={setSupplements} onClearDate={clearDateData} onClearAll={clearAllData} onApplyDemoMonth={applyDemoMonth} />
       </div>
     </div>
   );
