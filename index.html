@@ -77,7 +77,19 @@ function Icon({ name, size = 18, color = T.ink, style }) {
 }
 
 /* ============================== DATA ============================== */
-const PROFILE_SEED = { name: "Jignesh", fullName: "Jignesh Suba", age: 54, weight: 78, gender: "Male", city: "Rajkot, India", diet: "Indian vegetarian (Gujarati)", latestReportDate: "Jul 12, 2026" };
+const PROFILE_SEED = { name: "Jignesh", fullName: "Jignesh Suba", age: 54, weight: 78, height: 165, gender: "Male", city: "Rajkot, India", diet: "Indian vegetarian (Gujarati)", latestReportDate: "Jul 12, 2026" };
+function computeBMI(weightKg, heightCm) {
+  if (!weightKg || !heightCm) return null;
+  const h = heightCm / 100;
+  return weightKg / (h * h);
+}
+function bmiCategory(bmi) {
+  if (bmi == null) return null;
+  if (bmi < 18.5) return "Underweight";
+  if (bmi < 25) return "Normal";
+  if (bmi < 30) return "Overweight";
+  return "Obese";
+}
 const DEFAULT_GOAL_TOGGLES = [{ id: "weightloss", label: "Weight loss / Fat loss", active: false }, { id: "muscle", label: "Muscle building", active: false }];
 
 function computeTargets(weight, goalToggles) {
@@ -109,6 +121,7 @@ const METRICS_SEED = [
   { key: "tsh", label: "TSH (Thyroid)", unit: "µIU/mL", low: 0.54, high: 5.3, idealLow: 1.5, idealHigh: 3.0, points: [4.39, 4.67, 5.23, 4.1, 2.8, 4.09, 4.57], color: "#C4841F", note: "Rising again after a 2.8 best. Ashwagandha lapse or TG spike likely culprits." },
   { key: "sgot", label: "SGOT / AST", unit: "U/L", low: null, high: 35, idealLow: null, idealHigh: null, points: [null, null, null, null, null, 15, 21], color: "#3D6B4F", note: "Normal. Liver cells not damaged." },
   { key: "sgpt", label: "SGPT / ALT", unit: "U/L", low: null, high: 45, idealLow: null, idealHigh: null, points: [null, null, null, null, null, 16, 25], color: "#3D6B4F", note: "Normal, slight rise." },
+  { key: "weight", label: "Weight", unit: "kg", low: null, high: null, idealLow: null, idealHigh: null, points: [null, null, null, null, null, null, null], color: "#C96A28", note: "Add readings via + New report whenever you have them." },
 ];
 
 function metricStatus(value, m) {
@@ -531,10 +544,23 @@ function ratingToVerdict(avg) {
 function lookupDishRating(query, ratings) {
   const nq = normalizeWithAliases(query);
   if (!ratings || !ratings.dishes) return null;
+  // exact pass first
   for (const [name, avg, subIdx, portionIdx] of ratings.dishes) {
     if (normalizeWithAliases(name) === nq) {
       return { name, verdict: ratingToVerdict(avg), substitution: ratings.subs[subIdx], portion: ratings.portions[portionIdx] };
     }
+  }
+  // fuzzy fallback — same tolerance approach as the spelling corpus
+  let best = null, bestDist = Infinity, bestRow = null;
+  for (const row of ratings.dishes) {
+    const nk = normalizeWithAliases(row[0]);
+    const dist = levenshtein(nq, nk);
+    const threshold = Math.max(1, Math.floor(Math.min(nq.length, nk.length) * 0.2));
+    if (dist <= threshold && dist < bestDist) { best = row[0]; bestDist = dist; bestRow = row; }
+  }
+  if (bestRow) {
+    const [name, avg, subIdx, portionIdx] = bestRow;
+    return { name, verdict: ratingToVerdict(avg), substitution: ratings.subs[subIdx], portion: ratings.portions[portionIdx] };
   }
   return null;
 }
@@ -708,6 +734,70 @@ function monthScoreAvg(mk, weekFood, weekHabits, weekSupplements) {
   return Math.round(total / dates.size);
 }
 
+// Everything below is anchored to whatever date is being VIEWED (selectedDate), not
+// necessarily real today — this is what makes "this week"/"this month" mean "the 7 days
+// / calendar month around the date you're looking at" rather than always-real-today.
+function dateKeysEndingAt(endKey, days) {
+  const end = new Date(endKey + "T00:00:00");
+  const keys = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(end); d.setDate(d.getDate() - i);
+    keys.push(d.toISOString().slice(0, 10));
+  }
+  return keys;
+}
+function weekWindowsForDate(dateKey) {
+  const thisWeekKeys = dateKeysEndingAt(dateKey, 7);
+  const beforeThisWeek = new Date(thisWeekKeys[0] + "T00:00:00"); beforeThisWeek.setDate(beforeThisWeek.getDate() - 1);
+  const lastWeekKeys = dateKeysEndingAt(beforeThisWeek.toISOString().slice(0, 10), 7);
+  return { thisWeekKeys, lastWeekKeys };
+}
+function monthWindowsForDate(dateKey) {
+  const d = new Date(dateKey + "T00:00:00");
+  const thisMonthKey = dateKey.slice(0, 7);
+  const prevMonth = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+  const lastMonthKey = prevMonth.toISOString().slice(0, 7);
+  return { thisMonthKey, lastMonthKey };
+}
+function avgScoreForKeys(keys, weekFood, weekHabits, weekSupplements) {
+  let total = 0, count = 0;
+  keys.forEach(k => { if (hasAnyData(k, weekFood, weekHabits, weekSupplements)) { total += dayScore(weekFood[k] || [], weekHabits[k] || {}, weekSupplements[k] || {}); count++; } });
+  return count ? Math.round(total / count) : null;
+}
+function activityInsight(curKeys, prevKeys, activities) {
+  const sumMin = (keys) => keys.reduce((s, k) => s + (activities[k] || []).reduce((s2, a) => s2 + (a.duration || 0), 0), 0);
+  const cur = sumMin(curKeys), prev = sumMin(prevKeys);
+  if (cur === 0 && prev === 0) return null;
+  const diff = cur - prev;
+  if (Math.abs(diff) < 15) return { text: `About as active as the prior period — ${cur} vs ${prev} min logged.`, trend: "flat" };
+  if (diff > 0) return { text: `More active than the prior period — ${cur} min vs ${prev} min.`, trend: "up" };
+  return { text: `Less active than the prior period — ${cur} min vs ${prev} min. Worth pushing more this stretch.`, trend: "down" };
+}
+function foodInsight(curKeys, weekFood, targets) {
+  let days = 0, protein = 0, carbs = 0, sugar = 0;
+  curKeys.forEach(k => { const entries = weekFood[k] || []; if (entries.length) { days++; entries.forEach(e => { protein += e.protein || 0; carbs += e.carbs || 0; sugar += e.sugar || 0; }); } });
+  if (!days) return null;
+  const avgProtein = Math.round(protein / days), avgCarbs = Math.round(carbs / days), avgSugar = Math.round(sugar / days);
+  const lines = [];
+  lines.push(avgProtein >= targets.protein * 0.9 ? `Protein averaged ${avgProtein}g/day — on target.` : `Protein averaged ${avgProtein}g/day — below the ${targets.protein}g target.`);
+  lines.push(avgSugar > targets.sugar ? `Sugar averaged ${avgSugar}g/day — over the ${targets.sugar}g target.` : `Sugar averaged ${avgSugar}g/day — within target.`);
+  lines.push(`Carbs averaged ${avgCarbs}g/day.`);
+  return lines;
+}
+function supplementInsight(curKeys, prevKeys, weekSupplements, totalSupp) {
+  const pct = (keys) => {
+    let total = 0, count = 0;
+    keys.forEach(k => { const s = weekSupplements[k]; if (s && Object.keys(s).length) { count++; total += Object.values(s).filter(Boolean).length / totalSupp; } });
+    return count ? Math.round((total / count) * 100) : null;
+  };
+  const cur = pct(curKeys), prev = pct(prevKeys);
+  if (cur == null) return null;
+  let text = `Supplements taken ~${cur}% of logged days`;
+  if (prev != null) text += cur >= prev ? ` (up from ${prev}%).` : ` (down from ${prev}%).`;
+  else text += ".";
+  return text;
+}
+
 /* ============================== STORAGE ============================== */
 function useKV(key, initial) {
   const [value, setValue] = useState(() => {
@@ -772,13 +862,24 @@ function DeleteBtn({ onClick }) {
 
 /* ============================== DATE BAR + CALENDAR PICKER ============================== */
 function DateBar({ selectedDate, onOpenCalendar, onBackToToday }) {
+  const isToday = selectedDate === todayKey();
+  if (isToday) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <button onClick={onOpenCalendar} style={{ display: "flex", alignItems: "center", gap: 6, background: T.tealPale, border: "none", borderRadius: 999, padding: "7px 12px", cursor: "pointer" }}>
+          <Icon name="calendar" size={14} color={T.teal} />
+          <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.teal }}>{formatDateLabel(selectedDate)}</span>
+        </button>
+      </div>
+    );
+  }
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-      <button onClick={onOpenCalendar} style={{ display: "flex", alignItems: "center", gap: 6, background: T.tealPale, border: "none", borderRadius: 999, padding: "7px 12px", cursor: "pointer" }}>
-        <Icon name="calendar" size={14} color={T.teal} />
-        <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.teal }}>{formatDateLabel(selectedDate)}</span>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, background: T.amberPale, border: `1.5px solid ${T.amber}`, borderRadius: 12, padding: "10px 12px" }}>
+      <button onClick={onOpenCalendar} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer" }}>
+        <Icon name="calendar" size={15} color={T.amber} />
+        <span style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 13.5, color: T.amber }}>Viewing {formatDateLabel(selectedDate)} — not today</span>
       </button>
-      {selectedDate !== todayKey() && <button onClick={onBackToToday} style={{ background: "none", border: "none", fontFamily: "Inter", fontSize: 12, color: T.saffronDeep, cursor: "pointer" }}>Back to today</button>}
+      <button onClick={onBackToToday} style={{ background: T.amber, border: "none", borderRadius: 999, padding: "6px 12px", fontFamily: "Manrope", fontWeight: 700, fontSize: 11.5, color: T.white, cursor: "pointer", whiteSpace: "nowrap" }}>Switch to Today</button>
     </div>
   );
 }
@@ -816,15 +917,16 @@ function CalendarPicker({ selectedDate, onSelect, onClose, weekFood, activities,
               const hasFood = (weekFood[key] || []).length > 0;
               const hasAct = (activities[key] || []).length > 0;
               const hasSupp = Object.values(weekSupplements[key] || {}).some(Boolean);
+              const hasAnyData = hasFood || hasAct || hasSupp;
               const isSelected = key === selectedDate;
               const isToday = key === todayStr;
               return (
                 <button key={i} disabled={isFuture} onClick={() => { onSelect(key); onClose(); }} style={{
                   aspectRatio: "1", border: isSelected ? `2px solid ${T.saffron}` : isToday ? `1px solid ${T.teal}` : "1px solid transparent",
-                  borderRadius: 8, background: isSelected ? T.tealPale : T.white, opacity: isFuture ? 0.3 : 1, cursor: isFuture ? "default" : "pointer",
+                  borderRadius: 8, background: isSelected ? T.tealPale : hasAnyData ? T.forestPale : T.white, opacity: isFuture ? 0.3 : 1, cursor: isFuture ? "default" : "pointer",
                   display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 2
                 }}>
-                  <span style={{ fontFamily: "Inter", fontSize: 11, color: T.ink }}>{d}</span>
+                  <span style={{ fontFamily: "Inter", fontSize: 11, fontWeight: hasAnyData ? 700 : 400, color: T.ink }}>{d}</span>
                   <div style={{ display: "flex", gap: 2, marginTop: 2 }}>
                     {hasFood && <span style={{ width: 4, height: 4, borderRadius: 2, background: T.forest, display: "inline-block" }} />}
                     {hasAct && <span style={{ width: 4, height: 4, borderRadius: 2, background: T.teal, display: "inline-block" }} />}
@@ -903,11 +1005,13 @@ function TrendRow({ label, value, compareLabel, compareValue }) {
   );
 }
 
-function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, weekFood, weekHabits, weekSupplements, toggleHabit, supplements, onNavigate, demoCleared, clearDemo }) {
-  const day = new Date();
-  const dateStr = day.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
+function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, weekFood, weekHabits, weekSupplements, activities, toggleHabit, supplements, onNavigate, demoCleared, clearDemo, selectedDate, setSelectedDate }) {
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const day = new Date(selectedDate + "T00:00:00");
+  const dateStr = day.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const sunday = isSunday(day);
-  const tk = todayKey();
+  const tk = selectedDate;
+  const isToday = selectedDate === todayKey();
   const score = dayScore(foodToday, habitToday, supplementsToday);
   const mealsCount = foodToday.length;
   const badMeals = foodToday.filter(f => f.verdict === "avoid" || f.verdict === "limit").length;
@@ -922,24 +1026,31 @@ function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, w
     const realFood = weekFood[key], realHabits = weekHabits[key], realSupp = weekSupplements[key];
     const hasReal = (realFood && realFood.length > 0) || (realHabits && Object.keys(realHabits).length > 0) || (realSupp && Object.keys(realSupp).length > 0);
     const d = new Date(); d.setDate(d.getDate() - offset);
-    if (offset === 0) return { label: dayLabel(d), value: score, color: score >= 70 ? T.forest : score >= 45 ? T.amber : T.alert };
+    if (offset === 0 && isToday) return { label: dayLabel(d), value: score, color: score >= 70 ? T.forest : score >= 45 ? T.amber : T.alert };
     if (hasReal) { const sc = dayScore(realFood || [], realHabits || {}, realSupp || {}); return { label: dayLabel(d), value: sc, color: sc >= 70 ? T.forest : sc >= 45 ? T.amber : T.alert }; }
     if (!demoCleared && DEMO_WEEK[offset]) return { label: dayLabel(d), value: DEMO_WEEK[offset].score, color: T.saffron, opacity: 0.5 };
     return { label: dayLabel(d), value: 2, color: T.creamDeep };
   });
   const anyDemo = weekBars.some(b => b.opacity);
 
-  const thisWeek = rangeScoreAvg(0, 6, weekFood, weekHabits, weekSupplements);
-  const lastWeek = rangeScoreAvg(7, 13, weekFood, weekHabits, weekSupplements);
-  const now = new Date();
-  const thisMonthKey = now.toISOString().slice(0, 7);
-  const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const lastMonthKey = prevMonthDate.toISOString().slice(0, 7);
+  const { thisWeekKeys, lastWeekKeys } = weekWindowsForDate(selectedDate);
+  const { thisMonthKey, lastMonthKey } = monthWindowsForDate(selectedDate);
+  const thisWeek = avgScoreForKeys(thisWeekKeys, weekFood, weekHabits, weekSupplements);
+  const lastWeek = avgScoreForKeys(lastWeekKeys, weekFood, weekHabits, weekSupplements);
   const thisMonth = monthScoreAvg(thisMonthKey, weekFood, weekHabits, weekSupplements);
   const lastMonth = monthScoreAvg(lastMonthKey, weekFood, weekHabits, weekSupplements);
+  const weekActivity = activityInsight(thisWeekKeys, lastWeekKeys, activities);
+  const weekFoodLines = foodInsight(thisWeekKeys, weekFood, targets);
+  const weekSuppText = supplementInsight(thisWeekKeys, lastWeekKeys, weekSupplements, supplements.length);
+  const monthKeysThis = Object.keys(weekFood).concat(Object.keys(weekHabits), Object.keys(weekSupplements)).filter(k => k.startsWith(thisMonthKey));
+  const monthKeysLast = Object.keys(weekFood).concat(Object.keys(weekHabits), Object.keys(weekSupplements)).filter(k => k.startsWith(lastMonthKey));
+  const monthActivity = activityInsight([...new Set(monthKeysThis)], [...new Set(monthKeysLast)], activities);
+  const monthFoodLines = foodInsight([...new Set(monthKeysThis)], weekFood, targets);
+  const monthSuppText = supplementInsight([...new Set(monthKeysThis)], [...new Set(monthKeysLast)], weekSupplements, supplements.length);
 
   return (
     <div className="tabPane">
+      <DateBar selectedDate={selectedDate} onOpenCalendar={() => setCalendarOpen(true)} onBackToToday={() => setSelectedDate(todayKey())} />
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>{dateStr}</div>
         <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22, color: T.teal }}>Hi {profile.name} 👋</div>
@@ -1015,12 +1126,55 @@ function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, w
       </Card>
       <div style={{ height: 14 }} />
       <Card>
-        <SectionLabel>Trends</SectionLabel>
-        <TrendRow label="This week (avg)" value={thisWeek} compareLabel="Last week" compareValue={lastWeek} />
-        <TrendRow label={`This month (${monthLabel(thisMonthKey)})`} value={thisMonth} compareLabel={`Last month (${monthLabel(lastMonthKey)})`} compareValue={lastMonth} />
-        <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 8 }}>Averages only count days with at least one logged item — empty days don't drag the average down.</div>
+        <SectionLabel>This week</SectionLabel>
+        <TrendRow label="Overall score" value={thisWeek} compareLabel="Prior week" compareValue={lastWeek} />
+        {weekActivity && (
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 10 }}>
+            <Icon name={weekActivity.trend === "up" ? "trendUp" : weekActivity.trend === "down" ? "trendDown" : "chevron"} size={14} color={weekActivity.trend === "up" ? T.forest : weekActivity.trend === "down" ? T.alert : T.inkSoft} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.4 }}>{weekActivity.text}</span>
+          </div>
+        )}
+        {weekFoodLines && weekFoodLines.map((line, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 8 }}>
+            <Icon name="food" size={13} color={T.saffron} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.4 }}>{line}</span>
+          </div>
+        ))}
+        {weekSuppText && (
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 8 }}>
+            <Icon name="pill" size={13} color={T.teal} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.4 }}>{weekSuppText}</span>
+          </div>
+        )}
+        {!weekActivity && !weekFoodLines && !weekSuppText && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 4 }}>Not enough logged data yet for this week's insights.</div>}
+      </Card>
+      <div style={{ height: 14 }} />
+      <Card>
+        <SectionLabel>{monthLabel(thisMonthKey)}</SectionLabel>
+        <TrendRow label="Overall score" value={thisMonth} compareLabel={monthLabel(lastMonthKey)} compareValue={lastMonth} />
+        {monthActivity && (
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 10 }}>
+            <Icon name={monthActivity.trend === "up" ? "trendUp" : monthActivity.trend === "down" ? "trendDown" : "chevron"} size={14} color={monthActivity.trend === "up" ? T.forest : monthActivity.trend === "down" ? T.alert : T.inkSoft} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.4 }}>{monthActivity.text}</span>
+          </div>
+        )}
+        {monthFoodLines && monthFoodLines.map((line, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 8 }}>
+            <Icon name="food" size={13} color={T.saffron} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.4 }}>{line}</span>
+          </div>
+        ))}
+        {monthSuppText && (
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 8 }}>
+            <Icon name="pill" size={13} color={T.teal} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.4 }}>{monthSuppText}</span>
+          </div>
+        )}
+        {!monthActivity && !monthFoodLines && !monthSuppText && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 4 }}>Not enough logged data yet for this month's insights.</div>}
+        <div style={{ fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft, marginTop: 10 }}>Both cards are relative to the date you're viewing — everything above updates when you switch dates.</div>
       </Card>
       <div style={{ height: 90 }} />
+      {calendarOpen && <CalendarPicker selectedDate={selectedDate} onSelect={setSelectedDate} onClose={() => setCalendarOpen(false)} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} />}
     </div>
   );
 }
@@ -1624,7 +1778,7 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
   useEffect(() => { setForm(profile); }, [profile, open]);
   useEffect(() => { if (open) setSection(initialSection || "profile"); }, [open, initialSection]);
   if (!open) return null;
-  function saveProfileForm() { saveProfile({ ...form, weight: Number(form.weight) || profile.weight, age: Number(form.age) || profile.age }); }
+  function saveProfileForm() { saveProfile({ ...form, weight: Number(form.weight) || profile.weight, age: Number(form.age) || profile.age, height: Number(form.height) || profile.height }); }
   function toggleGoal(id) { saveGoalToggles(goalToggles.map(g => g.id === id ? { ...g, active: !g.active } : g)); }
   function addCustomGoal() { if (!newGoalText.trim()) return; saveCustomGoals([...customGoals, { id: `custom-${Date.now()}`, label: newGoalText.trim(), active: true }]); setNewGoalText(""); }
   function removeCustomGoal(id) { saveCustomGoals(customGoals.filter(g => g.id !== id)); }
@@ -1656,9 +1810,15 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
         <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
           {section === "profile" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {[{ key: "name", label: "Name" }, { key: "age", label: "Age" }, { key: "weight", label: "Weight (kg)" }, { key: "gender", label: "Gender" }, { key: "city", label: "City / Country" }, { key: "diet", label: "Dietary pattern" }].map(f => (
+              {[{ key: "name", label: "Name" }, { key: "age", label: "Age" }, { key: "weight", label: "Weight (kg)" }, { key: "height", label: "Height (cm)" }, { key: "gender", label: "Gender" }, { key: "city", label: "City / Country" }, { key: "diet", label: "Dietary pattern" }].map(f => (
                 <div key={f.key}><div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 4 }}>{f.label}</div><input value={form[f.key] ?? ""} onChange={e => setForm({ ...form, [f.key]: e.target.value })} style={{ width: "100%", border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", fontFamily: "Inter", fontSize: 13.5 }} /></div>
               ))}
+              {(() => { const bmi = computeBMI(Number(form.weight), Number(form.height)); return bmi ? (
+                <Card style={{ background: T.tealPale, padding: 10 }}>
+                  <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 16, color: T.teal }}>BMI: {bmi.toFixed(1)} — {bmiCategory(bmi)}</div>
+                  <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft }}>Recalculates automatically from weight and height.</div>
+                </Card>
+              ) : null; })()}
               <button onClick={saveProfileForm} style={{ background: T.saffron, border: "none", borderRadius: 10, padding: "10px 0", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, marginTop: 6 }}>Save profile</button>
               <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft }}>Changing weight recalculates calorie/protein targets automatically.</div>
             </div>
@@ -1750,19 +1910,13 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
           )}
           {section === "data" && (
             <div>
-              <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>DEMO DATA</div>
-              <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 8, lineHeight: 1.5 }}>
-                Fills Aug 9 – Sep 8, 2026 with real meals from the uploaded rotation and the activity pattern you described (high-walk Aug 18–30, more standing Sep 1–5, light otherwise). Won't overwrite any date you've already logged real data for.
-              </div>
               <button onClick={onApplyDemoMonth} style={{ width: "100%", background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 10, padding: "10px 0", color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, marginBottom: 20 }}>Generate demo month</button>
               <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>CLEAR A SPECIFIC DATE</div>
-              <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 8 }}>Removes food, activity, habit, and supplement entries for one day only.</div>
               <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
                 <input type="date" value={clearDateVal} max={todayKey()} onChange={e => setClearDateVal(e.target.value)} style={{ flex: 1, border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", fontFamily: "Inter", fontSize: 13.5 }} />
                 <button onClick={() => onClearDate(clearDateVal)} style={{ background: T.alert, border: "none", borderRadius: 10, padding: "0 14px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5 }}>Clear</button>
               </div>
               <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>CLEAR EVERYTHING</div>
-              <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 8 }}>Deletes all food, activity, habit, and supplement history permanently. Profile, goals, and report history are not affected.</div>
               {!confirmingClearAll ? (
                 <button onClick={() => setConfirmingClearAll(true)} style={{ width: "100%", background: T.alertPale, border: `1px solid ${T.alert}`, borderRadius: 10, padding: "10px 0", color: T.alert, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5 }}>Clear all history</button>
               ) : (
@@ -1838,11 +1992,11 @@ function App() {
   };
 
   const TABS = [
-    { id: "today", label: "Today", icon: "home" },
+    { id: "today", label: "Dashboard", icon: "home" },
     { id: "food", label: "Food", icon: "food" },
-    { id: "health", label: "Health", icon: "activity" },
     { id: "habits", label: "Habits", icon: "calendar" },
     { id: "supplements", label: "Supps", icon: "pill" },
+    { id: "health", label: "Health", icon: "activity" },
     { id: "plan", label: "Plan", icon: "clipboard" },
   ];
 
@@ -1859,7 +2013,7 @@ function App() {
       `}</style>
       <div style={{ width: "100%", maxWidth: 420, background: T.cream, minHeight: "100vh", position: "relative", boxShadow: "0 0 40px rgba(0,0,0,0.06)" }}>
         <button onClick={() => openSettings("profile")} aria-label="Profile and reports" style={{ position: "absolute", top: "calc(14px + env(safe-area-inset-top, 0px))", right: 14, zIndex: 15, background: T.white, border: `1px solid ${T.border}`, borderRadius: 999, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.08)" }}><Icon name="settings" size={17} color={T.teal} /></button>
-        {tab === "today" && <TodayTab profile={profile} targets={targets} foodToday={foodToday} habitToday={habitToday} supplementsToday={supplementsToday} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} toggleHabit={toggleHabit} supplements={supplements} onNavigate={setTab} demoCleared={demoCleared} clearDemo={clearDemo} />}
+        {tab === "today" && <TodayTab profile={profile} targets={targets} foodToday={foodForDate} habitToday={habitsForDate} supplementsToday={supplementsForDate} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} activities={activities} toggleHabit={toggleHabit} supplements={supplements} onNavigate={setTab} demoCleared={demoCleared} clearDemo={clearDemo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />}
         {tab === "food" && <FoodCheckTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} foodForDate={foodForDate} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} addFoodEntry={addFoodEntry} deleteFoodEntry={deleteFoodEntry} customDishes={customDishes} saveCustomDish={saveCustomDish} metrics={metrics} periods={periods} />}
         {tab === "health" && <MyHealthTab metrics={metrics} periods={periods} supplementsToday={supplementsToday} toggleSupplement={(id) => toggleSupplement(tk, id)} supplements={supplements} onAddReport={() => openSettings("reports")} />}
         {tab === "habits" && <HabitsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} habitsForDate={habitsForDate} toggleHabit={toggleHabit} weekHabits={weekHabits} weekFood={weekFood} weekSupplements={weekSupplements} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} />}
