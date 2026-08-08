@@ -140,7 +140,133 @@ function computeTopPriorities(metrics, periods) {
   return withStatus.slice(0, 3);
 }
 
-const TEST_NEXT = ["CBC + Ferritin + Iron Studies — flagged 3+ reports running, still not done", "Fasting Blood Sugar + HbA1c — must-do given the TG spike", "Vitamin D + B12 — both borderline/low, not retested since Jul 2025", "T3 / T4 alongside next TSH", "Recheck GGT + Triglycerides in 6–8 weeks"];
+/* ============================== ADVICE ENGINE (person-agnostic) ==============================
+   General knowledge about common markers + how they respond to diet/lifestyle. NOTHING here is
+   specific to one person — all personalized advice is derived at runtime from whatever report
+   values, goals and supplements are entered. Adding a different person (new profile + report)
+   changes every piece of advice automatically. `drivers` = the macro thresholds that make a dish
+   bad for that marker (used by computeDynamicTags). `short` = human phrase for inline text. */
+const MARKER_INFO = {
+  tg:   { short: "triglycerides", drivers: { sugar: 8, fried: true },
+          focus: "Cut sugar, refined carbs, juice and alcohol — they push triglycerides up fastest.",
+          avoid: [{ item: "White sugar & sweets", reason: "convert straight to triglycerides" }, { item: "Fruit juice", reason: "pure fructose spike" }, { item: "Maida / white flour", reason: "high-GI triglyceride driver" }, { item: "Alcohol", reason: "raises triglycerides directly" }],
+          eatMore: ["Millets (jowar/bajra) instead of white rice or maida", "Omega-3 sources — walnuts, flaxseed", "More fiber — dal, vegetables, oats"] },
+  chol: { short: "cholesterol", drivers: { fat: 15, fried: true },
+          focus: "Cut saturated and fried fat; soluble fiber and nuts help bring cholesterol down.",
+          avoid: [{ item: "Fried food", reason: "raises cholesterol" }, { item: "Palm oil / vanaspati", reason: "saturated fat" }],
+          eatMore: ["Soluble fiber — oats, isabgol", "Nuts and seeds", "Green leafy vegetables"] },
+  ldl:  { short: "LDL cholesterol", drivers: { fat: 15, fried: true },
+          focus: "LDL responds to less saturated/fried fat and more soluble fiber and omega-3.",
+          avoid: [{ item: "Fried food", reason: "raises LDL" }, { item: "Full-fat dairy in excess", reason: "saturated fat" }, { item: "Palm oil / vanaspati", reason: "saturated fat" }],
+          eatMore: ["A small daily handful of walnuts", "Oats and isabgol (soluble fiber)", "Green leafy vegetables"] },
+  hdl:  { short: "HDL (good cholesterol)", drivers: {},
+          focus: "HDL is the good one — regular brisk cardio is the main way to raise it.",
+          avoid: [], eatMore: ["Regular brisk walking or cardio", "Healthy fats — nuts, olive oil"] },
+  ggt:  { short: "liver enzyme GGT", drivers: { fried: true },
+          focus: "GGT is a liver-stress marker — zero alcohol and less fried/oily food is the lever.",
+          avoid: [{ item: "Alcohol", reason: "the most direct GGT trigger" }, { item: "Fried & oily food", reason: "liver stress" }, { item: "Packaged food with trans fat", reason: "liver stress" }],
+          eatMore: ["Amla — liver protector", "Green vegetables (methi, palak)", "Plenty of water"] },
+  sgot: { short: "liver enzyme AST", drivers: { fried: true },
+          focus: "AST is a liver marker — reduce alcohol and fried food, stay hydrated.",
+          avoid: [{ item: "Alcohol", reason: "liver stress" }, { item: "Fried & oily food", reason: "liver stress" }],
+          eatMore: ["Green vegetables", "Plenty of water"] },
+  sgpt: { short: "liver enzyme ALT", drivers: { fried: true },
+          focus: "ALT is a liver marker — reduce alcohol and fried food, stay hydrated.",
+          avoid: [{ item: "Alcohol", reason: "liver stress" }, { item: "Fried & oily food", reason: "liver stress" }],
+          eatMore: ["Green vegetables", "Plenty of water"] },
+  tsh:  { short: "thyroid (TSH)", drivers: {},
+          focus: "For thyroid, be consistent with medication/supplements and manage stress and sleep.",
+          avoid: [], eatMore: ["Adequate iodine and selenium", "Consistent sleep and stress management"] },
+  sugar:{ short: "blood sugar", drivers: { sugar: 8, carbs: 55 },
+          focus: "Cut sugar and refined carbs, and walk after meals to steady blood sugar.",
+          avoid: [{ item: "Sugar & sweets", reason: "spike blood sugar" }, { item: "White rice/maida in large portions", reason: "high glycemic load" }],
+          eatMore: ["Fiber-rich meals", "A short walk after meals"] },
+  bp:   { short: "blood pressure", drivers: {},
+          focus: "For blood pressure, cut salt and processed food and keep exercising.",
+          avoid: [{ item: "High-salt & processed food", reason: "raises blood pressure" }, { item: "Papad, pickle, namkeen", reason: "high sodium" }],
+          eatMore: ["Fruits and vegetables (potassium)", "Regular exercise"] },
+  weight: { short: "weight", drivers: {}, focus: "", avoid: [], eatMore: [] },
+};
+// Fallbacks used when NO marker is flagged (a healthy person) — plain general healthy-eating.
+const GENERAL_AVOID = [
+  { item: "Deep-fried food", reason: "high in unhealthy fats and calories" },
+  { item: "Sugary drinks & sweets", reason: "spike blood sugar and add empty calories" },
+  { item: "Refined flour (maida)", reason: "high glycemic, low fiber" },
+  { item: "Packaged snacks (chips, biscuits, namkeen)", reason: "hidden trans fat, salt and sugar" },
+];
+const GENERAL_EATMORE = ["Dal and legumes — protein and fiber", "Whole grains and millets over refined flour", "A small daily handful of nuts and seeds", "Plenty of vegetables and fruit", "Curd/dahi for gut health", "Enough water through the day"];
+const GENERAL_FOCUS = [
+  { marker: "ACTIVITY", tip: "A 30-minute brisk walk is the single best all-round lever for your health." },
+  { marker: "HYDRATION", tip: "Aim for steady water through the day, not just when thirsty." },
+  { marker: "WHOLE FOODS", tip: "Build meals around whole grains, dal and vegetables; keep sugar and fried food occasional." },
+  { marker: "SLEEP", tip: "Consistent sleep supports weight, thyroid and stress markers." },
+];
+
+function joinNames(arr) {
+  if (!arr || !arr.length) return "";
+  if (arr.length === 1) return arr[0];
+  return arr.slice(0, -1).join(", ") + " and " + arr[arr.length - 1];
+}
+// All flagged (bad/watch) marker keys from the latest report, worst first.
+function flaggedMarkerKeys(metrics, periods) {
+  const latestIdx = periods.length - 1;
+  return metrics
+    .map(m => ({ key: m.key, status: metricStatus(m.points[latestIdx], m) }))
+    .filter(m => m.status === "bad" || m.status === "watch")
+    .sort((a, b) => (a.status === "bad" ? 0 : 1) - (b.status === "bad" ? 0 : 1))
+    .map(m => m.key);
+}
+function computeAvoidList(metrics, periods) {
+  const keys = flaggedMarkerKeys(metrics, periods);
+  const seen = new Set(); const out = [];
+  keys.forEach(k => (MARKER_INFO[k]?.avoid || []).forEach(a => { const id = a.item.toLowerCase(); if (!seen.has(id)) { seen.add(id); out.push(a); } }));
+  return out.length ? out : GENERAL_AVOID;
+}
+function computeEatMore(metrics, periods) {
+  const keys = flaggedMarkerKeys(metrics, periods);
+  const seen = new Set(); const out = [];
+  keys.forEach(k => (MARKER_INFO[k]?.eatMore || []).forEach(e => { const id = e.toLowerCase(); if (!seen.has(id)) { seen.add(id); out.push(e); } }));
+  return out.length ? out : GENERAL_EATMORE;
+}
+function computeDailyFocus(metrics, periods) {
+  const keys = flaggedMarkerKeys(metrics, periods);
+  if (!keys.length) return GENERAL_FOCUS;
+  const out = keys.map(k => MARKER_INFO[k]).filter(i => i && i.focus).map(i => ({ marker: (i.short || "").toUpperCase(), tip: i.focus }));
+  out.push({ marker: "ACTIVITY", tip: "A 30-minute brisk walk is your single most effective all-round lever." });
+  return out;
+}
+function computeTestNext(metrics, periods) {
+  const latestIdx = periods.length - 1;
+  const out = [];
+  metrics.forEach(m => {
+    const latest = m.points[latestIdx];
+    const everTested = m.points.some(v => v != null);
+    const status = metricStatus(latest, m);
+    if (!everTested) out.push(`${m.label} — no reading on record yet, get a baseline.`);
+    else if (latest == null) out.push(`${m.label} — missing from your latest report, retest it.`);
+    else if (status === "bad" || status === "watch") out.push(`Recheck ${m.label} in 6–8 weeks — currently ${status === "bad" ? "out of range" : "borderline"}.`);
+  });
+  return out.length ? out : ["Everything tracked is in range — a routine annual check-up is enough."];
+}
+// The single object every tab reads its personalized advice from. Pure function of the entered
+// data — swap in another person's profile/report/supplements and all of this changes.
+function computeAdvice(metrics, periods, supplements, goalToggles) {
+  const flaggedKeys = flaggedMarkerKeys(metrics, periods);
+  const sugarKey = flaggedKeys.find(k => MARKER_INFO[k]?.drivers?.sugar != null);
+  const cardioKeys = flaggedKeys.filter(k => k === "hdl" || k === "tg");
+  const critNames = supplements.filter(s => s.critical).map(s => s.name.replace(/\s*\(.*?\)/, "").trim());
+  return {
+    flaggedKeys,
+    avoidList: computeAvoidList(metrics, periods),
+    eatMore: computeEatMore(metrics, periods),
+    dailyFocus: computeDailyFocus(metrics, periods),
+    testNext: computeTestNext(metrics, periods),
+    criticalSuppNames: critNames.length ? joinNames(critNames) : "your key supplements",
+    sugarMarkerLabel: sugarKey ? MARKER_INFO[sugarKey].short : null,
+    cardioMarkerLabel: cardioKeys.length ? joinNames([...new Set(cardioKeys.map(k => MARKER_INFO[k].short))]) : "your heart & metabolic markers",
+    focusMarkerLabel: flaggedKeys.length ? (MARKER_INFO[flaggedKeys[0]]?.short || null) : null,
+  };
+}
 
 let TOTAL_SUPPLEMENTS = 9; // updated by App root each render to reflect the current (editable) supplement list
 const SUPPLEMENTS_SEED = [
@@ -155,17 +281,7 @@ const SUPPLEMENTS_SEED = [
   { id: "d3", name: "Vitamin D3", dose: "60,000 IU", time: "weekly", timeLabel: "Once/week with food", why: "Borderline low, fluctuating.", critical: false },
 ];
 
-const BANNED = [
-  { item: "Alcohol / beer", reason: "GGT at 105 — direct trigger. Zero, not occasional." },
-  { item: "Fruit juice (any)", reason: "TG at 257 — pure fructose spike." },
-  { item: "White sugar", reason: "Converts straight to triglycerides." },
-  { item: "Maida / white flour", reason: "High GI, TG driver." },
-  { item: "Fried food (vada pav, bhajiya, puri)", reason: "GGT + TG + cholesterol trigger." },
-  { item: "Palm oil / vanaspati", reason: "Saturated fat, liver stress." },
-  { item: "Packaged biscuits / chips / namkeen", reason: "Hidden trans fat + sugar." },
-  { item: "Large mango portions", reason: "High fructose — small amount only." },
-];
-const EAT_MORE = ["Dal — every day, protein anchor of every meal", "Jowar / bajra / ragi rotis instead of maida", "Walnuts — 5–7 halves daily, best for LDL", "Green sabzi (methi, palak) — liver + thyroid support", "Curd/dahi — 1 bowl daily for gut health", "Amla — liver protector, highest vitamin C"];
+// BANNED / EAT_MORE are now derived per-person by computeAvoidList / computeEatMore (see advice engine).
 const MEAL_POOL = {
   breakfast: ["Moong chilla with stuffed paneer bhurji", "Khata dhokla", "Lauki chilla", "Paneer dhosa", "Paneer stuffed paratha", "Thepla", "Besan chilla", "Paneer bhurji with Juwar roti", "Overnight soaked Oats", "Oats Idli", "Loki chilla", "Paneer stuffed moong dal chilla", "Mix daal Handvo- thin (patlo - like chilla )", "Moong daal pancake", "Cheese paratha", "Rawa idli with vegetables", "Alu poha with almonds", "Rawa dhosa", "Vegetable Upma", "Uttapam with tomato and paneer"],
   lunch: ["Frankie with paneer, salad,  soup", "Paneer bhurji wrap, salad", "Bajra roti with palak paneer & Mag salad, Curd", "Stuffed lauki paratha + curd", "Bajra roti with bengan bhartha, salad", "Paneer, onion masala Stuffed jowar roti + garlic chutney, Fruits", "Mix Aata paratha, Chhole, Salad, curd", "Mix Aata paratha, Rajma, Salad, curd", "Mix aata roti, rice, shak, brocolli paneer saute", "Brocolli, paneer stuffed paratha, salad, tomato onion sabji", "Mix Aata paratha, paneer sabji, Salad, curd", "Mix Aata paratha, Dum aloo , Salad, curd", "Puri, chana, rice, kadhi, sambharo, papad", "Roti, sabji, rice, daal, sambharo, papad", "Ragda petis, salad, chhash", "Brown veg rice, soup, papad", "Brown rice, kala chana, kadhi, salad", "Gobhi Paratha, salad, curd", "Mung salad, Dal makhni, rice", "Mexican rice, soup, salad", "Rice, Rajma, salad, chhash,", "Brown rice, daal fry, salad, papad", "Paratha, Bengan bhartha, sadi khichdi", "Sama rice, shak, salad, curd, wafer , chilly fry"],
@@ -193,10 +309,34 @@ const MEAL_SLOTS = ["Breakfast", "Lunch", "Snack", "Dinner", "After Dinner"];
 // across the demo window (not tied to the original sheet's own dates).
 const WEEKLY_MENU_LOG = [{b:"Oats Idli",l:"Ragda petis, salad, chhash",d:"Dudhi thepla, sabji"},{b:"Besan chilla",l:"Brown veg rice, soup, papad",d:"veg. khichdi"},{b:"Paneer stuffed moong dal chilla",l:"Frankie with paneer, salad,  soup",d:null},{b:"Vegetable Upma",l:"Roti, sabji, rice, daal, sambharo, papad",d:"Cutlet sallofry"},{b:"Overnight soaked Oats",l:"Paratha, Bengan bhartha, sadi khichdi",d:"Pizza"},{b:"Thepla",l:"Mexican rice, soup, salad",d:"Sabudana khichdi, wafer, chilly fry"},{b:"Paneer bhurji with Juwar roti",l:"Mix Aata paratha, Chhole, Salad, curd",d:"Bhurji, mix Aata paratha"},{b:"Overnight soaked Oats",l:"Mix Aata paratha, Rajma, Salad, curd",d:"Chat - panipuri/bhel/sevpuri"},{b:"Oats Idli",l:"Mix aata roti, rice, shak, brocolli paneer saute",d:"Cheese/cream sandwich"},{b:"Loki chilla",l:"Brocolli, paneer stuffed paratha, salad, tomato onion sabji",d:"Chinese bhel"},{b:"Paneer stuffed moong dal chilla",l:"Mix Aata paratha, paneer sabji, Salad, curd",d:"Dudhi thepla, sabji"},{b:"Mix daal Handvo- thin (patlo - like chilla )",l:"Mix Aata paratha, Dum aloo , Salad, curd",d:"Kachori"},{b:"Moong daal pancake",l:"Puri, chana, rice, kadhi, sambharo, papad",d:"Khaman dhokla, thepla, suki bhaji"},{b:"Cheese paratha",l:"Roti, sabji, rice, daal, sambharo, papad",d:"Misal pav"},{b:"Rawa idli with vegetables",l:"Ragda petis, salad, chhash",d:"Paratha , paneer sabji"},{b:"Alu poha with almonds",l:"Brown veg rice, soup, papad",d:"Pasta"},{b:"Rawa dhosa",l:"Brown rice, kala chana, kadhi, salad",d:"Pavbhaji"},{b:"Vegetable Upma",l:"Gobhi Paratha, salad, curd",d:"Uttapam"},{b:"Uttapam with tomato and paneer",l:"Mung salad, Dal makhni, rice",d:"Pizza"},{b:null,l:"Rice, Rajma, salad, chhash, ",d:null},{b:null,l:"Brown rice, daal fry, salad, papad",d:null},{b:"Juice",l:"Paratha, Bengan bhartha, sadi khichdi",d:"Rawa dhokla, thepla"},{b:null,l:"Sama rice, shak, salad, curd, wafer , chilly fry",d:"Rawa idli, chattany"},{b:"Moong chilla with stuffed paneer bhurji",l:"Frankie with paneer, salad,  soup",d:"Aluparatha, tomato onion sabji"},{b:"Khata dhokla",l:"Paneer bhurji wrap, salad",d:"Sprouted moong & corn chaat"},{b:"Lauki chilla",l:"Bajra roti with palak paneer & Mag salad, Curd",d:"Dabeli"},{b:"Paneer dhosa",l:"Stuffed lauki paratha + curd",d:"vada pav"},{b:"Paneer stuffed paratha",l:"Bajra roti with bengan bhartha, salad",d:null},{b:"Thepla",l:"Paneer, onion masala Stuffed jowar roti + garlic chutney, Fruits",d:null},{b:"Besan chilla",l:"Mix Aata paratha, Chhole, Salad, curd",d:"Bhurji, mix Aata paratha"},{b:"Paneer bhurji with Juwar roti",l:"Mix Aata paratha, Rajma, Salad, curd",d:"Chat - panipuri/bhel/sevpuri"},{b:"Overnight soaked Oats",l:"Mix aata roti, rice, shak, brocolli paneer saute",d:"Cheese/cream sandwich"},{b:"Oats Idli",l:"Brocolli, paneer stuffed paratha, salad, tomato onion sabji",d:"Chinese bhel"},{b:"Loki chilla",l:"Mix Aata paratha, paneer sabji, Salad, curd",d:"Dudhi thepla, sabji"},{b:"Paneer stuffed moong dal chilla",l:"Mix Aata paratha, Dum aloo , Salad, curd",d:"Kachori"},{b:"Mix daal Handvo- thin (patlo - like chilla )",l:"Puri, chana, rice, kadhi, sambharo, papad",d:"Khaman dhokla, thepla, suki bhaji"},{b:"Moong daal pancake",l:"Roti, sabji, rice, daal, sambharo, papad",d:"Misal pav"},{b:"Cheese paratha",l:"Ragda petis, salad, chhash",d:"Paratha , paneer sabji"},{b:"Rawa idli with vegetables",l:"Brown veg rice, soup, papad",d:"Pasta"},{b:"Alu poha with almonds",l:"Brown rice, kala chana, kadhi, salad",d:"Pavbhaji"},{b:"Rawa dhosa",l:"Gobhi Paratha, salad, curd",d:"Uttapam"},{b:"Vegetable Upma",l:"Mung salad, Dal makhni, rice",d:"Pizza"},{b:"Uttapam with tomato and paneer",l:"Mexican rice, soup, salad",d:"Potato sandwich"},{b:null,l:"Rice, Rajma, salad, chhash, ",d:"Quesadillas"},{b:null,l:"Brown rice, daal fry, salad, papad",d:"Rawa dhokla, thepla"},{b:"Juice",l:"Paratha, Bengan bhartha, sadi khichdi",d:"Rawa idli, chattany"},{b:null,l:"Sama rice, shak, salad, curd, wafer , chilly fry",d:"Rawa oats sandwich, thepla"},{b:"Moong chilla with stuffed paneer bhurji",l:"Frankie with paneer, salad,  soup",d:"Samosa"},{b:"Khata dhokla",l:"Paneer bhurji wrap, salad",d:"Samosa balls, khari bhat"},{b:"Lauki chilla",l:"Bajra roti with palak paneer & Mag salad, Curd",d:"Thepla"},{b:"Paneer dhosa",l:"Stuffed lauki paratha + curd",d:"Vegetable sandwich"},{b:"Paneer stuffed paratha",l:"Bajra roti with bengan bhartha, salad",d:"Alu poha"},{b:"Thepla",l:"Paneer, onion masala Stuffed jowar roti + garlic chutney, Fruits",d:"Biryani, raita"},{b:"Besan chilla",l:"Mix Aata paratha, Chhole, Salad, curd",d:"Chinese - rice, noodles, manchurian"},{b:"Paneer bhurji with Juwar roti",l:"Mix Aata paratha, Rajma, Salad, curd",d:"Idli sambhar"},{b:"Overnight soaked Oats",l:"Mix aata roti, rice, shak, brocolli paneer saute",d:"Khari bhat"},{b:"Oats Idli",l:"Brocolli, paneer stuffed paratha, salad, tomato onion sabji",d:"Khichdi, kadhi, potato sabji, cut long carrot"},{b:"Loki chilla",l:"Mix Aata paratha, paneer sabji, Salad, curd",d:"Lauki dhosa"},{b:"Paneer stuffed moong dal chilla",l:"Mix Aata paratha, Dum aloo , Salad, curd",d:"Masala dhosa"},{b:"Mix daal Handvo- thin (patlo - like chilla )",l:"Puri, chana, rice, kadhi, sambharo, papad",d:"Moong daal suji dhokla, chattany, Alu poha"},{b:"Moong daal pancake",l:"Roti, sabji, rice, daal, sambharo, papad",d:"Palak khichdi"},{b:"Cheese paratha",l:"Ragda petis, salad, chhash",d:"Schezwan rice"},{b:"Rawa idli with vegetables",l:"Brown veg rice, soup, papad",d:"Tawa pulav, raita, papad"},{b:"Alu poha with almonds",l:"Brown rice, kala chana, kadhi, salad",d:"veg. khichdi"},{b:"Rawa dhosa",l:"Gobhi Paratha, salad, curd",d:"Veg. swami khichdi, long carrot, papad, tikhari"},{b:"Vegetable Upma",l:"Mung salad, Dal makhni, rice",d:"Bhajiya"},{b:"Uttapam with tomato and paneer",l:"Mexican rice, soup, salad",d:"Bitroot tikki"},{b:null,l:"Rice, Rajma, salad, chhash, ",d:"Brocolli tikki"},{b:null,l:"Brown rice, daal fry, salad, papad",d:"Cutlet sallofry"},{b:"Juice",l:"Paratha, Bengan bhartha, sadi khichdi",d:"Khaman dhokla"},{b:null,l:"Sama rice, shak, salad, curd, wafer , chilly fry",d:"Moong daal suji dhokla, chattany"},{b:"Moong chilla with stuffed paneer bhurji",l:"Frankie with paneer, salad,  soup",d:"Potato vada"},{b:"Khata dhokla",l:"Paneer bhurji wrap, salad",d:"Sabudana khichdi, wafer, chilly fry"},{b:"Lauki chilla",l:"Bajra roti with palak paneer & Mag salad, Curd",d:"Suki bhaji, wafer, chilly , peanut fry"},{b:"Paneer dhosa",l:"Stuffed lauki paratha + curd",d:"Aluparatha, tomato onion sabji"},{b:"Paneer stuffed paratha",l:"Bajra roti with bengan bhartha, salad",d:"Sprouted moong & corn chaat"},{b:"Thepla",l:"Paneer, onion masala Stuffed jowar roti + garlic chutney, Fruits",d:"Dabeli"},{b:"Besan chilla",l:"Mix Aata paratha, Chhole, Salad, curd",d:"vada pav"},{b:"Paneer bhurji with Juwar roti",l:"Mix Aata paratha, Rajma, Salad, curd",d:null},{b:"Overnight soaked Oats",l:"Mix aata roti, rice, shak, brocolli paneer saute",d:null},{b:"Oats Idli",l:"Brocolli, paneer stuffed paratha, salad, tomato onion sabji",d:"Bhurji, mix Aata paratha"},{b:"Loki chilla",l:"Mix Aata paratha, paneer sabji, Salad, curd",d:"Chat - panipuri/bhel/sevpuri"}];
 
-// Matches a meal-plan text entry against FOOD_DB only (kept synchronous/fast — no API
-// calls during bulk demo generation). Falls back to a neutral "moderate" placeholder,
-// clearly tagged demo, when it's a compound description that can't be auto-classified.
-function classifyDemoMeal(dishText) {
+// Deterministic pseudo-random in [0,1) from a numeric seed — used so the seeded history
+// is stable across reloads and regenerations (never Math.random, which would reshuffle).
+function seededRand(seed) { const x = Math.sin(seed * 999.13 + 7.7) * 43758.5453; return x - Math.floor(x); }
+
+// Rough default macros per meal slot, used when a Weekly-Menu entry is a compound
+// description that doesn't map to a single FOOD_DB dish — this keeps the food charts and
+// insights populated with real numbers instead of blanks. A small deterministic jitter
+// (per day) gives day-to-day variation so the trends aren't perfectly flat.
+const SLOT_DEFAULTS = {
+  Breakfast: { calories: 300, protein: 11, fiber: 4, carbs: 42, sugar: 6 },
+  Lunch:     { calories: 480, protein: 15, fiber: 6, carbs: 66, sugar: 8 },
+  Dinner:    { calories: 430, protein: 12, fiber: 5, carbs: 58, sugar: 9 },
+};
+const SAFE_WORDS = ["oats", "idli", "chilla", "dhokla", "khaman", "salad", "dal", "daal", "khichdi", "sabji", "shak", "upma", "poha", "curd", "chhash", "handvo", "sambhar", "mung", "moong", "rajma", "chana", "chhole", "chole", "brocolli", "broccoli", "uttapam", "bajra", "jowar", "brown rice"];
+const HEAVY_WORDS = ["fried", " fry", "vada", "bhajiya", "puri", "pakora", "samosa", "kachori", "pizza", "pasta", "pav", "cheese", "cream", "sandwich", "dabeli", "misal", "biryani", "schezwan", "chinese", "noodles", "manchurian", "wafer", "chilly fry", "sabudana", "cutlet", "quesadilla", "tikki", "chaat", "chat -", "panipuri", "bhel", "sevpuri"];
+function demoVerdictFor(dishText) {
+  const n = dishText.toLowerCase();
+  if (/pizza|samosa|vada pav|manchurian|kachori|dabeli/.test(n)) return "avoid";
+  if (HEAVY_WORDS.some(w => n.includes(w))) return "limit";
+  if (SAFE_WORDS.some(w => n.includes(w))) return "safe";
+  return "moderate";
+}
+
+// Matches a Weekly-Menu text entry against FOOD_DB first; if it's a compound description
+// that can't be mapped to one dish, falls back to slot-based default macros + a keyword
+// verdict (so every seeded meal still carries calories/protein/sugar). Kept synchronous —
+// no API calls during bulk history generation. Always tagged demo:true.
+function classifyDemoMeal(dishText, slot, dayIdx) {
   if (!dishText) return null;
   const key = normalizeWithAliases(dishText);
   for (const [k, entry] of Object.entries(FOOD_DB)) {
@@ -205,50 +345,85 @@ function classifyDemoMeal(dishText) {
       return { dish: dishText, calories: entry.calories, protein: entry.protein, fiber: entry.fiber, carbs: entry.carbs, sugar: entry.sugar, verdict: entry.verdict, demo: true };
     }
   }
-  return { dish: dishText, calories: null, protein: null, fiber: null, carbs: null, sugar: null, verdict: "moderate", demo: true };
+  const base = SLOT_DEFAULTS[slot] || SLOT_DEFAULTS.Lunch;
+  const scale = 0.85 + seededRand((dayIdx + 1) * (slot ? slot.length : 5)) * 0.3; // 0.85–1.15
+  const verdict = demoVerdictFor(dishText);
+  const sugarBoost = verdict === "avoid" ? 10 : verdict === "limit" ? 5 : 0;
+  return {
+    dish: dishText,
+    calories: Math.round(base.calories * scale), protein: Math.round(base.protein * scale),
+    fiber: Math.round(base.fiber * scale), carbs: Math.round(base.carbs * scale),
+    sugar: Math.round(base.sugar * scale) + sugarBoost, verdict, demo: true,
+  };
 }
 
-// Generates one demo month (Aug 9 – Sep 8, 2026) using her real meal rotation for food,
-// and her specified activity pattern: high-walk Aug 18–30, more-standing-less-walking
-// Sep 1–5, and very light/inactive on every other day. Pure function — returns data,
-// doesn't touch storage directly, so it stays easy to review before applying and easy
-// to wipe via the existing "Clear all history" / "Clear a specific date" controls.
-function generateDemoMonth() {
-  const foodByDate = {}, activitiesByDate = {}, habitsByDate = {};
-  const start = new Date(2026, 7, 9);   // Aug 9, 2026
-  const end = new Date(2026, 8, 8);     // Sep 8, 2026
-  const highWalkStart = new Date(2026, 7, 18), highWalkEnd = new Date(2026, 7, 30);
-  const standingStart = new Date(2026, 8, 1), standingEnd = new Date(2026, 8, 5);
+// Bump to force a one-time reseed of history on next load (existing real logs are never
+// overwritten — the seed only fills days that don't already have data).
+const SEED_VERSION = "2026-07-full-v1";
+const CRITICAL_SUPP_IDS = ["omega3", "isabgol", "ashwagandha", "liv52"];
+const HIGH_WINDOW_SKIP = ["turmeric", "silymarin", "zinc"]; // the three NOT taken during Jul 18–28
+
+// Generates real-looking history from Jul 1, 2026 through `endKey` (default: today), using
+// her real Weekly-Menu rotation (WEEKLY_MENU_LOG, digested from the Menu25 "Weekly menu"
+// sheet) for food, plus the specified activity/supplement pattern:
+//   • Jul 18–28: a brisk walk every day (8k–20k steps) + 20-min yoga on some days, no gym,
+//     and every supplement taken EXCEPT Turmeric+Piperine, Silymarin and Zinc.
+//   • Every other week: about half the days a 30-min walk, the rest no activity (no gym,
+//     nothing else), and supplements taken less consistently.
+//   • Sundays are rest days (no walk).
+// Pure function — returns data, doesn't touch storage — so it's easy to review and easy to
+// wipe via the existing "Clear all history" / "Clear a specific date" controls.
+function generateHistory(endKey) {
+  const foodByDate = {}, activitiesByDate = {}, habitsByDate = {}, supplementsByDate = {};
+  const start = new Date(2026, 6, 1);            // Jul 1, 2026
+  const end = endKey ? new Date(endKey + "T00:00:00") : new Date();
+  const highStart = new Date(2026, 6, 18), highEnd = new Date(2026, 6, 28); // Jul 18–28
 
   let i = 0;
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1), i++) {
-    const dk = d.toISOString().slice(0, 10);
+    const dk = ymd(d);
+    const dow = d.getDay(); // 0 = Sunday
+    const inHigh = d >= highStart && d <= highEnd;
     const menuDay = WEEKLY_MENU_LOG[i % WEEKLY_MENU_LOG.length];
+
+    // ---- Food (from her real weekly-menu rotation) ----
     const entries = [];
-    [["b", "Breakfast"], ["l", "Lunch"], ["d", "Dinner"]].forEach(([key, slot]) => {
-      const classified = classifyDemoMeal(menuDay[key]);
+    [["b", "Breakfast"], ["l", "Lunch"], ["d", "Dinner"]].forEach(([mk, slot]) => {
+      const classified = classifyDemoMeal(menuDay[mk], slot, i);
       if (classified) entries.push({ ...classified, mealSlot: slot, time: d.getTime() });
     });
     if (entries.length) foodByDate[dk] = entries;
 
+    // ---- Activity + habits ----
     const acts = [];
-    const habits = { demo: true };
-    if (d >= highWalkStart && d <= highWalkEnd) {
-      const steps = 8000 + Math.floor(Math.random() * 12000); // 8k–20k
-      const mins = Math.round(steps / 130); // rough pace proxy
-      acts.push({ type: "Walk", duration: mins, time: d.getTime(), demo: true, note: `~${steps.toLocaleString()} steps` });
+    const habits = {};
+    if (dow === 0) {
+      habits.walk = false; // Sunday rest day
+    } else if (inHigh) {
+      const steps = 8000 + Math.floor(seededRand(i * 3.1) * 12000); // 8k–20k
+      acts.push({ type: "Walk", duration: Math.round(steps / 130), time: d.getTime(), demo: true, note: `~${steps.toLocaleString()} steps` });
+      if (seededRand(i * 5.7) < 0.45) acts.push({ type: "Yoga", duration: 20, time: d.getTime(), demo: true });
       habits.walk = true; habits.noAlcohol = true; habits.water = true;
-    } else if (d >= standingStart && d <= standingEnd) {
-      acts.push({ type: "Other", duration: 15, time: d.getTime(), demo: true, note: "Mostly standing, minimal walking" });
-      habits.walk = false;
+      habits.noFried = seededRand(i * 2.3) < 0.7; habits.noSugar = seededRand(i * 4.9) < 0.6;
     } else {
-      if (Math.random() < 0.15) acts.push({ type: "Other", duration: 10, time: d.getTime(), demo: true });
-      habits.walk = false;
+      if (seededRand(i * 6.3) < 0.5) { acts.push({ type: "Walk", duration: 30, time: d.getTime(), demo: true }); habits.walk = true; }
+      else habits.walk = false;
+      habits.noAlcohol = seededRand(i * 1.7) < 0.7; habits.water = seededRand(i * 3.9) < 0.6;
+      habits.noFried = seededRand(i * 2.1) < 0.5; habits.noSugar = seededRand(i * 5.3) < 0.45;
     }
     if (acts.length) activitiesByDate[dk] = acts;
     habitsByDate[dk] = habits;
+
+    // ---- Supplements (no demo flag inside — the object is counted for adherence) ----
+    const supp = {};
+    SUPPLEMENTS_SEED.forEach((s, si) => {
+      if (s.time === "weekly") { supp[s.id] = dow === 1; return; }       // weekly D3 → Mondays
+      if (inHigh) supp[s.id] = !HIGH_WINDOW_SKIP.includes(s.id);
+      else supp[s.id] = seededRand(i * 10 + si) < (CRITICAL_SUPP_IDS.includes(s.id) ? 0.65 : 0.3);
+    });
+    supplementsByDate[dk] = supp;
   }
-  return { foodByDate, activitiesByDate, habitsByDate };
+  return { foodByDate, activitiesByDate, habitsByDate, supplementsByDate };
 }
 
 const ACTIVITY_TYPES = ["Walk", "Gym / Strength", "Yoga", "Cycling", "Swimming", "Other"];
@@ -325,13 +500,7 @@ const FOOD_DB = {
   "enchiladas": { verdict: "limit", calories: 380, protein: 12, fiber: 4, carbs: 40, sugar: 4, portion: "2 pieces, veg", reason: "Cheese sauce + tortilla — moderate the frequency.", marker: "LDL", weeklyLimit: 2 },
 };
 
-const DAILY_TIPS = [
-  { marker: "Triglycerides", tip: "Every gram of sugar or maida you skip today moves TG down." },
-  { marker: "GGT", tip: "Zero alcohol isn't a suggestion right now — GGT at 105 is a direct liver alarm." },
-  { marker: "TSH", tip: "Don't skip Ashwagandha today — it's tied to your best-ever TSH of 2.8." },
-  { marker: "Activity", tip: "A 30-minute brisk walk is your single most effective lever for HDL and triglycerides." },
-  { marker: "LDL", tip: "Your LDL win took 2 years of Omega-3 + Isabgol. Don't relax that streak." },
-];
+// DAILY_TIPS are now derived per-person by computeDailyFocus (see advice engine above).
 
 // Free, local answer engine — no API calls, no cost, ever. Covers the health rules
 // already established for Jignesh. Anything outside this falls back to a search link.
@@ -454,14 +623,11 @@ function computeDynamicTags(macros, priorities) {
   const tags = [];
   const sugar = macros.sugar, fat = macros.fat;
   for (const p of priorities || []) {
+    const drivers = MARKER_INFO[p.key]?.drivers;
+    if (!drivers) continue;
     let verdict = null;
-    if (p.key === "tg" || p.key === "chol") {
-      if (sugar != null) { if (sugar >= 8) verdict = "bad"; else if (sugar <= 3) verdict = "good"; }
-    } else if (p.key === "ggt") {
-      if (fat != null && fat >= 15) verdict = "bad";
-    } else if (p.key === "ldl") {
-      if (fat != null) { if (fat >= 15) verdict = "bad"; else if (fat <= 5) verdict = "good"; }
-    }
+    if (drivers.sugar != null && sugar != null) { if (sugar >= drivers.sugar) verdict = "bad"; else if (sugar <= 3) verdict = "good"; }
+    if (verdict == null && drivers.fat != null && fat != null) { if (fat >= drivers.fat) verdict = "bad"; else if (fat <= 5) verdict = "good"; }
     if (verdict) tags.push({ label: p.label, verdict });
   }
   return tags;
@@ -504,15 +670,16 @@ async function lookupNutrition(dish) {
 }
 
 /* ============================== FUZZY DISH MATCHING ============================== */
-// Loads once at startup — a 5,200-name corpus (from the uploaded dish database) used
-// purely as a spelling/typo dictionary. It has no reliable nutrition data of its own
-// (checked: the health ratings in that file are ~85-95% identical across all dishes —
-// templated, not dish-specific — so they're not used for verdicts, only names).
+// Loads once at startup — a ~6,700-name vegetarian dish corpus (dishes.json, built from
+// the Vegetarian Dish Database) used as a spelling/typo dictionary AND to recognize dishes
+// beyond the curated FOOD_DB. Shape: { cuisines:[...], dishes:[[name, cuisineIdx], ...] }.
+// The database's own 1–5 ratings are templated (nearly every dish scores ~4/safe), so they
+// are deliberately NOT used for verdicts — verdicts come from the app's own keyword rules.
 let DISH_CORPUS = null;
 async function loadDishCorpus() {
   if (DISH_CORPUS) return DISH_CORPUS;
   try {
-    const res = await fetch("dishnames.json");
+    const res = await fetch("dishes.json");
     DISH_CORPUS = await res.json();
   } catch {
     DISH_CORPUS = { cuisines: [], dishes: [] };
@@ -676,11 +843,16 @@ const HABITS = [
 const DEMO_WEEK = { 6: { score: 42 }, 5: { score: 68 }, 4: { score: 81 }, 3: { score: 55 }, 2: { score: 88 }, 1: { score: 74 } };
 
 /* ============================== HELPERS ============================== */
-const todayKey = () => new Date().toISOString().slice(0, 10);
+// Local (not UTC) date-key formatters. Using toISOString() here would shift the date back
+// a day in any positive-offset timezone (e.g. IST +5:30) for midnight-constructed dates,
+// so seeded/selected keys wouldn't line up. Everything keys off these instead.
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const ym = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+const todayKey = () => ymd(new Date());
 const dayLabel = (d) => d.toLocaleDateString("en-IN", { weekday: "short" });
 const isSunday = (d) => d.getDay() === 0;
 function last7Dates() { const arr = []; for (let i = 6; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); arr.push(d); } return arr; }
-function dateKeyOffset(offset) { const d = new Date(); d.setDate(d.getDate() - offset); return d.toISOString().slice(0, 10); }
+function dateKeyOffset(offset) { const d = new Date(); d.setDate(d.getDate() - offset); return ymd(d); }
 function daysInMonth(y, m) { return new Date(y, m + 1, 0).getDate(); }
 function summarizeActivitiesByMonth(activities) {
   const byMonth = {};
@@ -742,21 +914,21 @@ function dateKeysEndingAt(endKey, days) {
   const keys = [];
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date(end); d.setDate(d.getDate() - i);
-    keys.push(d.toISOString().slice(0, 10));
+    keys.push(ymd(d));
   }
   return keys;
 }
 function weekWindowsForDate(dateKey) {
   const thisWeekKeys = dateKeysEndingAt(dateKey, 7);
   const beforeThisWeek = new Date(thisWeekKeys[0] + "T00:00:00"); beforeThisWeek.setDate(beforeThisWeek.getDate() - 1);
-  const lastWeekKeys = dateKeysEndingAt(beforeThisWeek.toISOString().slice(0, 10), 7);
+  const lastWeekKeys = dateKeysEndingAt(ymd(beforeThisWeek), 7);
   return { thisWeekKeys, lastWeekKeys };
 }
 function monthWindowsForDate(dateKey) {
   const d = new Date(dateKey + "T00:00:00");
   const thisMonthKey = dateKey.slice(0, 7);
   const prevMonth = new Date(d.getFullYear(), d.getMonth() - 1, 1);
-  const lastMonthKey = prevMonth.toISOString().slice(0, 7);
+  const lastMonthKey = ym(prevMonth);
   return { thisMonthKey, lastMonthKey };
 }
 function avgScoreForKeys(keys, weekFood, weekHabits, weekSupplements) {
@@ -796,6 +968,101 @@ function supplementInsight(curKeys, prevKeys, weekSupplements, totalSupp) {
   if (prev != null) text += cur >= prev ? ` (up from ${prev}%).` : ` (down from ${prev}%).`;
   else text += ".";
   return text;
+}
+
+/* ---------- Shared period stats + comparison series (all anchored to the viewed date) ---------- */
+function toneColor(tone) { return tone === "bad" ? T.alert : tone === "warn" ? T.amber : T.forest; }
+function toneBg(tone) { return tone === "bad" ? T.alertPale : tone === "warn" ? T.amberPale : T.forestPale; }
+function dowShort(dk) { return new Date(dk + "T00:00:00").toLocaleDateString("en-IN", { weekday: "short" }); }
+
+// Food aggregate across a set of date keys → per-logged-day averages + verdict mix.
+function foodStats(keys, weekFood) {
+  let days = 0, calories = 0, protein = 0, carbs = 0, sugar = 0, fiber = 0, meals = 0, bad = 0;
+  keys.forEach(k => {
+    const entries = weekFood[k] || [];
+    if (!entries.length) return;
+    days++;
+    entries.forEach(e => {
+      calories += e.calories || 0; protein += e.protein || 0; carbs += e.carbs || 0;
+      sugar += e.sugar || 0; fiber += e.fiber || 0; meals++;
+      if (e.verdict === "avoid" || e.verdict === "limit") bad++;
+    });
+  });
+  if (!days) return null;
+  return {
+    days, meals, badMeals: bad,
+    calories: Math.round(calories / days), protein: Math.round(protein / days),
+    carbs: Math.round(carbs / days), sugar: Math.round(sugar / days), fiber: Math.round(fiber / days),
+    cleanPct: meals ? Math.round(((meals - bad) / meals) * 100) : null,
+  };
+}
+// Activity + habit aggregate across date keys (Sundays excluded from habit denominators).
+function activityStats(keys, activities, weekHabits) {
+  let minutes = 0, activeDays = 0, walkDays = 0, trackable = 0, habitDone = 0, habitPossible = 0;
+  keys.forEach(k => {
+    const sun = new Date(k + "T00:00:00").getDay() === 0;
+    const acts = activities[k] || [];
+    if (acts.length) activeDays++;
+    acts.forEach(a => { minutes += a.duration || 0; });
+    if (acts.some(a => a.type === "Walk")) walkDays++;
+    if (!sun) { trackable++; const h = weekHabits[k]; if (h) { habitDone += HABITS.filter(x => h[x.id]).length; habitPossible += HABITS.length; } }
+  });
+  return { minutes, activeDays, walkDays, trackable, habitPct: habitPossible ? Math.round((habitDone / habitPossible) * 100) : null };
+}
+// Supplement adherence across date keys → % of the full list taken, averaged over logged days.
+function suppStats(keys, weekSupplements, total) {
+  let sum = 0, days = 0, taken = 0;
+  keys.forEach(k => { const s = weekSupplements[k]; if (!s || !Object.keys(s).length) return; days++; const t = Object.values(s).filter(Boolean).length; taken += t; sum += t / (total || 1); });
+  if (!days) return null;
+  return { pct: Math.round((sum / days) * 100), days, avgTaken: Math.round((taken / days) * 10) / 10 };
+}
+
+// Per-day value getters (return null when there's nothing to plot for that day).
+function scoreValue(dk, weekFood, weekHabits, weekSupplements) { return hasAnyData(dk, weekFood, weekHabits, weekSupplements) ? dayScore(weekFood[dk] || [], weekHabits[dk] || {}, weekSupplements[dk] || {}) : null; }
+function caloriesValue(dk, weekFood) { const e = weekFood[dk] || []; return e.length ? e.reduce((s, f) => s + (f.calories || 0), 0) : null; }
+function sugarValue(dk, weekFood) { const e = weekFood[dk] || []; return e.length ? e.reduce((s, f) => s + (f.sugar || 0), 0) : null; }
+function activeMinValue(dk, activities) { if (dk > todayKey()) return null; const a = activities[dk] || []; return a.reduce((s, x) => s + (x.duration || 0), 0); }
+function suppPctValue(dk, weekSupplements, total) { const s = weekSupplements[dk]; return s && Object.keys(s).length ? Math.round((Object.values(s).filter(Boolean).length / (total || 1)) * 100) : null; }
+function habitPctValue(dk, weekHabits) { if (new Date(dk + "T00:00:00").getDay() === 0) return null; const h = weekHabits[dk]; return h && Object.keys(h).length ? Math.round((HABITS.filter(x => h[x.id]).length / HABITS.length) * 100) : null; }
+
+// Split a calendar month into 7-day blocks (W1, W2, …) and average a per-day value over each.
+function monthWeekBlocks(monthKey) {
+  const [y, m] = monthKey.split("-").map(Number);
+  const dim = daysInMonth(y, m - 1);
+  const blocks = [];
+  for (let s = 1; s <= dim; s += 7) { const keys = []; for (let day = s; day < s + 7 && day <= dim; day++) keys.push(`${monthKey}-${String(day).padStart(2, "0")}`); blocks.push(keys); }
+  return blocks;
+}
+function monthWeekSeries(monthKey, valueFn) {
+  return monthWeekBlocks(monthKey).map(keys => { const vals = keys.map(valueFn).filter(v => v != null); return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null; });
+}
+
+// Top-of-tab headline: one-liner insight + concrete recommendation, comparing the viewed
+// week to the week before (and to targets). Returns { tone, text } or null when no data.
+function foodHeadline(thisKeys, lastKeys, weekFood, targets, sugarMarkerLabel) {
+  const cur = foodStats(thisKeys, weekFood); if (!cur) return null;
+  const prev = foodStats(lastKeys, weekFood);
+  const dir = prev ? (cur.sugar > prev.sugar + 2 ? ` (up from ${prev.sugar}g last week)` : cur.sugar < prev.sugar - 2 ? ` (down from ${prev.sugar}g last week)` : "") : "";
+  const protectPhrase = sugarMarkerLabel ? `protect your ${sugarMarkerLabel}` : "keep things in balance";
+  if (cur.sugar > targets.sugar) return { tone: "warn", text: `Sugar is averaging ${cur.sugar}g/day this week${dir} — over the ${targets.sugar}g target. Cut sweets, juice and refined carbs to ${protectPhrase}.` };
+  if (cur.protein < targets.protein * 0.85) return { tone: "warn", text: `Sugar's under control (${cur.sugar}g/day) but protein is low at ${cur.protein}g vs the ${targets.protein}g target — add more dal, paneer or curd this week.` };
+  return { tone: "good", text: `Clean eating this week — sugar ${cur.sugar}g/day (target ${targets.sugar}), protein ${cur.protein}g, ${cur.cleanPct}% of meals in the green. Keep it up.` };
+}
+function habitHeadline(thisKeys, lastKeys, activities, weekHabits, cardioMarkerLabel) {
+  const cur = activityStats(thisKeys, activities, weekHabits); if (cur.trackable === 0) return null;
+  const prev = activityStats(lastKeys, activities, weekHabits);
+  const dir = cur.walkDays > prev.walkDays ? ` (up from ${prev.walkDays})` : cur.walkDays < prev.walkDays ? ` (down from ${prev.walkDays})` : "";
+  const lever = cardioMarkerLabel || "your heart & metabolic health";
+  if (cur.walkDays <= 2) return { tone: "bad", text: `Only ${cur.walkDays} walk${cur.walkDays === 1 ? "" : "s"} logged this week${dir} — aim for at least 4 brisk 30-min walks; it's your single best lever for ${lever}.` };
+  if (cur.walkDays < 4) return { tone: "warn", text: `${cur.walkDays} walks this week${dir}, ${cur.minutes} active minutes. Push for a couple more — 4–5 walks a week is where it starts to move markers.` };
+  return { tone: "good", text: `Strong week — ${cur.walkDays} walks and ${cur.minutes} active minutes${dir}. Keep the streak going.` };
+}
+function suppHeadline(thisKeys, lastKeys, weekSupplements, total, criticalSuppNames) {
+  const cur = suppStats(thisKeys, weekSupplements, total); if (!cur) return null;
+  const prev = suppStats(lastKeys, weekSupplements, total);
+  const dir = prev ? (cur.pct > prev.pct + 3 ? ` (up from ${prev.pct}%)` : cur.pct < prev.pct - 3 ? ` (down from ${prev.pct}%)` : "") : "";
+  if (cur.pct < 60) return { tone: "warn", text: `Only ~${cur.pct}% of supplements taken this week${dir}. Don't skip your critical ones${criticalSuppNames ? ` — ${criticalSuppNames}` : ""} — they're doing the heavy lifting.` };
+  return { tone: "good", text: `Good consistency — ~${cur.pct}% of supplements taken this week${dir}.` };
 }
 
 /* ============================== STORAGE ============================== */
@@ -988,6 +1255,67 @@ function MiniBarChart({ bars, height = 100 }) {
   );
 }
 
+// Two-line comparison chart (this period vs the one before). Handles nulls (gaps) and
+// auto-scales; used for week day-by-day and month week-by-week comparisons across tabs.
+function TwoLineChart({ labels, a, b, aLabel, bLabel, aColor = T.saffron, bColor = T.teal, height = 180, yMax, unit = "" }) {
+  const width = 560, padL = 34, padB = 34, padT = 12, padR = 12;
+  const vals = [...(a || []), ...(b || [])].filter(v => v != null);
+  const max = yMax || Math.max(...vals, 1);
+  const n = Math.max(1, labels.length - 1);
+  const x = i => padL + (i / n) * (width - padL - padR);
+  const y = v => padT + (1 - v / (max || 1)) * (height - padT - padB);
+  function draw(arr, color) {
+    if (!arr) return null;
+    const segs = []; let cur = [];
+    arr.forEach((v, i) => { if (v == null) { if (cur.length) segs.push(cur); cur = []; } else cur.push([x(i), y(v)]); });
+    if (cur.length) segs.push(cur);
+    return (
+      <g>
+        {segs.map((seg, si) => <polyline key={si} points={seg.map(p => p.join(",")).join(" ")} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />)}
+        {arr.map((v, i) => v != null && <circle key={i} cx={x(i)} cy={y(v)} r="3" fill={color} />)}
+      </g>
+    );
+  }
+  return (
+    <div>
+      <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`}>
+        {[0, 0.5, 1].map((f, i) => { const yy = padT + f * (height - padT - padB); return <g key={i}><line x1={padL} x2={width - padR} y1={yy} y2={yy} stroke={T.border} strokeWidth="1" /><text x={padL - 6} y={yy + 3} fontSize="9" fill={T.inkSoft} textAnchor="end" fontFamily="Inter">{Math.round(max - f * max)}{unit}</text></g>; })}
+        {labels.map((l, i) => <text key={i} x={x(i)} y={height - 6} fontSize="9" fill={T.inkSoft} textAnchor="middle" fontFamily="Inter">{l}</text>)}
+        {draw(b, bColor)}
+        {draw(a, aColor)}
+      </svg>
+      <div style={{ display: "flex", gap: 14, marginTop: 4, flexWrap: "wrap" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: "Inter", fontSize: 11, color: T.inkSoft }}><span style={{ width: 14, height: 3, borderRadius: 2, background: aColor, display: "inline-block" }} />{aLabel}</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: "Inter", fontSize: 11, color: T.inkSoft }}><span style={{ width: 14, height: 3, borderRadius: 2, background: bColor, display: "inline-block" }} />{bLabel}</span>
+      </div>
+    </div>
+  );
+}
+// Top-of-tab colored callout carrying a { tone, text } headline insight.
+function InsightCallout({ insight, icon = "sparkles", style }) {
+  if (!insight) return null;
+  return (
+    <Card style={{ background: toneBg(insight.tone), border: `1px solid ${toneColor(insight.tone)}`, ...style }}>
+      <div style={{ display: "flex", gap: 10 }}>
+        <Icon name={icon} size={18} color={toneColor(insight.tone)} style={{ flexShrink: 0, marginTop: 1 }} />
+        <div style={{ fontFamily: "Inter", fontSize: 13, color: T.ink, lineHeight: 1.45 }}>{insight.text}</div>
+      </div>
+    </Card>
+  );
+}
+// A single "this week vs last week" number with a delta chip.
+function MetricDelta({ label, cur, prev, unit = "", goodWhenLower = false }) {
+  const delta = cur != null && prev != null ? Math.round((cur - prev) * 10) / 10 : null;
+  const good = delta == null || delta === 0 ? null : goodWhenLower ? delta < 0 : delta > 0;
+  return (
+    <div style={{ flex: 1, minWidth: 76 }}>
+      <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>{cur ?? "—"}{cur != null ? unit : ""}</div>
+      <div style={{ fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft }}>{label}</div>
+      {delta != null && delta !== 0 && <div style={{ fontFamily: "Inter", fontSize: 10.5, color: good ? T.forest : T.alert }}>{delta > 0 ? "▲" : "▼"} {Math.abs(delta)}{unit} vs last wk</div>}
+    </div>
+  );
+}
+
 /* ============================== TAB 1: TODAY ============================== */
 function TrendRow({ label, value, compareLabel, compareValue }) {
   const delta = value != null && compareValue != null ? value - compareValue : null;
@@ -1005,7 +1333,7 @@ function TrendRow({ label, value, compareLabel, compareValue }) {
   );
 }
 
-function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, weekFood, weekHabits, weekSupplements, activities, toggleHabit, supplements, onNavigate, demoCleared, clearDemo, selectedDate, setSelectedDate }) {
+function TodayTab({ profile, targets, advice, foodToday, habitToday, supplementsToday, weekFood, weekHabits, weekSupplements, activities, toggleHabit, supplements, onNavigate, demoCleared, clearDemo, selectedDate, setSelectedDate }) {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const day = new Date(selectedDate + "T00:00:00");
   const dateStr = day.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
@@ -1018,8 +1346,8 @@ function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, w
   const goodMeals = mealsCount - badMeals;
   const sums = foodToday.reduce((acc, f) => ({ calories: acc.calories + (f.calories || 0), protein: acc.protein + (f.protein || 0), fiber: acc.fiber + (f.fiber || 0), carbs: acc.carbs + (f.carbs || 0), sugar: acc.sugar + (f.sugar || 0) }), { calories: 0, protein: 0, fiber: 0, carbs: 0, sugar: 0 });
   const supplementsDone = Object.values(supplementsToday).filter(Boolean).length;
-  const tipIndex = day.getDate() % DAILY_TIPS.length;
-  const tip = DAILY_TIPS[tipIndex];
+  const focusList = advice.dailyFocus;
+  const tip = focusList[day.getDate() % focusList.length];
 
   const weekBars = [6, 5, 4, 3, 2, 1, 0].map(offset => {
     const key = dateKeyOffset(offset);
@@ -1047,6 +1375,23 @@ function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, w
   const monthActivity = activityInsight([...new Set(monthKeysThis)], [...new Set(monthKeysLast)], activities);
   const monthFoodLines = foodInsight([...new Set(monthKeysThis)], weekFood, targets);
   const monthSuppText = supplementInsight([...new Set(monthKeysThis)], [...new Set(monthKeysLast)], weekSupplements, supplements.length);
+
+  // Cross-tab summary (food + activity + supplements) for the viewed week
+  const summaryList = [
+    foodHeadline(thisWeekKeys, lastWeekKeys, weekFood, targets, advice.sugarMarkerLabel),
+    habitHeadline(thisWeekKeys, lastWeekKeys, activities, weekHabits, advice.cardioMarkerLabel),
+    suppHeadline(thisWeekKeys, lastWeekKeys, weekSupplements, supplements.length, advice.criticalSuppNames),
+  ].filter(Boolean);
+  // Comparison series — selected week vs prior week (day-by-day), selected month vs prior (week-by-week)
+  const scoreFn = (k) => scoreValue(k, weekFood, weekHabits, weekSupplements);
+  const weekLineLabels = thisWeekKeys.map(dowShort);
+  const weekLineThis = thisWeekKeys.map(scoreFn);
+  const weekLineLast = lastWeekKeys.map(scoreFn);
+  const monthSeriesThis = monthWeekSeries(thisMonthKey, scoreFn);
+  const monthSeriesLast = monthWeekSeries(lastMonthKey, scoreFn);
+  const monthLineLen = Math.max(monthSeriesThis.length, monthSeriesLast.length, 1);
+  const padTo = (arr) => arr.concat(Array(Math.max(0, monthLineLen - arr.length)).fill(null));
+  const monthLineLabels = Array.from({ length: monthLineLen }, (_, i) => `W${i + 1}`);
 
   return (
     <div className="tabPane">
@@ -1116,6 +1461,23 @@ function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, w
         </div>
       </Card>
       <div style={{ height: 14 }} />
+      {summaryList.length > 0 && (
+        <>
+          <Card style={{ background: `linear-gradient(180deg, ${T.tealPale}, ${T.white})` }}>
+            <SectionLabel>This week — summary</SectionLabel>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {summaryList.map((s, i) => (
+                <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 4, background: toneColor(s.tone), flexShrink: 0, marginTop: 5 }} />
+                  <span style={{ fontFamily: "Inter", fontSize: 13, color: T.ink, lineHeight: 1.45 }}>{s.text}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft, marginTop: 10 }}>Pulled from the Food, Habits and Supplements tabs for the week you're viewing.</div>
+          </Card>
+          <div style={{ height: 14 }} />
+        </>
+      )}
       <Card>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
           <SectionLabel>This week</SectionLabel>
@@ -1147,6 +1509,14 @@ function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, w
           </div>
         )}
         {!weekActivity && !weekFoodLines && !weekSuppText && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 4 }}>Not enough logged data yet for this week's insights.</div>}
+        {(weekLineThis.some(v => v != null) || weekLineLast.some(v => v != null)) && (
+          <div style={{ marginTop: 14, width: "100%", overflowX: "auto" }}>
+            <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginBottom: 4 }}>Daily overall score — this week vs last week</div>
+            <div style={{ minWidth: 480 }}>
+              <TwoLineChart labels={weekLineLabels} a={weekLineThis} b={weekLineLast} aLabel="This week" bLabel="Last week" yMax={100} height={170} />
+            </div>
+          </div>
+        )}
       </Card>
       <div style={{ height: 14 }} />
       <Card>
@@ -1171,6 +1541,14 @@ function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, w
           </div>
         )}
         {!monthActivity && !monthFoodLines && !monthSuppText && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 4 }}>Not enough logged data yet for this month's insights.</div>}
+        {(monthSeriesThis.some(v => v != null) || monthSeriesLast.some(v => v != null)) && (
+          <div style={{ marginTop: 14, width: "100%", overflowX: "auto" }}>
+            <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginBottom: 4 }}>Weekly average score — {monthLabel(thisMonthKey)} vs {monthLabel(lastMonthKey)}</div>
+            <div style={{ minWidth: 480 }}>
+              <TwoLineChart labels={monthLineLabels} a={padTo(monthSeriesThis)} b={padTo(monthSeriesLast)} aLabel={monthLabel(thisMonthKey)} bLabel={monthLabel(lastMonthKey)} yMax={100} height={170} />
+            </div>
+          </div>
+        )}
         <div style={{ fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft, marginTop: 10 }}>Both cards are relative to the date you're viewing — everything above updates when you switch dates.</div>
       </Card>
       <div style={{ height: 90 }} />
@@ -1182,8 +1560,23 @@ function TodayTab({ profile, targets, foodToday, habitToday, supplementsToday, w
 /* ============================== TAB 2: FOOD CHECK ============================== */
 function MiniStat({ v, l }) { return <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15 }}>{v ?? "—"}</div><div style={{ fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft }}>{l}</div></div>; }
 
-function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, activities, weekSupplements, addFoodEntry, deleteFoodEntry, customDishes, saveCustomDish, metrics, periods }) {
+function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, activities, weekSupplements, addFoodEntry, deleteFoodEntry, customDishes, saveCustomDish, metrics, periods, targets, advice }) {
   const priorities = computeTopPriorities(metrics, periods);
+  const { thisWeekKeys, lastWeekKeys } = weekWindowsForDate(selectedDate);
+  const { thisMonthKey, lastMonthKey } = monthWindowsForDate(selectedDate);
+  const foodHl = foodHeadline(thisWeekKeys, lastWeekKeys, weekFood, targets, advice.sugarMarkerLabel);
+  const curW = foodStats(thisWeekKeys, weekFood);
+  const prevW = foodStats(lastWeekKeys, weekFood);
+  const foodWeekLabels = thisWeekKeys.map(dowShort);
+  const weekCalThis = thisWeekKeys.map(k => caloriesValue(k, weekFood));
+  const weekCalLast = lastWeekKeys.map(k => caloriesValue(k, weekFood));
+  const weekSugThis = thisWeekKeys.map(k => sugarValue(k, weekFood));
+  const weekSugLast = lastWeekKeys.map(k => sugarValue(k, weekFood));
+  const monCalThis = monthWeekSeries(thisMonthKey, k => caloriesValue(k, weekFood));
+  const monCalLast = monthWeekSeries(lastMonthKey, k => caloriesValue(k, weekFood));
+  const foodMonLen = Math.max(monCalThis.length, monCalLast.length, 1);
+  const foodMonPad = (arr) => arr.concat(Array(Math.max(0, foodMonLen - arr.length)).fill(null));
+  const foodMonLabels = Array.from({ length: foodMonLen }, (_, i) => `W${i + 1}`);
   const [query, setQuery] = useState("");
   const [result, setResult] = useState(null);
   const [notFound, setNotFound] = useState(null); // dish name when no local or looked-up match
@@ -1264,25 +1657,26 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
         lookedUp: true, source: data.source,
         dynamicTags: computeDynamicTags(data, priorities),
       });
+    } else if (corrected) {
+      // Recognized in the ~6,700-dish database (dishes.json) but no exact macros available
+      // on a static deploy (no nutrition backend). Give a GENERAL "how healthy is this dish"
+      // verdict from the app's keyword rules — this works for anyone, not just Jignesh — and
+      // let the user add calories manually. The database's own 1–5 ratings are templated and
+      // deliberately ignored here.
+      const baseVerdict = demoVerdictFor(corrected);
+      const { verdict: upgradedVerdict, notes } = applyModifierUpgrade(baseVerdict, raw);
+      if (normalizeWithAliases(corrected) !== normalizeWithAliases(coreDish)) setCorrectedFrom(corrected);
+      setResult({
+        dish: raw, verdict: upgradedVerdict,
+        calories: null, protein: null, fiber: null, carbs: null, sugar: null,
+        portion: "1 moderate serving",
+        reason: `Recognized "${corrected}" in the dish database. This is a general healthy-eating estimate based on the dish type — add calories manually if you want them tracked.${notes.length ? ` Improved because: ${notes.join(", ")}.` : ""}`,
+        marker: null, weeklyLimit: null,
+        healthierTip: notes.length ? null : suggestSwap(corrected),
+        lookedUp: true, source: "dish database",
+      });
     } else {
-      // Last automatic attempt: the 1,479-dish rating corpus. No real calorie numbers here,
-      // just a rough verdict + portion + substitution tip — clearly labeled as approximate.
-      const ratings = await loadDishRatings();
-      const ratingMatch = lookupDishRating(corrected || coreDish, ratings) || lookupDishRating(raw, ratings);
-      if (ratingMatch) {
-        const { verdict: upgradedVerdict, notes } = applyModifierUpgrade(ratingMatch.verdict, raw);
-        setResult({
-          dish: raw, verdict: upgradedVerdict,
-          calories: null, protein: null, fiber: null, carbs: null, sugar: null,
-          portion: ratingMatch.portion || "as typically served (1 person)",
-          reason: `Approximate rating from the dish reference list — no exact calorie data available for this one.${notes.length ? ` Improved because: ${notes.join(", ")}.` : ""}`,
-          marker: null, weeklyLimit: null,
-          healthierTip: notes.length ? null : (ratingMatch.substitution || suggestSwap(raw)),
-          lookedUp: true, source: "dish reference list (approximate)",
-        });
-      } else {
-        setNotFound(corrected || raw);
-      }
+      setNotFound(raw);
     }
   }
 
@@ -1341,6 +1735,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
   return (
     <div className="tabPane">
       <DateBar selectedDate={selectedDate} onOpenCalendar={() => setCalendarOpen(true)} onBackToToday={() => setSelectedDate(todayKey())} />
+      {foodHl && <><InsightCallout insight={foodHl} icon="food" /><div style={{ height: 14 }} /></>}
       <SectionLabel>Is this safe?</SectionLabel>
       <Card>
         <div style={{ display: "flex", gap: 8 }}>
@@ -1463,6 +1858,43 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
           ))}</div>
         )}
       </Card>
+      {(curW || prevW) && (
+        <>
+          <div style={{ height: 18 }} />
+          <SectionLabel>Eating trends — week & month</SectionLabel>
+          <Card>
+            <div style={{ display: "flex", gap: 10, marginBottom: 6 }}>
+              <MetricDelta label="Cal/day" cur={curW ? curW.calories : null} prev={prevW ? prevW.calories : null} />
+              <MetricDelta label="Protein/day" cur={curW ? curW.protein : null} prev={prevW ? prevW.protein : null} unit="g" />
+              <MetricDelta label="Sugar/day" cur={curW ? curW.sugar : null} prev={prevW ? prevW.sugar : null} unit="g" goodWhenLower />
+            </div>
+            {(weekCalThis.some(v => v != null) || weekCalLast.some(v => v != null)) && (
+              <div style={{ marginTop: 8, width: "100%", overflowX: "auto" }}>
+                <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginBottom: 4 }}>Calories per day — this week vs last week</div>
+                <div style={{ minWidth: 480 }}>
+                  <TwoLineChart labels={foodWeekLabels} a={weekCalThis} b={weekCalLast} aLabel="This week" bLabel="Last week" height={170} />
+                </div>
+              </div>
+            )}
+            {(weekSugThis.some(v => v != null) || weekSugLast.some(v => v != null)) && (
+              <div style={{ marginTop: 14, width: "100%", overflowX: "auto" }}>
+                <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginBottom: 4 }}>Sugar per day (g) — this week vs last week</div>
+                <div style={{ minWidth: 480 }}>
+                  <TwoLineChart labels={foodWeekLabels} a={weekSugThis} b={weekSugLast} aLabel="This week" bLabel="Last week" aColor={T.alert} bColor={T.inkSoft} unit="g" height={150} />
+                </div>
+              </div>
+            )}
+            {(monCalThis.some(v => v != null) || monCalLast.some(v => v != null)) && (
+              <div style={{ marginTop: 14, width: "100%", overflowX: "auto" }}>
+                <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginBottom: 4 }}>Weekly average calories — {monthLabel(thisMonthKey)} vs {monthLabel(lastMonthKey)}</div>
+                <div style={{ minWidth: 480 }}>
+                  <TwoLineChart labels={foodMonLabels} a={foodMonPad(monCalThis)} b={foodMonPad(monCalLast)} aLabel={monthLabel(thisMonthKey)} bLabel={monthLabel(lastMonthKey)} height={170} />
+                </div>
+              </div>
+            )}
+          </Card>
+        </>
+      )}
       <div style={{ height: 90 }} />
       {calendarOpen && <CalendarPicker selectedDate={selectedDate} onSelect={setSelectedDate} onClose={() => setCalendarOpen(false)} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} />}
     </div>
@@ -1470,7 +1902,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
 }
 
 /* ============================== TAB 3: MY HEALTH ============================== */
-function MyHealthTab({ metrics, periods, supplementsToday, toggleSupplement, supplements, onAddReport }) {
+function MyHealthTab({ metrics, periods, supplementsToday, toggleSupplement, supplements, onAddReport, advice }) {
   const priorities = computeTopPriorities(metrics, periods);
   return (
     <div className="tabPane">
@@ -1528,7 +1960,7 @@ function MyHealthTab({ metrics, periods, supplementsToday, toggleSupplement, sup
       ))}</div></Card>
       <div style={{ height: 18 }} />
       <SectionLabel>What to test next</SectionLabel>
-      <Card>{TEST_NEXT.map((t, i) => <div key={i} style={{ display: "flex", gap: 8, marginBottom: i === TEST_NEXT.length - 1 ? 0 : 8 }}><Icon name="alert" size={14} color={T.amber} style={{ flexShrink: 0, marginTop: 2 }} /><span style={{ fontFamily: "Inter", fontSize: 13, lineHeight: 1.4 }}>{t}</span></div>)}</Card>
+      <Card>{advice.testNext.map((t, i) => <div key={i} style={{ display: "flex", gap: 8, marginBottom: i === advice.testNext.length - 1 ? 0 : 8 }}><Icon name="alert" size={14} color={T.amber} style={{ flexShrink: 0, marginTop: 2 }} /><span style={{ fontFamily: "Inter", fontSize: 13, lineHeight: 1.4 }}>{t}</span></div>)}</Card>
       <div style={{ height: 90 }} />
     </div>
   );
@@ -1541,12 +1973,21 @@ function ActivityLog({ selectedDate, activities, addActivity, deleteActivity }) 
   function add() { const mins = parseInt(duration, 10); if (!mins || mins <= 0) return; addActivity(selectedDate, { type, duration: mins, time: Date.now() }); setDuration(""); }
   const allEntries = Object.keys(activities).sort((a, b) => b.localeCompare(a)).flatMap(dk => (activities[dk] || []).map((e, idx) => ({ ...e, dateKey: dk, idx }))).sort((a, b) => b.time - a.time).slice(0, 10);
   const byMonth = summarizeActivitiesByMonth(activities);
-  const now = new Date(); const curMk = now.toISOString().slice(0, 7);
-  const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1); const prevMk = prevDate.toISOString().slice(0, 7);
-  const daysElapsedThisMonth = now.getDate(); const daysInPrevMonth = daysInMonth(prevDate.getFullYear(), prevDate.getMonth());
+  const selD = new Date(selectedDate + "T00:00:00");
+  const curMk = ym(selD);
+  const prevD = new Date(selD.getFullYear(), selD.getMonth() - 1, 1); const prevMk = ym(prevD);
+  const isCurRealMonth = curMk === ym(new Date());
+  const daysElapsedThisMonth = isCurRealMonth ? new Date().getDate() : daysInMonth(selD.getFullYear(), selD.getMonth());
+  const daysInPrevMonth = daysInMonth(prevD.getFullYear(), prevD.getMonth());
   const curStats = byMonth[curMk]; const prevStats = byMonth[prevMk];
   const curPct = curStats ? Math.round((curStats.activeDays.size / daysElapsedThisMonth) * 100) : 0;
   const prevPct = prevStats ? Math.round((prevStats.activeDays.size / daysInPrevMonth) * 100) : null;
+  const minFn = (k) => activeMinValue(k, activities);
+  const monActThis = monthWeekSeries(curMk, minFn);
+  const monActLast = monthWeekSeries(prevMk, minFn);
+  const monActLen = Math.max(monActThis.length, monActLast.length, 1);
+  const monActPad = (arr) => arr.concat(Array(Math.max(0, monActLen - arr.length)).fill(null));
+  const monActLabels = Array.from({ length: monActLen }, (_, i) => `W${i + 1}`);
   return (
     <>
       <SectionLabel>Activity log — {formatDateLabel(selectedDate)}</SectionLabel>
@@ -1569,38 +2010,52 @@ function ActivityLog({ selectedDate, activities, addActivity, deleteActivity }) 
         ))}</div>
       )}</Card>
       <div style={{ height: 12 }} />
-      <SectionLabel>Monthly summary</SectionLabel>
+      <SectionLabel>Monthly summary — {monthLabel(curMk)}</SectionLabel>
       <Card>
         <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, marginBottom: 6 }}>{monthLabel(curMk)}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
           <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22 }}>{curPct}%</div>
-          <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{curStats ? curStats.activeDays.size : 0} active days of {daysElapsedThisMonth} so far{curStats ? ` · ${curStats.totalMinutes} min total` : ""}</div>
+          <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{curStats ? curStats.activeDays.size : 0} active days of {daysElapsedThisMonth}{isCurRealMonth ? " so far" : ""}{curStats ? ` · ${curStats.totalMinutes} min total` : ""}</div>
         </div>
         {prevPct !== null ? (
           <div style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 6 }}>
             <Icon name={curPct >= prevPct ? "trendUp" : "trendDown"} size={14} color={curPct >= prevPct ? T.forest : T.alert} /> vs {prevPct}% in {monthLabel(prevMk)}
           </div>
         ) : <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 6 }}>No data yet for {monthLabel(prevMk)} to compare.</div>}
+        {(monActThis.some(v => v != null) || monActLast.some(v => v != null)) && (
+          <div style={{ marginTop: 14, width: "100%", overflowX: "auto" }}>
+            <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginBottom: 4 }}>Active minutes per week — {monthLabel(curMk)} vs {monthLabel(prevMk)}</div>
+            <div style={{ minWidth: 480 }}>
+              <TwoLineChart labels={monActLabels} a={monActPad(monActThis)} b={monActPad(monActLast)} aLabel={monthLabel(curMk)} bLabel={monthLabel(prevMk)} unit="m" height={170} />
+            </div>
+          </div>
+        )}
       </Card>
       <div style={{ height: 18 }} />
     </>
   );
 }
 
-function HabitsTab({ selectedDate, setSelectedDate, habitsForDate, toggleHabit, weekHabits, weekFood, weekSupplements, activities, addActivity, deleteActivity }) {
-  const dates = last7Dates();
+function HabitsTab({ selectedDate, setSelectedDate, habitsForDate, toggleHabit, weekHabits, weekFood, weekSupplements, activities, addActivity, deleteActivity, advice }) {
   const [calendarOpen, setCalendarOpen] = useState(false);
-  function streakFor(habitId) { let streak = 0; for (let i = dates.length - 1; i >= 0; i--) { const d = dates[i]; const key = d.toISOString().slice(0, 10); if (isSunday(d)) continue; if (weekHabits[key]?.[habitId]) streak++; else break; } return streak; }
-  const weekBars = dates.map(d => { const key = d.toISOString().slice(0, 10); if (isSunday(d)) return { label: dayLabel(d), value: 0.3, color: T.creamDeep }; const done = HABITS.filter(h => weekHabits[key]?.[h.id]).length; return { label: dayLabel(d), value: done || 0.3, color: done >= HABITS.length - 1 ? T.forest : done >= HABITS.length / 2 ? T.amber : T.alert }; });
+  const { thisWeekKeys, lastWeekKeys } = weekWindowsForDate(selectedDate);
+  const dates = thisWeekKeys.map(k => new Date(k + "T00:00:00"));
+  function streakFor(habitId) { let streak = 0; for (let i = dates.length - 1; i >= 0; i--) { const d = dates[i]; const key = ymd(d); if (isSunday(d)) continue; if (weekHabits[key]?.[habitId]) streak++; else break; } return streak; }
+  const weekBars = dates.map(d => { const key = ymd(d); if (isSunday(d)) return { label: dayLabel(d), value: 0.3, color: T.creamDeep }; const done = HABITS.filter(h => weekHabits[key]?.[h.id]).length; return { label: dayLabel(d), value: done || 0.3, color: done >= HABITS.length - 1 ? T.forest : done >= HABITS.length / 2 ? T.amber : T.alert }; });
   const totalPossible = dates.filter(d => !isSunday(d)).length * HABITS.length;
-  const totalDone = dates.reduce((sum, d) => { if (isSunday(d)) return sum; const key = d.toISOString().slice(0, 10); return sum + HABITS.filter(h => weekHabits[key]?.[h.id]).length; }, 0);
+  const totalDone = dates.reduce((sum, d) => { if (isSunday(d)) return sum; const key = ymd(d); return sum + HABITS.filter(h => weekHabits[key]?.[h.id]).length; }, 0);
   const weekPct = totalPossible === 0 ? 0 : Math.round((totalDone / totalPossible) * 100);
   const selDate = new Date(selectedDate + "T00:00:00");
   const selIsSunday = isSunday(selDate);
+  const habitHl = habitHeadline(thisWeekKeys, lastWeekKeys, activities, weekHabits, advice.cardioMarkerLabel);
+  const weekLabels = thisWeekKeys.map(dowShort);
+  const weekHabitThis = thisWeekKeys.map(k => habitPctValue(k, weekHabits));
+  const weekHabitLast = lastWeekKeys.map(k => habitPctValue(k, weekHabits));
 
   return (
     <div className="tabPane">
       <DateBar selectedDate={selectedDate} onOpenCalendar={() => setCalendarOpen(true)} onBackToToday={() => setSelectedDate(todayKey())} />
+      {habitHl && <><InsightCallout insight={habitHl} icon="walk" /><div style={{ height: 14 }} /></>}
       <SectionLabel>Habits — {formatDateLabel(selectedDate)}</SectionLabel>
       <Card>
         {selIsSunday ? (
@@ -1616,12 +2071,12 @@ function HabitsTab({ selectedDate, setSelectedDate, habitsForDate, toggleHabit, 
       </Card>
       <div style={{ height: 18 }} />
       <ActivityLog selectedDate={selectedDate} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} />
-      <SectionLabel>Last 7 days — overview ({dates[0].toLocaleDateString("en-IN", { day: "numeric", month: "short" })} – {dates[6].toLocaleDateString("en-IN", { day: "numeric", month: "short" })})</SectionLabel>
+      <SectionLabel>7-day overview ({dates[0].toLocaleDateString("en-IN", { day: "numeric", month: "short" })} – {dates[6].toLocaleDateString("en-IN", { day: "numeric", month: "short" })})</SectionLabel>
       <Card>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 480 }}>
             <thead><tr><th></th>{dates.map((d, i) => {
-              const key = d.toISOString().slice(0, 10);
+              const key = ymd(d);
               const isToday = key === todayKey();
               return (
                 <th key={i} style={{ fontFamily: "Manrope", fontWeight: isToday ? 800 : 700, fontSize: 11, color: isToday ? T.saffronDeep : T.inkSoft, paddingBottom: 8 }}>
@@ -1634,7 +2089,7 @@ function HabitsTab({ selectedDate, setSelectedDate, habitsForDate, toggleHabit, 
               <tr key={h.id}>
                 <td style={{ fontFamily: "Inter", fontSize: 12.5, paddingRight: 8, whiteSpace: "nowrap" }}>{h.label}</td>
                 {dates.map((d, i) => {
-                  const key = d.toISOString().slice(0, 10); const rest = isSunday(d); const done = weekHabits[key]?.[h.id];
+                  const key = ymd(d); const rest = isSunday(d); const done = weekHabits[key]?.[h.id];
                   return <td key={i} style={{ textAlign: "center", padding: 3 }}><button onClick={() => !rest && setSelectedDate(key)} style={{ width: 26, height: 26, borderRadius: 7, border: key === selectedDate ? `2px solid ${T.saffron}` : "none", background: rest ? T.creamDeep : done ? T.forest : T.alertPale, cursor: rest ? "default" : "pointer" }} /></td>;
                 })}
               </tr>
@@ -1661,6 +2116,14 @@ function HabitsTab({ selectedDate, setSelectedDate, habitsForDate, toggleHabit, 
           <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, textAlign: "right", maxWidth: 220 }}>{weekPct >= 80 ? "Strong week — keep going." : weekPct >= 50 ? "Halfway there." : "Needs work."}</div>
         </div>
         <MiniBarChart bars={weekBars} />
+        {(weekHabitThis.some(v => v != null) || weekHabitLast.some(v => v != null)) && (
+          <div style={{ marginTop: 14, width: "100%", overflowX: "auto" }}>
+            <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginBottom: 4 }}>Habits completed per day (%) — this week vs last week</div>
+            <div style={{ minWidth: 480 }}>
+              <TwoLineChart labels={weekLabels} a={weekHabitThis} b={weekHabitLast} aLabel="This week" bLabel="Last week" yMax={100} unit="%" height={170} />
+            </div>
+          </div>
+        )}
       </Card>
       <div style={{ height: 90 }} />
       {calendarOpen && <CalendarPicker selectedDate={selectedDate} onSelect={setSelectedDate} onClose={() => setCalendarOpen(false)} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} />}
@@ -1669,17 +2132,61 @@ function HabitsTab({ selectedDate, setSelectedDate, habitsForDate, toggleHabit, 
 }
 
 /* ============================== TAB 5: PLAN ============================== */
-function SupplementsTab({ selectedDate, setSelectedDate, supplementsForDate, toggleSupplement, weekFood, activities, weekSupplements, supplements }) {
+function SupplementsTab({ selectedDate, setSelectedDate, supplementsForDate, toggleSupplement, weekFood, activities, weekSupplements, supplements, advice }) {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const groups = [{ key: "morning", label: "🌅 Morning" }, { key: "afternoon", label: "☀️ After lunch" }, { key: "evening", label: "🌆 Evening" }, { key: "night", label: "🌙 Before bed" }, { key: "weekly", label: "📅 Weekly" }];
   const takenToday = supplements.filter(s => supplementsForDate[s.id]).length;
+  const total = supplements.length;
+  const { thisWeekKeys, lastWeekKeys } = weekWindowsForDate(selectedDate);
+  const { thisMonthKey, lastMonthKey } = monthWindowsForDate(selectedDate);
+  const suppHl = suppHeadline(thisWeekKeys, lastWeekKeys, weekSupplements, total, advice.criticalSuppNames);
+  const curW = suppStats(thisWeekKeys, weekSupplements, total);
+  const prevW = suppStats(lastWeekKeys, weekSupplements, total);
+  const weekLabels = thisWeekKeys.map(dowShort);
+  const suppFn = (k) => suppPctValue(k, weekSupplements, total);
+  const weekSuppThis = thisWeekKeys.map(suppFn);
+  const weekSuppLast = lastWeekKeys.map(suppFn);
+  const monSuppThis = monthWeekSeries(thisMonthKey, suppFn);
+  const monSuppLast = monthWeekSeries(lastMonthKey, suppFn);
+  const monLen = Math.max(monSuppThis.length, monSuppLast.length, 1);
+  const monPad = (arr) => arr.concat(Array(Math.max(0, monLen - arr.length)).fill(null));
+  const monLabels = Array.from({ length: monLen }, (_, i) => `W${i + 1}`);
   return (
     <div className="tabPane">
       <DateBar selectedDate={selectedDate} onOpenCalendar={() => setCalendarOpen(true)} onBackToToday={() => setSelectedDate(todayKey())} />
+      {suppHl && <><InsightCallout insight={suppHl} icon="pill" /><div style={{ height: 14 }} /></>}
       <Card style={{ marginBottom: 14, textAlign: "center" }}>
         <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22 }}>{takenToday} of {supplements.length}</div>
         <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>taken — {formatDateLabel(selectedDate)}</div>
       </Card>
+      {(curW || prevW) && (
+        <>
+          <SectionLabel>Adherence — week & month</SectionLabel>
+          <Card style={{ marginBottom: 14 }}>
+            <div style={{ display: "flex", gap: 10, marginBottom: 6 }}>
+              <MetricDelta label="This week" cur={curW ? curW.pct : null} prev={prevW ? prevW.pct : null} unit="%" />
+              <MetricDelta label="Avg taken/day" cur={curW ? curW.avgTaken : null} prev={prevW ? prevW.avgTaken : null} />
+              <div style={{ flex: 1, minWidth: 76 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>{prevW ? prevW.pct + "%" : "—"}</div><div style={{ fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft }}>Last week</div></div>
+            </div>
+            {(weekSuppThis.some(v => v != null) || weekSuppLast.some(v => v != null)) && (
+              <div style={{ marginTop: 8, width: "100%", overflowX: "auto" }}>
+                <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginBottom: 4 }}>Supplements taken per day (%) — this week vs last week</div>
+                <div style={{ minWidth: 480 }}>
+                  <TwoLineChart labels={weekLabels} a={weekSuppThis} b={weekSuppLast} aLabel="This week" bLabel="Last week" yMax={100} unit="%" height={170} />
+                </div>
+              </div>
+            )}
+            {(monSuppThis.some(v => v != null) || monSuppLast.some(v => v != null)) && (
+              <div style={{ marginTop: 14, width: "100%", overflowX: "auto" }}>
+                <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginBottom: 4 }}>Weekly average (%) — {monthLabel(thisMonthKey)} vs {monthLabel(lastMonthKey)}</div>
+                <div style={{ minWidth: 480 }}>
+                  <TwoLineChart labels={monLabels} a={monPad(monSuppThis)} b={monPad(monSuppLast)} aLabel={monthLabel(thisMonthKey)} bLabel={monthLabel(lastMonthKey)} yMax={100} unit="%" height={170} />
+                </div>
+              </div>
+            )}
+          </Card>
+        </>
+      )}
       {groups.map(g => { const items = supplements.filter(s => s.time === g.key); if (items.length === 0) return null; return (
         <div key={g.key} style={{ marginBottom: 14 }}>
           <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.inkSoft, marginBottom: 6 }}>{g.label}</div>
@@ -1697,7 +2204,7 @@ function SupplementsTab({ selectedDate, setSelectedDate, supplementsForDate, tog
   );
 }
 
-function PlanTab({ weekFood }) {
+function PlanTab({ weekFood, advice }) {
   const mealIdeas = todaysMealIdeas();
   const freqMap = {};
   Object.values(weekFood || {}).flat().forEach(f => { const key = f.dish.trim().toLowerCase(); freqMap[key] = (freqMap[key] || 0) + 1; });
@@ -1709,9 +2216,9 @@ function PlanTab({ weekFood }) {
   return (
     <div className="tabPane">
       <SectionLabel>Eat more of</SectionLabel>
-      <Card style={{ marginBottom: 18 }}><div style={{ display: "flex", flexDirection: "column", gap: 6 }}>{EAT_MORE.map((e, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 13, color: T.ink }}>🌿 {e}</div>)}</div></Card>
+      <Card style={{ marginBottom: 18 }}><div style={{ display: "flex", flexDirection: "column", gap: 6 }}>{advice.eatMore.map((e, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 13, color: T.ink }}>🌿 {e}</div>)}</div></Card>
       <SectionLabel>Foods to avoid this week</SectionLabel>
-      <Card style={{ marginBottom: 18 }}><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{BANNED.map((b, i) => (
+      <Card style={{ marginBottom: 18 }}><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{advice.avoidList.map((b, i) => (
         <div key={i}><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.alert }}>🔴 {b.item}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{b.reason}</div></div>
       ))}</div></Card>
       <SectionLabel>Today's meal ideas</SectionLabel>
@@ -1910,7 +2417,8 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
           )}
           {section === "data" && (
             <div>
-              <button onClick={onApplyDemoMonth} style={{ width: "100%", background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 10, padding: "10px 0", color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, marginBottom: 20 }}>Generate demo month</button>
+              <button onClick={onApplyDemoMonth} style={{ width: "100%", background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 10, padding: "10px 0", color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, marginBottom: 6 }}>Generate history (Jul 1 → today)</button>
+              <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginBottom: 20, lineHeight: 1.5 }}>Fills every empty day from Jul 1 with sample food (from the Weekly Menu), activity and supplement data. Won't touch days you've already logged.</div>
               <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>CLEAR A SPECIFIC DATE</div>
               <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
                 <input type="date" value={clearDateVal} max={todayKey()} onChange={e => setClearDateVal(e.target.value)} style={{ flex: 1, border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", fontFamily: "Inter", fontSize: 13.5 }} />
@@ -1959,6 +2467,21 @@ function App() {
   const [customDishes, setCustomDishes] = useKV("dishes:custom", {});
   const [corpusLoaded, setCorpusLoaded] = useState(false);
   useEffect(() => { loadDishCorpus().then(() => setCorpusLoaded(true)); }, []);
+  // One-time seed of real-looking history (Jul 1 → today). Runs once per SEED_VERSION and
+  // never overwrites days that already have real logged data (spread order: seed first, then
+  // existing wins). Cleared history is not re-seeded — the flag stays set until they clear it
+  // or use "Generate history" in ⚙️ → Data.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("seed:history") === SEED_VERSION) return;
+      const { foodByDate, activitiesByDate, habitsByDate, supplementsByDate } = generateHistory();
+      setWeekFood(prev => ({ ...foodByDate, ...prev }));
+      setActivities(prev => ({ ...activitiesByDate, ...prev }));
+      setWeekHabits(prev => ({ ...habitsByDate, ...prev }));
+      setWeekSupplements(prev => ({ ...supplementsByDate, ...prev }));
+      localStorage.setItem("seed:history", SEED_VERSION);
+    } catch {}
+  }, []);
   const saveCustomDish = (key, entry) => setCustomDishes(prev => ({ ...prev, [key]: entry }));
 
   const foodToday = weekFood[tk] || [];
@@ -1968,6 +2491,7 @@ function App() {
   const supplementsForDate = weekSupplements[selectedDate] || {};
   const habitsForDate = weekHabits[selectedDate] || {};
   const targets = computeTargets(profile.weight, goalToggles);
+  const advice = computeAdvice(metrics, periods, supplements, goalToggles);
 
   const addFoodEntry = (dateKey, entry) => setWeekFood(prev => ({ ...prev, [dateKey]: [...(prev[dateKey] || []), entry] }));
   const deleteFoodEntry = (dateKey, index) => setWeekFood(prev => ({ ...prev, [dateKey]: (prev[dateKey] || []).filter((_, i) => i !== index) }));
@@ -1985,10 +2509,12 @@ function App() {
   };
   const clearAllData = () => { setWeekFood({}); setWeekSupplements({}); setWeekHabits({}); setActivities({}); };
   const applyDemoMonth = () => {
-    const { foodByDate, activitiesByDate, habitsByDate } = generateDemoMonth();
+    const { foodByDate, activitiesByDate, habitsByDate, supplementsByDate } = generateHistory();
     setWeekFood(prev => ({ ...foodByDate, ...prev }));
     setActivities(prev => ({ ...activitiesByDate, ...prev }));
     setWeekHabits(prev => ({ ...habitsByDate, ...prev }));
+    setWeekSupplements(prev => ({ ...supplementsByDate, ...prev }));
+    try { localStorage.setItem("seed:history", SEED_VERSION); } catch {}
   };
 
   const TABS = [
@@ -2013,12 +2539,12 @@ function App() {
       `}</style>
       <div style={{ width: "100%", maxWidth: 420, background: T.cream, minHeight: "100vh", position: "relative", boxShadow: "0 0 40px rgba(0,0,0,0.06)" }}>
         <button onClick={() => openSettings("profile")} aria-label="Profile and reports" style={{ position: "absolute", top: "calc(14px + env(safe-area-inset-top, 0px))", right: 14, zIndex: 15, background: T.white, border: `1px solid ${T.border}`, borderRadius: 999, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.08)" }}><Icon name="settings" size={17} color={T.teal} /></button>
-        {tab === "today" && <TodayTab profile={profile} targets={targets} foodToday={foodForDate} habitToday={habitsForDate} supplementsToday={supplementsForDate} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} activities={activities} toggleHabit={toggleHabit} supplements={supplements} onNavigate={setTab} demoCleared={demoCleared} clearDemo={clearDemo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />}
-        {tab === "food" && <FoodCheckTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} foodForDate={foodForDate} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} addFoodEntry={addFoodEntry} deleteFoodEntry={deleteFoodEntry} customDishes={customDishes} saveCustomDish={saveCustomDish} metrics={metrics} periods={periods} />}
-        {tab === "health" && <MyHealthTab metrics={metrics} periods={periods} supplementsToday={supplementsToday} toggleSupplement={(id) => toggleSupplement(tk, id)} supplements={supplements} onAddReport={() => openSettings("reports")} />}
-        {tab === "habits" && <HabitsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} habitsForDate={habitsForDate} toggleHabit={toggleHabit} weekHabits={weekHabits} weekFood={weekFood} weekSupplements={weekSupplements} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} />}
-        {tab === "supplements" && <SupplementsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} supplementsForDate={supplementsForDate} toggleSupplement={toggleSupplement} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} supplements={supplements} />}
-        {tab === "plan" && <PlanTab weekFood={weekFood} />}
+        {tab === "today" && <TodayTab profile={profile} targets={targets} advice={advice} foodToday={foodForDate} habitToday={habitsForDate} supplementsToday={supplementsForDate} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} activities={activities} toggleHabit={toggleHabit} supplements={supplements} onNavigate={setTab} demoCleared={demoCleared} clearDemo={clearDemo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />}
+        {tab === "food" && <FoodCheckTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} foodForDate={foodForDate} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} addFoodEntry={addFoodEntry} deleteFoodEntry={deleteFoodEntry} customDishes={customDishes} saveCustomDish={saveCustomDish} metrics={metrics} periods={periods} targets={targets} advice={advice} />}
+        {tab === "health" && <MyHealthTab metrics={metrics} periods={periods} supplementsToday={supplementsToday} toggleSupplement={(id) => toggleSupplement(tk, id)} supplements={supplements} onAddReport={() => openSettings("reports")} advice={advice} />}
+        {tab === "habits" && <HabitsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} habitsForDate={habitsForDate} toggleHabit={toggleHabit} weekHabits={weekHabits} weekFood={weekFood} weekSupplements={weekSupplements} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} advice={advice} />}
+        {tab === "supplements" && <SupplementsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} supplementsForDate={supplementsForDate} toggleSupplement={toggleSupplement} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} supplements={supplements} advice={advice} />}
+        {tab === "plan" && <PlanTab weekFood={weekFood} advice={advice} />}
         <div style={{ position: "fixed", bottom: 0, width: "100%", maxWidth: 420, background: T.teal, display: "flex", justifyContent: "space-around", padding: "8px 2px 10px", zIndex: 30 }}>
           {TABS.map(t => { const active = tab === t.id; return (
             <button key={t.id} onClick={() => setTab(t.id)} style={{ background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, opacity: active ? 1 : 0.6, cursor: "pointer", flex: 1, minWidth: 0 }}>
