@@ -1,5 +1,5 @@
-const CACHE = "jignesh-health-v2";
-const SHELL = ["./", "./index.html", "./manifest.json", "./icons/icon-192.png", "./icons/icon-512.png", "./dishnames.json"];
+const CACHE = "jignesh-health-v3";
+const SHELL = ["./", "./index.html", "./manifest.json", "./icons/icon-192.png", "./icons/icon-512.png", "./dishnames.json", "./dishratings.json"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
