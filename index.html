@@ -265,6 +265,7 @@ function computeAdvice(metrics, periods, supplements, goalToggles) {
     sugarMarkerLabel: sugarKey ? MARKER_INFO[sugarKey].short : null,
     cardioMarkerLabel: cardioKeys.length ? joinNames([...new Set(cardioKeys.map(k => MARKER_INFO[k].short))]) : "your heart & metabolic markers",
     focusMarkerLabel: flaggedKeys.length ? (MARKER_INFO[flaggedKeys[0]]?.short || null) : null,
+    weightGoal: !!(goalToggles || []).find(g => g.id === "weightloss" && g.active),
   };
 }
 
@@ -769,6 +770,49 @@ function levenshtein(a, b) {
   }
   return dp[m][n];
 }
+
+// ---- Per-condition health signals (dish_health.json, built from the INDB sample) ----
+// Loaded once; the app computes a PERSONALISED overall verdict from these levels, plus
+// two common fact lists (worse_for / good_source_for). Dishes not here fall back to the
+// keyword verdict (demoVerdictFor) as before.
+let HEALTH_DB = null;
+async function loadHealthDB() {
+  if (HEALTH_DB) return HEALTH_DB;
+  try { HEALTH_DB = await (await fetch("dish_health.json", { cache: "no-store" })).json(); }
+  catch { HEALTH_DB = { aliases: {}, dishes: {}, labels: {}, benefit: [], core_harm: [] }; }
+  return HEALTH_DB;
+}
+// app report-marker key -> our health condition
+const MARKER_TO_CONDITION = { tg: "triglycerides", ldl: "cholesterol", chol: "cholesterol", hdl: "cholesterol", ggt: "fatty_liver", sgot: "fatty_liver", sgpt: "fatty_liver", sugar: "diabetes", bp: "hypertension", tsh: "thyroid" };
+// match a typed dish name to a health entry — longest alias wins, whole-word match
+function healthLookup(dishText) {
+  if (!HEALTH_DB || !HEALTH_DB.aliases) return null;
+  const nq = " " + normalizeWithAliases(dishText) + " ";
+  const kws = Object.keys(HEALTH_DB.aliases).sort((a, b) => b.length - a.length);
+  for (const kw of kws) { if (nq.includes(" " + kw + " ")) return HEALTH_DB.dishes[HEALTH_DB.aliases[kw]] || null; }
+  return null;
+}
+// the 4-tier personalised overall verdict (avoid / limit / eat-freely / neutral)
+function personalVerdict(entry, flaggedKeys, weightGoal) {
+  const S = entry.levels, kcal = entry.kcal, L = (HEALTH_DB && HEALTH_DB.labels) || {};
+  const benefit = new Set((HEALTH_DB && HEALTH_DB.benefit) || []), core = (HEALTH_DB && HEALTH_DB.core_harm) || [];
+  const rel = new Set(); (flaggedKeys || []).forEach(k => { const c = MARKER_TO_CONDITION[k]; if (c) rel.add(c); });
+  if (weightGoal) rel.add("weight");
+  const R = [...rel], nm = c => L[c] || c;
+  const theirRed = R.filter(c => S[c] === "red");
+  const theirYel = R.filter(c => S[c] === "yellow");
+  const genRed = core.filter(c => S[c] === "red");
+  const helps = R.filter(c => benefit.has(c) && S[c] === "green").map(nm);
+  if (rel.has("weight") && S.weight === "green" && kcal < 150) helps.push("your weight goal");
+  if (theirRed.length) return { tone: "avoid", text: `Avoid for you — hurts your ${theirRed.map(nm).join(", ")}` };
+  if (genRed.length >= 3) return { tone: "avoid", text: "Occasional treat only" };
+  if (theirYel.length) return { tone: "limit", text: `Limit — watch your ${theirYel.map(nm).join(", ")}` };
+  if (genRed.length) return { tone: "limit", text: "Occasional — a bit heavy overall" };
+  if (helps.length) return { tone: "free", text: `Eat freely — good for ${helps.join(", ")}` };
+  if (kcal >= 200) return { tone: "neutral", text: "OK — won't set you back, but doesn't actively help your goal" };
+  return { tone: "free", text: "Eat freely" };
+}
+const VERDICT_TONE = { avoid: { bg: "alertPale", fg: "alert", emoji: "🔴" }, limit: { bg: "amberPale", fg: "amber", emoji: "🟡" }, free: { bg: "forestPale", fg: "forest", emoji: "🟢" }, neutral: { bg: "creamDeep", fg: "inkSoft", emoji: "⚪" } };
 
 // Fuzzy-match a typed dish name against a set of known keys (curated FOOD_DB / custom
 // saved dishes). Returns the matching key, or null. Tolerant of typos, extra spaces,
@@ -1586,13 +1630,14 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
   const [pasteText, setPasteText] = useState("");
   const [pastePreview, setPastePreview] = useState(null);
   const [mealSlot, setMealSlot] = useState("Snack");
+  const [qty, setQty] = useState(1);
   const [warning, setWarning] = useState(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [correctedFrom, setCorrectedFrom] = useState(null);
   const shortcuts = ["besan laddoo", "sukhdi", "vada pav", "roasted peanuts", "bhakhri", "khichdi", "dal", "paneer sabzi", "chai", "kaju katri", "cookies"]; // his personal regulars — full list of ~60 dishes + a growing custom library is searchable by typing
 
   async function checkDish(dish) {
-    setResult(null); setWarning(null); setNotFound(null); setManualVerdict(null); setManualCals(""); setPasteText(""); setPastePreview(null); setCorrectedFrom(null);
+    setResult(null); setWarning(null); setNotFound(null); setManualVerdict(null); setManualCals(""); setPasteText(""); setPastePreview(null); setCorrectedFrom(null); setQty(1);
     const raw = dish.trim();
     const modifierNotes = detectModifiers(raw);
     const coreDish = modifierNotes.length > 0 ? stripModifiers(raw) : raw;
@@ -1666,17 +1711,38 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
       const baseVerdict = demoVerdictFor(corrected);
       const { verdict: upgradedVerdict, notes } = applyModifierUpgrade(baseVerdict, raw);
       if (normalizeWithAliases(corrected) !== normalizeWithAliases(coreDish)) setCorrectedFrom(corrected);
+      // If we also have INDB health data for this dish, fill in real per-100g nutrition.
+      const heC = healthLookup(coreDish) || healthLookup(corrected) || healthLookup(raw);
+      const nC = heC && heC.n ? heC.n : null;
       setResult({
         dish: raw, verdict: upgradedVerdict,
-        calories: null, protein: null, fiber: null, carbs: null, sugar: null,
-        portion: "1 moderate serving",
-        reason: `Recognized "${corrected}" in the dish database. This is a general healthy-eating estimate based on the dish type — add calories manually if you want them tracked.${notes.length ? ` Improved because: ${notes.join(", ")}.` : ""}`,
+        calories: nC ? nC.kcal : null, protein: nC ? nC.protein : null, fiber: nC ? nC.fibre : null, carbs: nC ? nC.carb : null, sugar: nC ? nC.sugar : null,
+        portion: nC ? "per 100 g" : "1 moderate serving", perUnit: nC ? "100 g" : null,
+        reason: nC
+          ? `Nutrition below is per 100 g (from the INDB sample). The verdict and tags are personalised to your report.${notes.length ? ` Improved because: ${notes.join(", ")}.` : ""}`
+          : `Recognized "${corrected}" in the dish database. This is a general healthy-eating estimate based on the dish type — add calories manually if you want them tracked.${notes.length ? ` Improved because: ${notes.join(", ")}.` : ""}`,
         marker: null, weeklyLimit: null,
         healthierTip: notes.length ? null : suggestSwap(corrected),
-        lookedUp: true, source: "dish database",
+        lookedUp: true, source: nC ? "health database" : "dish database",
       });
     } else {
-      setNotFound(raw);
+      // Recognized in the per-condition health DB (built from the INDB sample) even though
+      // it's not in the curated FOOD_DB and no macro API is available — show the health
+      // signals plus the INDB nutrition (per 100 g) rather than "not found".
+      const he = healthLookup(coreDish) || healthLookup(raw);
+      if (he) {
+        const n = he.n || {};
+        setResult({
+          dish: raw, verdict: demoVerdictFor(coreDish),
+          calories: n.kcal ?? null, protein: n.protein ?? null, fiber: n.fibre ?? null,
+          carbs: n.carb ?? null, sugar: n.sugar ?? null,
+          portion: "per 100 g", perUnit: "100 g",
+          reason: "Nutrition below is per 100 g (from the INDB sample). The verdict and tags are personalised to your report.",
+          marker: null, weeklyLimit: null, lookedUp: true, source: "health database",
+        });
+      } else {
+        setNotFound(raw);
+      }
     }
   }
 
@@ -1705,12 +1771,14 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
     return count;
   }
   function logMeal() {
-    const entry = { dish: result.dish, calories: result.calories ?? null, protein: result.protein ?? null, fiber: result.fiber ?? null, carbs: result.carbs ?? null, sugar: result.sugar ?? null, verdict: result.verdict, mealSlot, time: Date.now() };
+    const q = qty || 1;
+    const scale = v => v == null ? null : Math.round(v * q);
+    const entry = { dish: result.dish, calories: scale(result.calories), protein: scale(result.protein), fiber: scale(result.fiber), carbs: scale(result.carbs), sugar: scale(result.sugar), verdict: result.verdict, qty: q, portion: result.portion || null, mealSlot, time: Date.now() };
     addFoodEntry(selectedDate, entry);
     const countAfter = weeklyCountFor(result.dish) + 1;
     if (result.weeklyLimit != null && countAfter > result.weeklyLimit) setWarning(`⚠️ This is your ${countAfter}${countAfter === 1 ? "st" : countAfter === 2 ? "nd" : countAfter === 3 ? "rd" : "th"} "${result.dish}" this week — recommended cap is ${result.weeklyLimit}/week.`);
     else if (mealSlot === "After Dinner" && (result.verdict === "limit" || result.verdict === "avoid")) setWarning(`Post-dinner + ${meta(result.verdict).label.toLowerCase()} — flagged habit pattern. Small portion or skip tonight.`);
-    else { setWarning(null); setResult(null); setQuery(""); }
+    else { setWarning(null); setResult(null); setQuery(""); setQty(1); }
   }
   function logManual() {
     if (!manualVerdict) return;
@@ -1728,6 +1796,8 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
   }
   const totalCals = foodForDate.reduce((s, f) => s + (f.calories || 0), 0);
   const badCount = foodForDate.filter(f => f.verdict === "avoid" || f.verdict === "limit").length;
+  const health = result ? healthLookup(result.dish) : null;
+  const pv = health ? personalVerdict(health, advice.flaggedKeys, advice.weightGoal) : null;
   const recipeUrl = (dish) => `https://www.google.com/search?q=${encodeURIComponent("healthy " + dish + " recipe low sugar low ghee")}`;
   const nutritionUrl = (dish) => `https://www.google.com/search?q=${encodeURIComponent(dish + " calories protein sugar nutrition per serving")}`;
   const healthUrl = (dish) => `https://www.google.com/search?q=${encodeURIComponent("is " + dish + " safe for high triglycerides and elevated GGT liver")}`;
@@ -1803,8 +1873,35 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
             <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, textTransform: "capitalize", marginBottom: 4 }}>{result.dish} {result.lookedUp && <Badge bg={T.creamDeep} fg={T.inkSoft}>estimated{result.source ? ` · ${result.source}` : ""}</Badge>}</div>
             {correctedFrom && <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginBottom: 8 }}>Matched "{query}" to "{correctedFrom}"</div>}
             {result.ingredients && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>Likely: {result.ingredients}</div>}
-            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: meta(result.verdict).bg, color: meta(result.verdict).fg, padding: "6px 12px", borderRadius: 999, fontFamily: "Manrope", fontWeight: 800, fontSize: 13, marginBottom: 10 }}>{meta(result.verdict).emoji} {meta(result.verdict).label}</div>
-            {result.dynamicTags && result.dynamicTags.length > 0 && (
+            {health && pv ? (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: T[VERDICT_TONE[pv.tone].bg], color: T[VERDICT_TONE[pv.tone].fg], padding: "8px 13px", borderRadius: 10, fontFamily: "Manrope", fontWeight: 800, fontSize: 13.5, marginBottom: 8 }}>{VERDICT_TONE[pv.tone].emoji} {pv.text}</div>
+                {health.worse_for.length > 0 && (
+                  <div style={{ marginTop: 6 }}>
+                    <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 10.5, letterSpacing: 0.4, color: T.inkSoft, marginBottom: 4 }}>WORSE FOR</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {health.worse_for.map(([c, lvl, reason], i) => (
+                        <span key={i} title={reason} style={{ background: lvl === "red" ? T.alertPale : T.amberPale, color: lvl === "red" ? T.alert : T.amber, padding: "4px 10px", borderRadius: 999, fontFamily: "Inter", fontSize: 12 }}>{HEALTH_DB.labels[c] || c}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {health.good_source_for.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 10.5, letterSpacing: 0.4, color: T.inkSoft, marginBottom: 4 }}>GOOD SOURCE FOR</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {health.good_source_for.map(([c, reason], i) => (
+                        <span key={i} title={reason} style={{ background: T.forestPale, color: T.forest, padding: "4px 10px", borderRadius: 999, fontFamily: "Inter", fontSize: 12 }}>{HEALTH_DB.labels[c] || c}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 8 }}>Personalised to your report &amp; goals · tap a tag to see the numbers.</div>
+              </div>
+            ) : (
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: meta(result.verdict).bg, color: meta(result.verdict).fg, padding: "6px 12px", borderRadius: 999, fontFamily: "Manrope", fontWeight: 800, fontSize: 13, marginBottom: 10 }}>{meta(result.verdict).emoji} {meta(result.verdict).label}</div>
+            )}
+            {!health && result.dynamicTags && result.dynamicTags.length > 0 && (
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
                 {result.dynamicTags.map((t, i) => (
                   <Badge key={i} bg={t.verdict === "bad" ? T.alertPale : T.forestPale} fg={t.verdict === "bad" ? T.alert : T.forest}>{t.verdict === "bad" ? "🔴" : "🟢"} {t.verdict === "bad" ? "Watch for" : "Good for"} {t.label}</Badge>
@@ -1823,6 +1920,16 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
                 </a>
               </div>
             )}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 6 }}>How much did you eat? {result.perUnit ? `(1 = ${result.perUnit})` : "(servings)"}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <button onClick={() => setQty(q => Math.max(1, q - 1))} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${T.border}`, background: T.creamDeep, color: T.ink, fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>−</button>
+                <div style={{ minWidth: 34, textAlign: "center", fontFamily: "Manrope", fontWeight: 800, fontSize: 16 }}>{qty}</div>
+                <button onClick={() => setQty(q => q + 1)} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${T.border}`, background: T.creamDeep, color: T.ink, fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>+</button>
+                <div style={{ display: "flex", gap: 6, marginLeft: 6 }}>{[1, 2, 3].map(x => <button key={x} onClick={() => setQty(x)} style={{ background: qty === x ? T.teal : T.creamDeep, color: qty === x ? T.white : T.ink, border: "none", borderRadius: 999, padding: "6px 12px", fontFamily: "Inter", fontSize: 12 }}>×{x}</button>)}</div>
+              </div>
+              {result.calories != null && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 7 }}>Will log <b>{Math.round(result.calories * qty)} cal</b>{result.sugar != null ? ` · ${Math.round(result.sugar * qty)}g sugar` : ""}{result.perUnit ? ` · ${qty * 100}g total` : ` · ${qty} serving${qty > 1 ? "s" : ""}`}</div>}
+            </div>
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 6 }}>When?</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{MEAL_SLOTS.map(s => <button key={s} onClick={() => setMealSlot(s)} style={{ background: mealSlot === s ? T.teal : T.creamDeep, color: mealSlot === s ? T.white : T.ink, border: "none", borderRadius: 999, padding: "5px 11px", fontFamily: "Inter", fontSize: 12 }}>{s}</button>)}</div>
@@ -2467,6 +2574,7 @@ function App() {
   const [customDishes, setCustomDishes] = useKV("dishes:custom", {});
   const [corpusLoaded, setCorpusLoaded] = useState(false);
   useEffect(() => { loadDishCorpus().then(() => setCorpusLoaded(true)); }, []);
+  useEffect(() => { loadHealthDB(); }, []);
   // One-time seed of real-looking history (Jul 1 → today). Runs once per SEED_VERSION and
   // never overwrites days that already have real logged data (spread order: seed first, then
   // existing wins). Cleared history is not re-seeded — the flag stays set until they clear it
