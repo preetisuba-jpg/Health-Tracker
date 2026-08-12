@@ -35,16 +35,31 @@ if ('serviceWorker' in navigator) {
 const { useState, useEffect, useRef, useCallback } = React;
 
 /* ============================== TOKENS ============================== */
-const T = {
-  cream: "#FBF6EC", creamDeep: "#F3E9D6",
-  saffron: "#E8853D", saffronDeep: "#C96A28",
-  teal: "#1B4B4A", tealLight: "#2F6E6A", tealPale: "#E4EFEE",
-  forest: "#3D6B4F", forestPale: "#E7F0E9",
-  alert: "#B8433A", alertPale: "#FBE7E4",
-  amber: "#C4841F", amberPale: "#FBF0DC",
-  ink: "#26302E", inkSoft: "#5C6B65",
-  border: "#E7DCC7", white: "#FFFFFF",
+// Teal-green identity, two modes. `tealSolid` = teal used as a button/nav BACKGROUND
+// (stays dark enough for white text in both modes); `teal` = teal used as heading/accent
+// TEXT (light mint in dark). `white` holds the card-surface colour (dark card in dark mode).
+// `saffron` is the action accent (a saturated teal-green so white button text stays legible).
+const T_LIGHT = {
+  cream: "#F7F8F9", creamDeep: "#EEF0F1",
+  saffron: "#0E9E86", saffronDeep: "#0C8877",
+  teal: "#1E6157", tealLight: "#2E7A6E", tealPale: "#E4EFEC", tealSolid: "#1E6157",
+  forest: "#3D8B62", forestPale: "#E7F1EB",
+  alert: "#CB4A34", alertPale: "#FBE7E2",
+  amber: "#B9832E", amberPale: "#F7EEDC",
+  ink: "#25302E", inkSoft: "#69736F",
+  border: "#E6E8E9", white: "#FFFFFF",
 };
+const T_DARK = {
+  cream: "#152623", creamDeep: "#0F1C1B",
+  saffron: "#0F9E88", saffronDeep: "#4FE0C8",
+  teal: "#7FD9C9", tealLight: "#9AD1C9", tealPale: "#1C322D", tealSolid: "#1B4E46",
+  forest: "#5FC79A", forestPale: "#1E3128",
+  alert: "#EE6A4C", alertPale: "#33211F",
+  amber: "#E7C15E", amberPale: "#312C1B",
+  ink: "#EAF3F0", inkSoft: "#8FA6A0",
+  border: "#26403B", white: "#182A28",
+};
+let T = T_DARK; // App root reassigns this each render from the persisted theme choice
 
 /* ============================== ICONS ============================== */
 function Icon({ name, size = 18, color = T.ink, style }) {
@@ -72,6 +87,8 @@ function Icon({ name, size = 18, color = T.ink, style }) {
     case "settings": return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M4.2 4.2l2 2M17.8 17.8l2 2M2 12h3M19 12h3M4.2 19.8l2-2M17.8 6.2l2-2" /></svg>;
     case "external": return <svg {...common}><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><path d="M15 3h6v6" /><path d="M10 14L21 3" /></svg>;
     case "clipboard": return <svg {...common}><rect x="5" y="4" width="14" height="17" rx="2" /><rect x="9" y="2" width="6" height="4" rx="1" /><path d="M8 11h8M8 15h5" /></svg>;
+    case "user": return <svg {...common}><circle cx="12" cy="8" r="4" /><path d="M4 21v-1a6 6 0 0112 0v1" /></svg>;
+    case "plus": return <svg {...common}><path d="M12 5v14M5 12h14" /></svg>;
     default: return null;
   }
 }
@@ -535,7 +552,7 @@ function localAnswer(question, customDishes) {
   }
   for (const [dish, info] of Object.entries(FOOD_DB)) {
     if (q.includes(dish)) {
-      const meta = VERDICT_META[info.verdict] || VERDICT_META.moderate;
+      const meta = verdictMetaMap()[info.verdict] || verdictMetaMap().moderate;
       const tip = info.healthierTip || suggestSwap(dish);
       return `${meta.emoji} ${meta.label} — ${info.reason} Portion: ${info.portion}.${tip ? " " + tip : ""}`;
     }
@@ -543,7 +560,7 @@ function localAnswer(question, customDishes) {
   if (customDishes) {
     for (const [dish, info] of Object.entries(customDishes)) {
       if (q.includes(dish)) {
-        const meta = VERDICT_META[info.verdict] || VERDICT_META.moderate;
+        const meta = verdictMetaMap()[info.verdict] || verdictMetaMap().moderate;
         return `${meta.emoji} ${meta.label} — from your saved dishes. ${info.reason}${info.healthierTip ? " " + info.healthierTip : ""}`;
       }
     }
@@ -1003,8 +1020,9 @@ function formatDateLabel(dateKey) {
   return d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
 }
 
-const STATUS_COLORS = { good: { bg: T.forestPale, fg: T.forest, label: "✅ Normal" }, watch: { bg: T.amberPale, fg: T.amber, label: "🟡 Watch" }, bad: { bg: T.alertPale, fg: T.alert, label: "🔴 High" } };
-const VERDICT_META = { safe: { emoji: "✅", label: "Safe to eat freely", bg: T.forestPale, fg: T.forest }, moderate: { emoji: "🟡", label: "OK in moderation", bg: T.amberPale, fg: T.amber }, limit: { emoji: "⚠️", label: "Limit strongly", bg: T.amberPale, fg: T.amber }, caution: { emoji: "🟡", label: "OK in moderation", bg: T.amberPale, fg: T.amber }, avoid: { emoji: "🔴", label: "Avoid for now", bg: T.alertPale, fg: T.alert } };
+// Functions (not consts) so they read the CURRENT theme's T on every render.
+function statusColorsMap() { return { good: { bg: T.forestPale, fg: T.forest, label: "✅ Normal" }, watch: { bg: T.amberPale, fg: T.amber, label: "🟡 Watch" }, bad: { bg: T.alertPale, fg: T.alert, label: "🔴 High" } }; }
+function verdictMetaMap() { return { safe: { emoji: "✅", label: "Safe to eat freely", bg: T.forestPale, fg: T.forest }, moderate: { emoji: "🟡", label: "OK in moderation", bg: T.amberPale, fg: T.amber }, limit: { emoji: "⚠️", label: "Limit strongly", bg: T.amberPale, fg: T.amber }, caution: { emoji: "🟡", label: "OK in moderation", bg: T.amberPale, fg: T.amber }, avoid: { emoji: "🔴", label: "Avoid for now", bg: T.alertPale, fg: T.alert } }; }
 
 function dayScore(entries, habitsForDay, supplementsForDay) {
   const mealsCount = entries.length;
@@ -1276,7 +1294,7 @@ function DateBar({ selectedDate, onOpenCalendar, onBackToToday }) {
         <Icon name="calendar" size={15} color={T.amber} />
         <span style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 13.5, color: T.amber }}>Viewing {formatDateLabel(selectedDate)} — not today</span>
       </button>
-      <button onClick={onBackToToday} style={{ background: T.amber, border: "none", borderRadius: 999, padding: "6px 12px", fontFamily: "Manrope", fontWeight: 700, fontSize: 11.5, color: T.white, cursor: "pointer", whiteSpace: "nowrap" }}>Switch to Today</button>
+      <button onClick={onBackToToday} style={{ background: T.amber, border: "none", borderRadius: 999, padding: "6px 12px", fontFamily: "Manrope", fontWeight: 700, fontSize: 11.5, color: "#241C08", cursor: "pointer", whiteSpace: "nowrap" }}>Switch to Today</button>
     </div>
   );
 }
@@ -1326,7 +1344,7 @@ function CalendarPicker({ selectedDate, onSelect, onClose, weekFood, activities,
                   <span style={{ fontFamily: "Inter", fontSize: 11, fontWeight: hasAnyData ? 700 : 400, color: T.ink }}>{d}</span>
                   <div style={{ display: "flex", gap: 2, marginTop: 2 }}>
                     {hasFood && <span style={{ width: 4, height: 4, borderRadius: 2, background: T.forest, display: "inline-block" }} />}
-                    {hasAct && <span style={{ width: 4, height: 4, borderRadius: 2, background: T.teal, display: "inline-block" }} />}
+                    {hasAct && <span style={{ width: 4, height: 4, borderRadius: 2, background: T.tealSolid, display: "inline-block" }} />}
                     {hasSupp && <span style={{ width: 4, height: 4, borderRadius: 2, background: T.amber, display: "inline-block" }} />}
                   </div>
                 </button>
@@ -1335,7 +1353,7 @@ function CalendarPicker({ selectedDate, onSelect, onClose, weekFood, activities,
           </div>
           <div style={{ display: "flex", gap: 12, marginTop: 14, fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft, flexWrap: "wrap" }}>
             <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: T.forest, marginRight: 4 }} />Food logged</span>
-            <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: T.teal, marginRight: 4 }} />Activity logged</span>
+            <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: T.tealSolid, marginRight: 4 }} />Activity logged</span>
             <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: T.amber, marginRight: 4 }} />Supplement taken</span>
           </div>
         </div>
@@ -1856,7 +1874,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
     addFoodEntry(selectedDate, { dish: notFound, ...entry, mealSlot, time: Date.now() });
     setNotFound(null); setPasteText(""); setPastePreview(null); setQuery("");
   }
-  function meta(v) { return VERDICT_META[v] || VERDICT_META.moderate; }
+  function meta(v) { return verdictMetaMap()[v] || verdictMetaMap().moderate; }
   function weeklyCountFor(dishName) {
     const key = dishName.trim().toLowerCase(); let count = 0;
     for (let offset = 0; offset <= 6; offset++) { const dk = dateKeyOffset(offset); const entries = weekFood[dk] || []; count += entries.filter(e => e.dish.trim().toLowerCase() === key).length; }
@@ -1865,8 +1883,10 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
   // user picked a specific variety from the disambiguation list
   function pickHealthDish(id) {
     const e = HEALTH_DB.dishes[id]; if (!e) return;
+    // keep any healthier words the user typed ("air fried cutlet") so the pick still rescores
+    const origQuery = disambig ? disambig.query : e.name;
     setDisambig(null); setQuery(e.name);
-    setResult({ dish: e.name, healthId: id, verdict: demoVerdictFor(e.name),
+    setResult({ dish: e.name, healthId: id, modText: origQuery, verdict: demoVerdictFor(e.name),
       calories: null, protein: null, fiber: null, carbs: null, sugar: null,
       portion: "per 100 g", perUnit: "100 g", reason: "",
       marker: null, weeklyLimit: null, lookedUp: true, source: "health database" });
@@ -1899,7 +1919,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
   const totalCals = foodForDate.reduce((s, f) => s + (f.calories || 0), 0);
   const badCount = foodForDate.filter(f => f.verdict === "avoid" || f.verdict === "limit").length;
   const health = result ? (result.healthId && HEALTH_DB && HEALTH_DB.dishes ? HEALTH_DB.dishes[result.healthId] : healthLookup(result.dish)) : null;
-  const mod = health ? applyModifiers(health.n, result.dish) : null;   // healthier keywords -> adjusted nutrients
+  const mod = health ? applyModifiers(health.n, result.modText || result.dish) : null;   // healthier keywords -> adjusted nutrients
   const scored = health ? scoreDish(mod.n, health.is_drink) : null;    // rescore from adjusted nutrients
   const pv = health ? personalVerdict(scored.levels, mod.n.kcal, advice.flaggedKeys, advice.weightGoal) : null;
   // macros to display/log: adjusted per-100g when we have health data, else whatever the result carried
@@ -2071,7 +2091,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
               <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 6 }}>When?</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{MEAL_SLOTS.map(s => <button key={s} onClick={() => setMealSlot(s)} style={{ background: mealSlot === s ? T.teal : T.creamDeep, color: mealSlot === s ? T.white : T.ink, border: "none", borderRadius: 999, padding: "5px 11px", fontFamily: "Inter", fontSize: 12 }}>{s}</button>)}</div>
             </div>
-            <button onClick={logMeal} style={{ width: "100%", background: T.teal, border: "none", borderRadius: 10, padding: "10px 0", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5 }}>Log this meal</button>
+            <button onClick={logMeal} style={{ width: "100%", background: T.tealSolid, border: "none", borderRadius: 10, padding: "10px 0", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5 }}>Log this meal</button>
           </Card>
         </>
       )}
@@ -2080,7 +2100,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
           <div style={{ height: 10 }} />
           <Card style={{ background: T.amberPale, border: "none" }}>
             <div style={{ fontFamily: "Inter", fontSize: 13, color: T.ink, lineHeight: 1.45, marginBottom: 8 }}>{warning}</div>
-            <button onClick={() => { setWarning(null); setResult(null); setQuery(""); }} style={{ background: T.teal, border: "none", borderRadius: 8, padding: "7px 12px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 12 }}>Got it</button>
+            <button onClick={() => { setWarning(null); setResult(null); setQuery(""); }} style={{ background: T.tealSolid, border: "none", borderRadius: 8, padding: "7px 12px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 12 }}>Got it</button>
           </Card>
         </>
       )}
@@ -2168,7 +2188,7 @@ function MyHealthTab({ metrics, periods, supplementsToday, toggleSupplement, sup
       <SectionLabel>All markers — {periods[periods.length - 1]}</SectionLabel>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{metrics.map(m => {
         const latest = m.points[m.points.length - 1]; const status = metricStatus(latest, m);
-        const s = STATUS_COLORS[status] || { bg: T.creamDeep, fg: T.inkSoft, label: "Not tested" };
+        const s = statusColorsMap()[status] || { bg: T.creamDeep, fg: T.inkSoft, label: "Not tested" };
         return (
           <Card key={m.key}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -2590,7 +2610,7 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <input value={newGoalText} onChange={e => setNewGoalText(e.target.value)} placeholder="e.g. Improve sleep" style={{ flex: 1, border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", fontFamily: "Inter", fontSize: 13 }} />
-                <button onClick={addCustomGoal} style={{ background: T.teal, border: "none", borderRadius: 10, padding: "0 14px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5 }}>Add</button>
+                <button onClick={addCustomGoal} style={{ background: T.tealSolid, border: "none", borderRadius: 10, padding: "0 14px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5 }}>Add</button>
               </div>
               <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 10 }}>Marker-based priorities update automatically from your latest report.</div>
             </div>
@@ -2612,7 +2632,7 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
                   ))}</div>
                   <div style={{ display: "flex", gap: 8 }}>
                     <button onClick={() => setAddingReport(false)} style={{ flex: 1, background: T.creamDeep, border: "none", borderRadius: 10, padding: "9px 0", fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.ink }}>Cancel</button>
-                    <button onClick={submitNewReport} style={{ flex: 1, background: T.teal, border: "none", borderRadius: 10, padding: "9px 0", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13 }}>Save report</button>
+                    <button onClick={submitNewReport} style={{ flex: 1, background: T.tealSolid, border: "none", borderRadius: 10, padding: "9px 0", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13 }}>Save report</button>
                   </div>
                 </div>
               )}
@@ -2643,7 +2663,7 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
                   <div style={{ display: "flex", gap: 8 }}>
                     <button onClick={() => setEditingSuppId(null)} style={{ flex: 1, background: T.white, border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 0", fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5 }}>Cancel</button>
                     {editingSuppId !== "new" && <button onClick={() => removeSupplement(editingSuppId)} style={{ background: T.alertPale, border: "none", borderRadius: 8, padding: "9px 12px", color: T.alert, fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5 }}>Remove</button>}
-                    <button onClick={saveSupplementForm} style={{ flex: 1, background: T.teal, border: "none", borderRadius: 8, padding: "9px 0", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5 }}>Save</button>
+                    <button onClick={saveSupplementForm} style={{ flex: 1, background: T.tealSolid, border: "none", borderRadius: 8, padding: "9px 0", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5 }}>Save</button>
                   </div>
                 </div>
               ) : (
@@ -2694,6 +2714,7 @@ function App() {
   const [selectedDate, setSelectedDate] = useState(todayKey());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState("profile");
+  const [logOpen, setLogOpen] = useState(false);
   const tk = todayKey();
 
   const [weekFood, setWeekFood] = useKV("week:foodlog", {});
@@ -2707,6 +2728,9 @@ function App() {
   const [metrics, setMetrics] = useKV("reports:metrics", METRICS_SEED);
   const [periods, setPeriods] = useKV("reports:periods", PERIODS_SEED);
   const [supplements, setSupplements] = useKV("supplements:list", SUPPLEMENTS_SEED);
+  const [theme, setTheme] = useKV("ui:theme", "dark");
+  T = theme === "light" ? T_LIGHT : T_DARK; // apply the chosen palette before this render tree paints
+  useEffect(() => { try { document.body.style.background = (theme === "light" ? T_LIGHT : T_DARK).creamDeep; } catch {} }, [theme]);
   TOTAL_SUPPLEMENTS = supplements.length;
   const [customDishes, setCustomDishes] = useKV("dishes:custom", {});
   const [corpusLoaded, setCorpusLoaded] = useState(false);
@@ -2762,13 +2786,20 @@ function App() {
     try { localStorage.setItem("seed:history", SEED_VERSION); } catch {}
   };
 
-  const TABS = [
-    { id: "today", label: "Dashboard", icon: "home" },
-    { id: "food", label: "Food", icon: "food" },
-    { id: "habits", label: "Habits", icon: "calendar" },
-    { id: "supplements", label: "Supps", icon: "pill" },
-    { id: "health", label: "Health", icon: "activity" },
+  // 5-item bar: Today · Plan · ＋(log) · Progress · Me. Food/Activity/Supplement logging is
+  // reached through the center ＋. "Progress" shows the health markers/trends (MyHealthTab);
+  // "Me" opens Profile & Reports. Nav colours are literals because the bar is always deep teal.
+  const NAV = [
+    { id: "today", label: "Today", icon: "home" },
     { id: "plan", label: "Plan", icon: "clipboard" },
+    { center: true },
+    { id: "health", label: "Progress", icon: "activity" },
+    { id: "me", label: "Me", icon: "user" },
+  ];
+  const logOptions = [
+    { label: "Food / meal", icon: "food", tab: "food" },
+    { label: "Activity", icon: "walk", tab: "habits" },
+    { label: "Supplement", icon: "pill", tab: "supplements" },
   ];
 
   return (
@@ -2783,6 +2814,7 @@ function App() {
         @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
       <div style={{ width: "100%", maxWidth: 420, background: T.cream, minHeight: "100vh", position: "relative", boxShadow: "0 0 40px rgba(0,0,0,0.06)" }}>
+        <button onClick={() => setTheme(theme === "light" ? "dark" : "light")} aria-label="Toggle light or dark mode" style={{ position: "absolute", top: "calc(14px + env(safe-area-inset-top, 0px))", right: 58, zIndex: 15, background: T.white, border: `1px solid ${T.border}`, borderRadius: 999, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.08)", fontSize: 16 }}>{theme === "light" ? "🌙" : "☀️"}</button>
         <button onClick={() => openSettings("profile")} aria-label="Profile and reports" style={{ position: "absolute", top: "calc(14px + env(safe-area-inset-top, 0px))", right: 14, zIndex: 15, background: T.white, border: `1px solid ${T.border}`, borderRadius: 999, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.08)" }}><Icon name="settings" size={17} color={T.teal} /></button>
         {tab === "today" && <TodayTab profile={profile} targets={targets} advice={advice} foodToday={foodForDate} habitToday={habitsForDate} supplementsToday={supplementsForDate} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} activities={activities} toggleHabit={toggleHabit} supplements={supplements} onNavigate={setTab} demoCleared={demoCleared} clearDemo={clearDemo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />}
         {tab === "food" && <FoodCheckTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} foodForDate={foodForDate} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} addFoodEntry={addFoodEntry} deleteFoodEntry={deleteFoodEntry} customDishes={customDishes} saveCustomDish={saveCustomDish} metrics={metrics} periods={periods} targets={targets} advice={advice} />}
@@ -2790,14 +2822,39 @@ function App() {
         {tab === "habits" && <HabitsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} habitsForDate={habitsForDate} toggleHabit={toggleHabit} weekHabits={weekHabits} weekFood={weekFood} weekSupplements={weekSupplements} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} advice={advice} />}
         {tab === "supplements" && <SupplementsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} supplementsForDate={supplementsForDate} toggleSupplement={toggleSupplement} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} supplements={supplements} advice={advice} />}
         {tab === "plan" && <PlanTab weekFood={weekFood} advice={advice} />}
-        <div style={{ position: "fixed", bottom: 0, width: "100%", maxWidth: 420, background: T.teal, display: "flex", justifyContent: "space-around", padding: "8px 2px 10px", zIndex: 30 }}>
-          {TABS.map(t => { const active = tab === t.id; return (
-            <button key={t.id} onClick={() => setTab(t.id)} style={{ background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, opacity: active ? 1 : 0.6, cursor: "pointer", flex: 1, minWidth: 0 }}>
-              <Icon name={t.icon} size={18} color={active ? T.saffron : T.white} />
-              <span style={{ fontFamily: "Inter", fontSize: 9.5, fontWeight: active ? 700 : 500, color: T.white }}>{t.label}</span>
-            </button>
-          ); })}
+        <div style={{ position: "fixed", bottom: 0, width: "100%", maxWidth: 420, background: T.tealSolid, display: "flex", alignItems: "center", justifyContent: "space-around", padding: "8px 8px 10px", zIndex: 30 }}>
+          {NAV.map((t, i) => {
+            if (t.center) return (
+              <button key="log" onClick={() => setLogOpen(true)} aria-label="Log something" style={{ flex: "0 0 auto", background: T.saffron, border: "none", width: 52, height: 52, borderRadius: 18, display: "grid", placeItems: "center", cursor: "pointer", marginTop: -22, boxShadow: "0 8px 18px rgba(0,0,0,0.26)" }}>
+                <Icon name="plus" size={26} color="#ffffff" />
+              </button>
+            );
+            const active = tab === t.id;
+            const col = active ? "#5FE3CE" : "rgba(255,255,255,0.75)";
+            const onClick = t.id === "me" ? () => openSettings("profile") : () => setTab(t.id);
+            return (
+              <button key={t.id} onClick={onClick} style={{ background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, cursor: "pointer", flex: 1, minWidth: 0 }}>
+                <Icon name={t.icon} size={20} color={col} />
+                <span style={{ fontFamily: "Inter", fontSize: 10.5, fontWeight: active ? 700 : 500, color: col }}>{t.label}</span>
+              </button>
+            );
+          })}
         </div>
+        {logOpen && (
+          <div className="askOverlay" onClick={() => setLogOpen(false)}>
+            <div onClick={e => e.stopPropagation()} style={{ background: T.cream, width: "100%", maxWidth: 420, borderRadius: "22px 22px 0 0", padding: "12px 16px 26px" }}>
+              <div style={{ width: 40, height: 4, borderRadius: 2, background: T.border, margin: "0 auto 14px" }} />
+              <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 16, color: T.teal, marginBottom: 12 }}>What do you want to log?</div>
+              {logOptions.map(o => (
+                <button key={o.tab} onClick={() => { setTab(o.tab); setLogOpen(false); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 13, background: T.white, border: `1px solid ${T.border}`, borderRadius: 14, padding: "14px 15px", marginBottom: 10, cursor: "pointer" }}>
+                  <Icon name={o.icon} size={20} color={T.saffron} />
+                  <span style={{ fontFamily: "Inter", fontSize: 15, fontWeight: 600, color: T.ink }}>{o.label}</span>
+                  <Icon name="chevron" size={16} color={T.inkSoft} style={{ marginLeft: "auto" }} />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} initialSection={settingsSection} profile={profile} saveProfile={setProfile} goalToggles={goalToggles} saveGoalToggles={setGoalToggles} customGoals={customGoals} saveCustomGoals={setCustomGoals} metrics={metrics} saveMetrics={setMetrics} periods={periods} savePeriods={setPeriods} supplements={supplements} saveSupplements={setSupplements} onClearDate={clearDateData} onClearAll={clearAllData} onApplyDemoMonth={applyDemoMonth} />
       </div>
     </div>
