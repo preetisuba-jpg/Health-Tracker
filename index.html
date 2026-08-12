@@ -771,20 +771,23 @@ function levenshtein(a, b) {
   return dp[m][n];
 }
 
-// ---- Per-condition health signals (dish_health.json, built from the INDB sample) ----
-// Loaded once; the app computes a PERSONALISED overall verdict from these levels, plus
-// two common fact lists (worse_for / good_source_for). Dishes not here fall back to the
-// keyword verdict (demoVerdictFor) as before.
-let HEALTH_DB = null;
+// ---- Per-condition health engine (dish_health.json = ~1000 dishes' per-100g nutrients;
+// condition_rules.json = the scoring rules). The app SCORES live so healthier modifiers
+// (wheat / air-fried / less-oil …) can rescore any dish without a Google lookup. ----
+let HEALTH_DB = null, RULES_DB = null;
 async function loadHealthDB() {
   if (HEALTH_DB) return HEALTH_DB;
   try { HEALTH_DB = await (await fetch("dish_health.json", { cache: "no-store" })).json(); }
   catch { HEALTH_DB = { aliases: {}, dishes: {}, labels: {}, benefit: [], core_harm: [] }; }
   return HEALTH_DB;
 }
-// app report-marker key -> our health condition
+async function loadRulesDB() {
+  if (RULES_DB) return RULES_DB;
+  try { RULES_DB = await (await fetch("condition_rules.json", { cache: "no-store" })).json(); }
+  catch { RULES_DB = { condition_order: [], labels: {}, benefit: [], core_harm: [], nutrient_field: {}, nice: {}, caveats: {}, rules: [] }; }
+  return RULES_DB;
+}
 const MARKER_TO_CONDITION = { tg: "triglycerides", ldl: "cholesterol", chol: "cholesterol", hdl: "cholesterol", ggt: "fatty_liver", sgot: "fatty_liver", sgpt: "fatty_liver", sugar: "diabetes", bp: "hypertension", tsh: "thyroid" };
-// match a typed dish name to a health entry — longest alias wins, whole-word match
 function healthLookup(dishText) {
   if (!HEALTH_DB || !HEALTH_DB.aliases) return null;
   const nq = " " + normalizeWithAliases(dishText) + " ";
@@ -792,18 +795,101 @@ function healthLookup(dishText) {
   for (const kw of kws) { if (nq.includes(" " + kw + " ")) return HEALTH_DB.dishes[HEALTH_DB.aliases[kw]] || null; }
   return null;
 }
+// Variety picker: all dishes whose NAME contains every word typed (e.g. "cutlet" -> the 11
+// cutlets; "paneer curry" -> the paneer curries). Lets the user pick instead of missing them.
+function healthCandidates(query, limit) {
+  if (!HEALTH_DB || !HEALTH_DB.dishes) return [];
+  const toks = normalizeWithAliases(query).split(" ").filter(t => t.length >= 3);
+  if (!toks.length) return [];
+  const out = [];
+  for (const id in HEALTH_DB.dishes) {
+    const nn = " " + normalizeWithAliases(HEALTH_DB.dishes[id].name) + " ";
+    if (toks.every(t => nn.includes(t))) { out.push({ id, name: HEALTH_DB.dishes[id].name }); if (out.length > 60) break; }
+  }
+  out.sort((a, b) => a.name.length - b.name.length);
+  return out.slice(0, limit || 8);
+}
+const r1 = x => Math.round(x * 10) / 10;
+const stripUnit = s => s.split(" ").slice(1).join(" ") || s;
+// Compute per-condition levels + worse_for / good_source_for from nutrients + rules.
+// Mirrors the Python suitability() engine exactly.
+function scoreDish(n, isDrink) {
+  const R = RULES_DB; if (!R || !R.rules || !R.rules.length) return { levels: {}, worse_for: [], good_source_for: [] };
+  const NF = R.nutrient_field, NICE = R.nice, benefit = new Set(R.benefit);
+  const W = { green: 0, yellow: 1, red: 2 }, worst = (a, b) => W[a] >= W[b] ? a : b;
+  const val = nut => { const v = n[NF[nut]]; return typeof v === "number" ? v : 0; };
+  const levels = {}, reasons = {};
+  for (const cond of R.condition_order) {
+    const rows = R.rules.filter(r => r[0] === cond), isBen = benefit.has(cond);
+    let harm = "green"; const hits = [], vals = [], credits = [], ens = [];
+    for (const row of rows) {
+      const nut = row[1], dir = row[2], a = row[3], b = row[4], basis = row[5];
+      if (basis === "drink" && !isDrink) continue;
+      if (basis === "solid" && isDrink) continue;
+      const v = val(nut), txt = `${r1(v)} ${NICE[nut]}`;
+      if (dir === "limit") {
+        const lv = v < a ? "green" : (v >= b ? "red" : "yellow");
+        vals.push(txt); if (lv !== "green") hits.push(txt); harm = worst(harm, lv);
+      } else { ens.push(nut); if (v >= b) credits.push(txt); }
+    }
+    let level, reason;
+    if (!isBen) {
+      level = harm; if (level === "yellow" && credits.length) level = "green";
+      if (level === "green") {
+        const parts = []; if (vals.length) parts.push(vals.join(", ")); if (credits.length) parts.push("good source of " + credits.join(", "));
+        reason = parts.length ? "all within limits — " + parts.join("; ") : "no notable amount";
+      } else reason = hits.join(", ") + " per 100g";
+    } else {
+      const base = credits.length ? "green" : "grey";
+      level = harm === "red" ? "red" : (harm === "yellow" ? "yellow" : base);
+      if (level === "green") reason = "good source of " + credits.join(", ");
+      else if (level === "grey") reason = "not a notable source of " + ens.map(x => stripUnit(NICE[x])).join(", ");
+      else { reason = hits.join(", ") + " per 100g"; if (credits.length) reason += "; still provides " + credits.join(", "); }
+    }
+    levels[cond] = level; reasons[cond] = reason + (R.caveats[cond] ? " [" + R.caveats[cond] + "]" : "");
+  }
+  const worse_for = R.condition_order.filter(c => !benefit.has(c) && (levels[c] === "yellow" || levels[c] === "red")).map(c => [c, levels[c], reasons[c]]);
+  const good_source_for = R.condition_order.filter(c => benefit.has(c) && levels[c] === "green").map(c => [c, reasons[c]]);
+  return { levels, worse_for, good_source_for };
+}
+
+// ---- Healthier modifiers: adjust the per-100g nutrients, then rescore. No Google. ----
+function fatMul(n, m) { const f0 = n.fat_g; n.fat_g = r1(n.fat_g * m); n.sat_fat_g = r1(n.sat_fat_g * m); n.kcal = Math.max(20, Math.round(n.kcal + 9 * (n.fat_g - f0))); }
+function sugarMul(n, m) { const g0 = n.free_sugar_g; n.free_sugar_g = r1(n.free_sugar_g * m); n.kcal = Math.max(20, Math.round(n.kcal + 4 * (n.free_sugar_g - g0))); }
+const MODIFIERS = [
+  { re: /\b(wheat|multi ?grain|atta|bran|brown|jowar|bajra|ragi|millet|oats?)\b/, label: "whole grain", apply: n => { n.fibre_g = r1(n.fibre_g + 3); n.free_sugar_g = r1(n.free_sugar_g * 0.85); } },
+  { re: /\bair[ -]?fried\b/, label: "air-fried", apply: n => fatMul(n, 0.4) },
+  { re: /\bbaked\b/, label: "baked", apply: n => fatMul(n, 0.6) },
+  { re: /\b(boiled|steamed)\b/, label: "boiled/steamed", apply: n => fatMul(n, 0.4) },
+  { re: /\b(grilled|roasted|tawa|dry[ -]?roast)/, label: "grilled/roasted", apply: n => fatMul(n, 0.6) },
+  { re: /\b(shallow|pan)[ -]?fried\b/, label: "shallow-fried", apply: n => fatMul(n, 0.6) },
+  { re: /(\b(no|without|zero)\s+oil\b|oil[ -]?free)/, label: "no oil", apply: n => fatMul(n, 0.3) },
+  { re: /\b(less|low)\s+oil\b/, label: "less oil", apply: n => fatMul(n, 0.6) },
+  { re: /\b(no|without)\s+(ghee|butter)\b/, label: "no ghee/butter", apply: n => fatMul(n, 0.4) },
+  { re: /\b(less|low)\s+(ghee|butter)\b/, label: "less ghee/butter", apply: n => fatMul(n, 0.6) },
+  { re: /\b(no|without)\s+cheese\b/, label: "no cheese", apply: n => fatMul(n, 0.55) },
+  { re: /\b(less|low)\s+cheese\b/, label: "less cheese", apply: n => fatMul(n, 0.78) },
+  { re: /(\b(no|without)\s+cream\b|cream[ -]?free)/, label: "no cream", apply: n => fatMul(n, 0.6) },
+  { re: /(\b(no|without|zero)\s+sugar\b|sugar[ -]?free|unsweetened)/, label: "no sugar", apply: n => sugarMul(n, 0.1) },
+  { re: /\b(less|low)\s+sugar\b/, label: "less sugar", apply: n => sugarMul(n, 0.5) },
+  { re: /(\b(no|without)\s+salt\b|salt[ -]?free)/, label: "no salt", apply: n => { n.sodium_mg = Math.round(n.sodium_mg * 0.2); } },
+  { re: /(\b(less|low)\s+salt\b|low[ -]?sodium)/, label: "less salt", apply: n => { n.sodium_mg = Math.round(n.sodium_mg * 0.5); } },
+];
+function applyModifiers(baseN, text) {
+  const n = Object.assign({}, baseN), t = " " + (text || "").toLowerCase() + " ", applied = [];
+  for (const m of MODIFIERS) { if (m.re.test(t)) { m.apply(n); applied.push(m.label); } }
+  return { n, applied };
+}
 // the 4-tier personalised overall verdict (avoid / limit / eat-freely / neutral)
-function personalVerdict(entry, flaggedKeys, weightGoal) {
-  const S = entry.levels, kcal = entry.kcal, L = (HEALTH_DB && HEALTH_DB.labels) || {};
-  const benefit = new Set((HEALTH_DB && HEALTH_DB.benefit) || []), core = (HEALTH_DB && HEALTH_DB.core_harm) || [];
+function personalVerdict(levels, kcal, flaggedKeys, weightGoal) {
+  const R = RULES_DB || {}, L = R.labels || {}, benefit = new Set(R.benefit || []), core = R.core_harm || [];
   const rel = new Set(); (flaggedKeys || []).forEach(k => { const c = MARKER_TO_CONDITION[k]; if (c) rel.add(c); });
   if (weightGoal) rel.add("weight");
-  const R = [...rel], nm = c => L[c] || c;
-  const theirRed = R.filter(c => S[c] === "red");
-  const theirYel = R.filter(c => S[c] === "yellow");
-  const genRed = core.filter(c => S[c] === "red");
-  const helps = R.filter(c => benefit.has(c) && S[c] === "green").map(nm);
-  if (rel.has("weight") && S.weight === "green" && kcal < 150) helps.push("your weight goal");
+  const A = [...rel], nm = c => L[c] || c;
+  const theirRed = A.filter(c => levels[c] === "red"), theirYel = A.filter(c => levels[c] === "yellow");
+  const genRed = core.filter(c => levels[c] === "red");
+  const helps = A.filter(c => benefit.has(c) && levels[c] === "green").map(nm);
+  if (rel.has("weight") && levels.weight === "green" && kcal < 150) helps.push("your weight goal");
   if (theirRed.length) return { tone: "avoid", text: `Avoid for you — hurts your ${theirRed.map(nm).join(", ")}` };
   if (genRed.length >= 3) return { tone: "avoid", text: "Occasional treat only" };
   if (theirYel.length) return { tone: "limit", text: `Limit — watch your ${theirYel.map(nm).join(", ")}` };
@@ -1631,16 +1717,22 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
   const [pastePreview, setPastePreview] = useState(null);
   const [mealSlot, setMealSlot] = useState("Snack");
   const [qty, setQty] = useState(1);
+  const [disambig, setDisambig] = useState(null); // {query, options:[{id,name}]} when several varieties match
   const [warning, setWarning] = useState(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [correctedFrom, setCorrectedFrom] = useState(null);
   const shortcuts = ["besan laddoo", "sukhdi", "vada pav", "roasted peanuts", "bhakhri", "khichdi", "dal", "paneer sabzi", "chai", "kaju katri", "cookies"]; // his personal regulars — full list of ~60 dishes + a growing custom library is searchable by typing
 
   async function checkDish(dish) {
-    setResult(null); setWarning(null); setNotFound(null); setManualVerdict(null); setManualCals(""); setPasteText(""); setPastePreview(null); setCorrectedFrom(null); setQty(1);
+    setResult(null); setWarning(null); setNotFound(null); setManualVerdict(null); setManualCals(""); setPasteText(""); setPastePreview(null); setCorrectedFrom(null); setQty(1); setDisambig(null);
     const raw = dish.trim();
     const modifierNotes = detectModifiers(raw);
     const coreDish = modifierNotes.length > 0 ? stripModifiers(raw) : raw;
+
+    // 0. Variety picker — if several named dishes match (e.g. "cutlet" -> 11 kinds,
+    //    "paneer curry" -> several), let the user choose rather than silently pick one.
+    const cands = healthCandidates(coreDish, 8);
+    if (cands.length >= 2) { setDisambig({ query: raw, options: cands }); return; }
 
     // 1. Curated FOOD_DB, exact or fuzzy (typo-tolerant), matched on the core dish name
     //    (modifiers like "air fried" stripped first, then re-applied as a verdict upgrade)
@@ -1770,10 +1862,20 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
     for (let offset = 0; offset <= 6; offset++) { const dk = dateKeyOffset(offset); const entries = weekFood[dk] || []; count += entries.filter(e => e.dish.trim().toLowerCase() === key).length; }
     return count;
   }
+  // user picked a specific variety from the disambiguation list
+  function pickHealthDish(id) {
+    const e = HEALTH_DB.dishes[id]; if (!e) return;
+    setDisambig(null); setQuery(e.name);
+    setResult({ dish: e.name, healthId: id, verdict: demoVerdictFor(e.name),
+      calories: null, protein: null, fiber: null, carbs: null, sugar: null,
+      portion: "per 100 g", perUnit: "100 g", reason: "",
+      marker: null, weeklyLimit: null, lookedUp: true, source: "health database" });
+  }
   function logMeal() {
     const q = qty || 1;
     const scale = v => v == null ? null : Math.round(v * q);
-    const entry = { dish: result.dish, calories: scale(result.calories), protein: scale(result.protein), fiber: scale(result.fiber), carbs: scale(result.carbs), sugar: scale(result.sugar), verdict: result.verdict, qty: q, portion: result.portion || null, mealSlot, time: Date.now() };
+    const carbs = health ? mod.n.carb_g : result.carbs;
+    const entry = { dish: result.dish, calories: scale(dm.cal), protein: scale(dm.protein), fiber: scale(dm.fiber), carbs: scale(carbs), sugar: scale(dm.sugar), verdict: result.verdict, qty: q, portion: result.portion || null, mealSlot, time: Date.now() };
     addFoodEntry(selectedDate, entry);
     const countAfter = weeklyCountFor(result.dish) + 1;
     if (result.weeklyLimit != null && countAfter > result.weeklyLimit) setWarning(`⚠️ This is your ${countAfter}${countAfter === 1 ? "st" : countAfter === 2 ? "nd" : countAfter === 3 ? "rd" : "th"} "${result.dish}" this week — recommended cap is ${result.weeklyLimit}/week.`);
@@ -1796,8 +1898,14 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
   }
   const totalCals = foodForDate.reduce((s, f) => s + (f.calories || 0), 0);
   const badCount = foodForDate.filter(f => f.verdict === "avoid" || f.verdict === "limit").length;
-  const health = result ? healthLookup(result.dish) : null;
-  const pv = health ? personalVerdict(health, advice.flaggedKeys, advice.weightGoal) : null;
+  const health = result ? (result.healthId && HEALTH_DB && HEALTH_DB.dishes ? HEALTH_DB.dishes[result.healthId] : healthLookup(result.dish)) : null;
+  const mod = health ? applyModifiers(health.n, result.dish) : null;   // healthier keywords -> adjusted nutrients
+  const scored = health ? scoreDish(mod.n, health.is_drink) : null;    // rescore from adjusted nutrients
+  const pv = health ? personalVerdict(scored.levels, mod.n.kcal, advice.flaggedKeys, advice.weightGoal) : null;
+  // macros to display/log: adjusted per-100g when we have health data, else whatever the result carried
+  const dm = health
+    ? { cal: mod.n.kcal, protein: mod.n.protein_g, fiber: mod.n.fibre_g, sugar: mod.n.free_sugar_g }
+    : { cal: result && result.calories, protein: result && result.protein, fiber: result && result.fiber, sugar: result && result.sugar };
   const recipeUrl = (dish) => `https://www.google.com/search?q=${encodeURIComponent("healthy " + dish + " recipe low sugar low ghee")}`;
   const nutritionUrl = (dish) => `https://www.google.com/search?q=${encodeURIComponent(dish + " calories protein sugar nutrition per serving")}`;
   const healthUrl = (dish) => `https://www.google.com/search?q=${encodeURIComponent("is " + dish + " safe for high triglycerides and elevated GGT liver")}`;
@@ -1814,6 +1922,21 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12 }}>{shortcuts.map(s => <button key={s} onClick={() => checkDish(s)} style={{ background: T.creamDeep, border: "none", borderRadius: 999, padding: "6px 12px", fontFamily: "Inter", fontSize: 12.5, color: T.ink, textTransform: "capitalize" }}>{s}</button>)}</div>
       </Card>
+      {disambig && (
+        <>
+          <div style={{ height: 10 }} />
+          <Card>
+            <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 14, marginBottom: 3 }}>Which {disambig.query}?</div>
+            <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 10 }}>A few varieties match — pick the closest so the numbers are right.</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {disambig.options.map(o => (
+                <button key={o.id} onClick={() => pickHealthDish(o.id)} style={{ textAlign: "left", background: T.creamDeep, border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", fontFamily: "Inter", fontSize: 13.5, color: T.ink }}>{o.name}</button>
+              ))}
+            </div>
+            <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 8 }}>Not listed? Type a more specific name.</div>
+          </Card>
+        </>
+      )}
       {lookingUp && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 14, fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}><Icon name="loader" size={16} /> Looking it up (free nutrition database)…</div>}
       {notFound && (
         <>
@@ -1876,24 +1999,38 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
             {health && pv ? (
               <div style={{ marginBottom: 10 }}>
                 <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: T[VERDICT_TONE[pv.tone].bg], color: T[VERDICT_TONE[pv.tone].fg], padding: "8px 13px", borderRadius: 10, fontFamily: "Manrope", fontWeight: 800, fontSize: 13.5, marginBottom: 8 }}>{VERDICT_TONE[pv.tone].emoji} {pv.text}</div>
-                {health.worse_for.length > 0 && (
+                {mod.applied.length > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", background: T.tealPale, borderRadius: 8, padding: "6px 10px", marginBottom: 8 }}>
+                    <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11, color: T.teal }}>✓ ADJUSTED FOR</span>
+                    {mod.applied.map((a, i) => <span key={i} style={{ fontFamily: "Inter", fontSize: 12, color: T.teal }}>{a}{i < mod.applied.length - 1 ? "," : ""}</span>)}
+                    <span style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft }}>— scores &amp; calories recalculated</span>
+                  </div>
+                )}
+                {scored.worse_for.length > 0 && (
                   <div style={{ marginTop: 6 }}>
                     <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 10.5, letterSpacing: 0.4, color: T.inkSoft, marginBottom: 4 }}>WORSE FOR</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {health.worse_for.map(([c, lvl, reason], i) => (
+                      {scored.worse_for.map(([c, lvl, reason], i) => (
                         <span key={i} title={reason} style={{ background: lvl === "red" ? T.alertPale : T.amberPale, color: lvl === "red" ? T.alert : T.amber, padding: "4px 10px", borderRadius: 999, fontFamily: "Inter", fontSize: 12 }}>{HEALTH_DB.labels[c] || c}</span>
                       ))}
                     </div>
                   </div>
                 )}
-                {health.good_source_for.length > 0 && (
+                {scored.good_source_for.length > 0 && (
                   <div style={{ marginTop: 8 }}>
                     <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 10.5, letterSpacing: 0.4, color: T.inkSoft, marginBottom: 4 }}>GOOD SOURCE FOR</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {health.good_source_for.map(([c, reason], i) => (
+                      {scored.good_source_for.map(([c, reason], i) => (
                         <span key={i} title={reason} style={{ background: T.forestPale, color: T.forest, padding: "4px 10px", borderRadius: 999, fontFamily: "Inter", fontSize: 12 }}>{HEALTH_DB.labels[c] || c}</span>
                       ))}
                     </div>
+                  </div>
+                )}
+                {health.flags && health.flags.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                    {health.flags.map((fl, i) => (
+                      <span key={i} title={fl.note} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: T.amberPale, color: T.amber, padding: "4px 10px", borderRadius: 999, fontFamily: "Inter", fontSize: 11.5 }}>⚠ {fl.flag === "gluten" ? "Contains gluten" : "Goitrogen (thyroid)"}</span>
+                    ))}
                   </div>
                 )}
                 <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 8 }}>Personalised to your report &amp; goals · tap a tag to see the numbers.</div>
@@ -1909,7 +2046,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
               </div>
             )}
             <div style={{ fontFamily: "Inter", fontSize: 13.5, color: T.ink, lineHeight: 1.5, marginBottom: 10 }}>{result.reason}</div>
-            <div style={{ display: "flex", gap: 14, marginBottom: 12, flexWrap: "wrap" }}><MiniStat v={result.calories} l="cal" /><MiniStat v={result.protein} l="protein g" /><MiniStat v={result.fiber} l="fiber g" /><MiniStat v={result.sugar} l="sugar g" /></div>
+            <div style={{ display: "flex", gap: 14, marginBottom: 12, flexWrap: "wrap" }}><MiniStat v={dm.cal} l="cal" /><MiniStat v={dm.protein} l="protein g" /><MiniStat v={dm.fiber} l="fiber g" /><MiniStat v={dm.sugar} l="sugar g" /></div>
             {result.weeklyLimit != null && <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>You've had this {weeklyCountFor(result.dish)}x this week · cap: {result.weeklyLimit}/week</div>}
             {result.healthierTip && (
               <div style={{ background: T.tealPale, borderRadius: 10, padding: 10, marginBottom: 12 }}>
@@ -1921,14 +2058,14 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
               </div>
             )}
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 6 }}>How much did you eat? {result.perUnit ? `(1 = ${result.perUnit})` : "(servings)"}</div>
+              <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 6 }}>How much did you eat? {health ? "(1 = 100 g)" : "(servings)"}</div>
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <button onClick={() => setQty(q => Math.max(1, q - 1))} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${T.border}`, background: T.creamDeep, color: T.ink, fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>−</button>
                 <div style={{ minWidth: 34, textAlign: "center", fontFamily: "Manrope", fontWeight: 800, fontSize: 16 }}>{qty}</div>
                 <button onClick={() => setQty(q => q + 1)} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${T.border}`, background: T.creamDeep, color: T.ink, fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>+</button>
                 <div style={{ display: "flex", gap: 6, marginLeft: 6 }}>{[1, 2, 3].map(x => <button key={x} onClick={() => setQty(x)} style={{ background: qty === x ? T.teal : T.creamDeep, color: qty === x ? T.white : T.ink, border: "none", borderRadius: 999, padding: "6px 12px", fontFamily: "Inter", fontSize: 12 }}>×{x}</button>)}</div>
               </div>
-              {result.calories != null && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 7 }}>Will log <b>{Math.round(result.calories * qty)} cal</b>{result.sugar != null ? ` · ${Math.round(result.sugar * qty)}g sugar` : ""}{result.perUnit ? ` · ${qty * 100}g total` : ` · ${qty} serving${qty > 1 ? "s" : ""}`}</div>}
+              {dm.cal != null && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 7 }}>Will log <b>{Math.round(dm.cal * qty)} cal</b>{dm.sugar != null ? ` · ${Math.round(dm.sugar * qty)}g sugar` : ""}{health ? ` · ${qty * 100}g total` : ` · ${qty} serving${qty > 1 ? "s" : ""}`}</div>}
             </div>
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 6 }}>When?</div>
@@ -2574,7 +2711,7 @@ function App() {
   const [customDishes, setCustomDishes] = useKV("dishes:custom", {});
   const [corpusLoaded, setCorpusLoaded] = useState(false);
   useEffect(() => { loadDishCorpus().then(() => setCorpusLoaded(true)); }, []);
-  useEffect(() => { loadHealthDB(); }, []);
+  useEffect(() => { loadHealthDB(); loadRulesDB(); }, []);
   // One-time seed of real-looking history (Jul 1 → today). Runs once per SEED_VERSION and
   // never overwrites days that already have real logged data (spread order: seed first, then
   // existing wins). Cleared history is not re-seeded — the flag stays set until they clear it
