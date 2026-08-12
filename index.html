@@ -897,6 +897,16 @@ function applyModifiers(baseN, text) {
   for (const m of MODIFIERS) { if (m.re.test(t)) { m.apply(n); applied.push(m.label); } }
   return { n, applied };
 }
+// Strip ALL healthier-modifier words so the BASE dish is matched consistently, e.g.
+// "multigrain pizza without cheese" -> "pizza" (same base as "pizza"); modifiers are
+// re-applied afterwards from the original text. Without this, modifier queries match a
+// different dish (or none) than the plain query.
+function healthCore(text) {
+  let s = " " + (text || "").toLowerCase() + " ";
+  for (const m of MODIFIERS) s = s.replace(new RegExp(m.re.source, "g"), " ");
+  s = s.replace(/\b(with|without|and|or|extra|more|plain|homemade|fresh)\b/g, " ");
+  return s.replace(/\s+/g, " ").trim();
+}
 // the 4-tier personalised overall verdict (avoid / limit / eat-freely / neutral)
 function personalVerdict(levels, kcal, flaggedKeys, weightGoal) {
   const R = RULES_DB || {}, L = R.labels || {}, benefit = new Set(R.benefit || []), core = R.core_harm || [];
@@ -1746,10 +1756,12 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
     const raw = dish.trim();
     const modifierNotes = detectModifiers(raw);
     const coreDish = modifierNotes.length > 0 ? stripModifiers(raw) : raw;
+    // strip ALL healthier-modifier words so the base dish matches the same as the plain query
+    const hCore = healthCore(coreDish) || coreDish;
 
     // 0. Variety picker — if several named dishes match (e.g. "cutlet" -> 11 kinds,
     //    "paneer curry" -> several), let the user choose rather than silently pick one.
-    const cands = healthCandidates(coreDish, 8);
+    const cands = healthCandidates(hCore, 8);
     if (cands.length >= 2) { setDisambig({ query: raw, options: cands }); return; }
 
     // 1. Curated FOOD_DB, exact or fuzzy (typo-tolerant), matched on the core dish name
@@ -1792,8 +1804,15 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
     const corpus = await loadDishCorpus();
     const corrected = fuzzyMatchCorpus(coreDish, corpus);
     const queryForApi = corrected || coreDish;
-    const data = await lookupNutrition(queryForApi);
+    let data = await lookupNutrition(queryForApi);
     setLookingUp(false);
+    // Reject a garbage fuzzy match (e.g. "son papdi" -> a branded coffee): the returned
+    // product name must share a real word (4+ letters) with what the user typed.
+    if (data && data.servingDesc) {
+      const desc = String(data.servingDesc).toLowerCase();
+      const qWords = normalizeWithAliases(hCore).split(" ").filter((w) => w.length >= 4);
+      if (qWords.length && !qWords.some((w) => desc.includes(w))) data = null;
+    }
     if (data) {
       const baseVerdict = classifyMacros(raw, data); // raw, so the fried-override regex still sees "air fried" etc directly
       const { verdict: upgradedVerdict, notes } = applyModifierUpgrade(baseVerdict, raw);
@@ -1805,8 +1824,8 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
         fiber: data.fiber != null ? Math.round(data.fiber) : null,
         carbs: data.carbs != null ? Math.round(data.carbs) : null,
         sugar: data.sugar != null ? Math.round(data.sugar) : null,
-        portion: data.servingDesc || "as typically served (1 person)",
-        reason: `Estimated from ${data.source || "nutrition database"} data for ${data.servingDesc || "a standard serving"} — verdict is a rules-based estimate, not a clinical judgment.${notes.length ? ` Improved because: ${notes.join(", ")}.` : ""}`,
+        portion: (data.servingDesc && data.servingDesc.length <= 40) ? data.servingDesc : "1 standard serving",
+        reason: `Estimated from ${data.source || "a nutrition database"}${notes.length ? ` — improved because: ${notes.join(", ")}` : ""} — a rules-based estimate, not clinical advice.`,
         marker: null, weeklyLimit: null,
         healthierTip: notes.length ? null : suggestSwap(corrected || coreDish),
         lookedUp: true, source: data.source,
@@ -1822,7 +1841,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
       const { verdict: upgradedVerdict, notes } = applyModifierUpgrade(baseVerdict, raw);
       if (normalizeWithAliases(corrected) !== normalizeWithAliases(coreDish)) setCorrectedFrom(corrected);
       // If we also have INDB health data for this dish, fill in real per-100g nutrition.
-      const heC = healthLookup(coreDish) || healthLookup(corrected) || healthLookup(raw);
+      const heC = healthLookup(hCore) || healthLookup(coreDish) || healthLookup(corrected) || healthLookup(raw);
       const nC = heC && heC.n ? heC.n : null;
       setResult({
         dish: raw, verdict: upgradedVerdict,
@@ -1839,7 +1858,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
       // Recognized in the per-condition health DB (built from the INDB sample) even though
       // it's not in the curated FOOD_DB and no macro API is available — show the health
       // signals plus the INDB nutrition (per 100 g) rather than "not found".
-      const he = healthLookup(coreDish) || healthLookup(raw);
+      const he = healthLookup(hCore) || healthLookup(coreDish) || healthLookup(raw);
       if (he) {
         const n = he.n || {};
         setResult({
