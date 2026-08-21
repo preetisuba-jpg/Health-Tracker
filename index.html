@@ -116,7 +116,7 @@ const ONB_CONDITION_GROUPS = [
   { cat: "Deficiencies", items: ["Vitamin D deficiency", "Vitamin B12 deficiency", "Iron deficiency / anaemia", "Calcium deficiency"] },
   { cat: "Digestion", items: ["Acidity / heartburn (GERD)", "IBS / bloating"] },
   { cat: "Sleep & stress", items: ["Poor sleep / insomnia", "Anxiety / chronic stress", "Frequent migraines"] },
-  { cat: "Weight", items: ["Overweight / obesity"] },
+  { cat: "Weight", items: ["Overweight / obesity", "Underweight"] },
 ];
 const ONB_GOALS = ["Lose weight", "Reduce belly fat", "Gain weight", "Maintain weight", "Build muscle", "Improve fitness / stamina", "Lower a specific marker", "Improve heart health", "Manage blood sugar", "Lower cholesterol", "Improve liver health", "Manage thyroid", "Better digestion", "More energy", "Better sleep", "Reduce stress", "Manage blood pressure"];
 const ONB_DIET_PATTERNS = ["Vegetarian", "Vegan", "Eggetarian", "Pescatarian (fish only)", "Non-veg (chicken/fish)", "Non-veg (all)", "Jain", "Flexitarian"];
@@ -149,8 +149,11 @@ function computeTargets(weight, goalToggles, profile) {
   // Activity multiplier for maintenance (TDEE-style, kept simple).
   const actMult = { not: 27, light: 29, active: 31, very: 33 }[(profile && profile.activityLevel) || "light"] || 29;
   const maintenance = Math.round(weight * actMult);
+  const bmi = computeBMI(weight, profile && profile.height);
+  const underweight = conds.some(c => /underweight/i.test(c)) || (bmi != null && bmi < 18.5);
   let calories = maintenance, proteinPerKg = 0.9, note = "maintenance", deficit = 0;
-  if (weightLoss && !muscle) { deficit = 400; calories = maintenance - deficit; proteinPerKg = 1.0; note = "mild deficit for fat loss"; }
+  if (underweight) { calories = maintenance + 350; proteinPerKg = 1.2; note = "gentle surplus to reach a healthy weight"; } // safety: never diet an underweight person
+  else if (weightLoss && !muscle) { deficit = 400; calories = maintenance - deficit; proteinPerKg = 1.0; note = "mild deficit for fat loss"; }
   else if (muscle && !weightLoss) { calories = maintenance + 200; proteinPerKg = 1.6; note = "surplus + higher protein for muscle gain"; }
   else if (muscle && weightLoss) { calories = maintenance; proteinPerKg = 1.8; note = "recomposition — maintenance calories, high protein"; }
   // Condition-aware nutrient ceilings.
@@ -472,13 +475,36 @@ const CUISINE_MEALS = {
     dinner: ["Vegetable and chickpea stew with rice", "Stuffed vine leaves with salad", "Grilled vegetable and halloumi plate", "Lentil soup with whole-grain bread"],
   },
 };
+// Non-vegetarian additions per cuisine — mixed in only for people whose diet pattern allows it.
+// Dishes are keyworded (chicken/fish/prawn/egg) so we include just what a person eats (a
+// pescatarian gets fish+egg, an eggetarian only egg, full non-veg gets all). Leaner than restaurant.
+const CUISINE_MEALS_NV = {
+  "North Indian": { breakfast: ["Egg bhurji with multigrain toast", "Boiled egg with vegetable poha"], lunch: ["Grilled chicken with roti and salad", "Chicken curry with brown rice and salad", "Fish curry with rice and greens"], dinner: ["Chicken tikka with sauteed veg", "Egg curry with roti", "Grilled fish with vegetables"] },
+  "Punjabi": { breakfast: ["Egg bhurji with paratha", "Boiled eggs with vegetable dalia"], lunch: ["Chicken curry with roti and salad", "Tandoori chicken with salad", "Fish tikka with roti and salad"], dinner: ["Chicken (murgh) curry with rice", "Egg curry with roti", "Grilled chicken with veg"] },
+  "South Indian": { breakfast: ["Egg dosa with chutney", "Boiled egg with idli and sambar"], lunch: ["Fish curry (meen) with rice", "Chicken chettinad with rice and salad", "Prawn masala with rice"], dinner: ["Egg roast with appam", "Grilled fish with veg", "Chicken stew with idiyappam"] },
+  "Bengali": { breakfast: ["Egg toast with vegetables", "Boiled egg with vegetable poha"], lunch: ["Macher jhol (fish curry) with rice", "Chicken jhol with rice and salad", "Prawn curry (light) with rice"], dinner: ["Fish curry with rice", "Egg curry with rice", "Chicken curry with rice"] },
+  "Hyderabadi": { breakfast: ["Egg bhurji with toast", "Boiled egg with upma"], lunch: ["Chicken dum biryani (light) with raita", "Fish fry with rice and salad", "Chicken curry with rice"], dinner: ["Egg biryani (light) with raita", "Grilled chicken with veg", "Chicken curry with roti"] },
+  "Mughlai": { breakfast: ["Egg bhurji with roti", "Boiled eggs with paratha"], lunch: ["Chicken korma (light) with roti and salad", "Grilled chicken with salad", "Fish curry with rice"], dinner: ["Chicken tikka with veg", "Egg curry with roti", "Chicken curry with rice"] },
+  "Goan": { breakfast: ["Egg bhurji with pao", "Boiled egg with poha"], lunch: ["Goan fish curry with rice", "Prawn curry with rice and salad", "Chicken xacuti (light) with rice"], dinner: ["Grilled fish with veg", "Chicken cafreal (light) with salad", "Egg curry with rice"] },
+  "Continental": { breakfast: ["Scrambled eggs with multigrain toast", "Boiled eggs with fruit and toast", "Vegetable & egg omelette"], lunch: ["Grilled chicken salad bowl", "Grilled fish with quinoa and salad", "Chicken and vegetable wrap"], dinner: ["Grilled chicken breast with roasted veg", "Baked fish with vegetables", "Chicken and vegetable stir-fry with rice"] },
+  "Chinese": { breakfast: ["Egg congee", "Boiled egg with vegetable soup"], lunch: ["Chicken fried rice (brown) with stir-fried veg", "Fish in garlic sauce with rice", "Egg fried rice with vegetables"], dinner: ["Chilli chicken (light) with rice", "Steamed fish with veg and rice", "Chicken and vegetable noodle soup"] },
+  "Mediterranean": { breakfast: ["Egg & vegetable shakshuka with bread", "Boiled eggs with hummus and toast"], lunch: ["Grilled fish with couscous and salad", "Grilled chicken with tabbouleh", "Tuna and chickpea salad"], dinner: ["Grilled fish with vegetables", "Chicken souvlaki with salad", "Baked fish with herbs and veg"] },
+  "Thai": { breakfast: ["Egg rice soup (jok with egg)", "Boiled egg with fruit bowl"], lunch: ["Thai green curry with chicken and rice", "Fish with Thai basil and rice", "Prawn pad thai (light)"], dinner: ["Thai red curry with fish and rice", "Grilled chicken with salad", "Chicken clear soup with rice"] },
+};
 // Merge the balanced library down to the cuisines the person likes; fall back to a rounded
-// default so everyone gets a varied week even before they pick favourites.
+// default. For non-veg/pescatarian/eggetarian diets, also mix in matching non-veg dishes.
 function mealPoolsFor(prefs) {
   const picked = (prefs.cuisines || []).filter(c => CUISINE_MEALS[c]);
   const cuisines = picked.length ? picked : ["North Indian", "South Indian", "Gujarati", "Continental"];
   const merge = slot => cuisines.reduce((a, c) => a.concat(CUISINE_MEALS[c][slot] || []), []);
-  return { breakfast: merge("breakfast"), lunch: merge("lunch"), dinner: merge("dinner") };
+  const pools = { breakfast: merge("breakfast"), lunch: merge("lunch"), dinner: merge("dinner") };
+  if (prefs.nonveg || prefs.pescatarian || prefs.eggOk) {
+    const nvC = cuisines.filter(c => CUISINE_MEALS_NV[c]); const useC = nvC.length ? nvC : Object.keys(CUISINE_MEALS_NV);
+    const okNV = d => { const n = d.toLowerCase(); const fish = /fish|prawn|shrimp|salmon|tuna|meen|seafood|macher/.test(n); const egg = /\begg\b|omelette|bhurji|shakshuka|congee|jok/.test(n); const meat = /chicken|murgh|mutton|lamb|keema|tikka|tandoori|korma|xacuti|cafreal|chettinad|souvlaki|haleem|biryani|stew|jhol/.test(n) && !fish; if (prefs.nonveg) return true; if (prefs.pescatarian) return fish || egg; if (prefs.eggOk) return egg && !meat && !fish; return false; };
+    const mergeNV = slot => useC.reduce((a, c) => a.concat(((CUISINE_MEALS_NV[c] || {})[slot] || []).filter(okNV)), []);
+    ["breakfast", "lunch", "dinner"].forEach(s => { pools[s] = pools[s].concat(mergeNV(s)); });
+  }
+  return pools;
 }
 // Rotates daily and deterministically (based on the actual calendar day, not random) so the
 // same 3 suggestions per meal show all day but change tomorrow — pulled from her real meal
@@ -504,12 +530,17 @@ function todaysMealIdeas() {
 function mealPrefs(profile) {
   const rules = (profile.dietRules || []).map(r => r.toLowerCase());
   const has = s => rules.some(r => r.includes(s));
+  const dp = profile.dietPattern || "Vegetarian";
+  const nonveg = /non-veg|flexitarian/i.test(dp);
+  const pescatarian = /pescatarian/i.test(dp);
+  const eggOk = /eggetarian/i.test(dp) || nonveg;
   return {
-    vegan: profile.dietPattern === "Vegan" || has("dairy") || has("lactose"),
-    jain: profile.dietPattern === "Jain" || has("jain"),
+    vegan: dp === "Vegan" || has("dairy") || has("lactose"),
+    jain: dp === "Jain" || has("jain"),
     noOnionGarlic: has("onion"),
-    nut: has("nut allergy"), gluten: has("gluten"), egg: profile.dietPattern === "Vegan" || has("egg"), soy: has("soy"),
+    nut: has("nut allergy"), gluten: has("gluten"), egg: dp === "Vegan" || has("egg"), soy: has("soy"),
     cuisines: profile.cuisines || [],
+    nonveg, pescatarian, eggOk,
   };
 }
 function mealAllowed(dish, p) {
@@ -1085,7 +1116,66 @@ async function loadRulesDB() {
   catch { RULES_DB = { condition_order: [], labels: {}, benefit: [], core_harm: [], nutrient_field: {}, nice: {}, caveats: {}, rules: [] }; }
   return RULES_DB;
 }
-const MARKER_TO_CONDITION = { tg: "triglycerides", ldl: "cholesterol", chol: "cholesterol", hdl: "cholesterol", ggt: "fatty_liver", sgot: "fatty_liver", sgpt: "fatty_liver", sugar: "diabetes", bp: "hypertension", tsh: "thyroid" };
+const MARKER_TO_CONDITION = { tg: "triglycerides", ldl: "cholesterol", chol: "cholesterol", hdl: "cholesterol", ggt: "fatty_liver", sgot: "fatty_liver", sgpt: "fatty_liver", sugar: "diabetes", bp: "hypertension", tsh: "thyroid", creatinine: "ckd", urea: "ckd", hb: "anaemia", vitd: "osteoporosis", calcium: "osteoporosis", weight: "weight" };
+// Dietitian + lifestyle-coach guidance (condition_guidance.json), personalised by profile.
+let GUIDANCE_DB = null;
+async function loadGuidance() {
+  if (GUIDANCE_DB) return GUIDANCE_DB;
+  const emb = readEmbeddedJSON("__guidance_data");
+  if (emb) { GUIDANCE_DB = emb; return GUIDANCE_DB; }
+  try { GUIDANCE_DB = await (await fetch("condition_guidance.json", { cache: "no-store" })).json(); }
+  catch { GUIDANCE_DB = { conditions: {}, marker_map: {}, disclaimer: "" }; }
+  return GUIDANCE_DB;
+}
+// the person's conditions (from flagged markers + weight goal) -> their guidance objects
+function personGuidance(flaggedKeys, weightGoal) {
+  if (!GUIDANCE_DB || !GUIDANCE_DB.conditions) return [];
+  const map = GUIDANCE_DB.marker_map || {};
+  const conds = new Set();
+  (flaggedKeys || []).forEach(k => { const c = map[k] || MARKER_TO_CONDITION[k]; if (c) conds.add(c); });
+  if (weightGoal) conds.add("weight");
+  return [...conds].filter(c => GUIDANCE_DB.conditions[c]).map(c => ({ id: c, ...GUIDANCE_DB.conditions[c] }));
+}
+// the set of condition IDs a person has (markers + weight goal)
+function personConditions(flaggedKeys, weightGoal) {
+  const map = (GUIDANCE_DB && GUIDANCE_DB.marker_map) || {};
+  const conds = new Set();
+  (flaggedKeys || []).forEach(k => { const c = map[k] || MARKER_TO_CONDITION[k]; if (c) conds.add(c); });
+  if (weightGoal) conds.add("weight");
+  return [...conds];
+}
+function condLabel(c) {
+  return (GUIDANCE_DB && GUIDANCE_DB.conditions[c] && GUIDANCE_DB.conditions[c].label) || c;
+}
+// CROSS-CONDITION reconciliation: when a person has several conditions, a food can be good for
+// one but bad for another (banana: good BP, bad kidney). Resolve against THEIR conditions only,
+// safety-first — anything harmful for ANY of their conditions is demoted to Avoid even if it
+// helps another; conflicts are surfaced, never shown as a plain "eat more".
+function reconcileFoods(conds) {
+  const fm = (GUIDANCE_DB && GUIDANCE_DB.food_map) || {};
+  const set = new Set(conds);
+  const eatMore = [], careful = [], avoid = [];
+  const inter = (arr) => (arr || []).filter(c => set.has(c));
+  Object.keys(fm).forEach(food => {
+    const f = fm[food];
+    const helps = inter(f.good), harms = inter(f.bad), cautions = inter(f.caution);
+    if (!helps.length && !harms.length && !cautions.length) return;   // irrelevant to this person
+    const row = { food, helps, harms, cautions, note: f.note || "" };
+    if (harms.length) {
+      row.conflict = helps.length > 0;   // good for one of theirs, but harmful for another
+      avoid.push(row);
+    } else if (helps.length && cautions.length) {
+      careful.push(row);
+    } else if (helps.length) {
+      eatMore.push(row);
+    } else {
+      careful.push(row);   // only cautions -> limit
+    }
+  });
+  // conflicts first inside Avoid (they're the "surprising" ones the user asked us to catch)
+  avoid.sort((a, b) => (b.conflict ? 1 : 0) - (a.conflict ? 1 : 0));
+  return { eatMore, careful, avoid };
+}
 function healthLookup(dishText) {
   if (!HEALTH_DB || !HEALTH_DB.aliases) return null;
   const nq = " " + normalizeWithAliases(dishText) + " ";
@@ -1530,12 +1620,17 @@ function markKvWriteError() { KV_WRITE_ERROR = true; try { window.dispatchEvent(
 
 function idbOpen() {
   return new Promise((resolve) => {
+    let done = false; const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    // Never hang the whole app if IndexedDB is blocked/slow (e.g. a pending delete, or a stuck
+    // connection) — fall back after a moment so the app still renders.
+    const timer = setTimeout(() => finish(null), 4000);
     try {
       const req = indexedDB.open("healthapp", 1);
       req.onupgradeneeded = () => { const db = req.result; if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv"); };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => resolve(null);
-    } catch { resolve(null); }
+      req.onsuccess = () => { clearTimeout(timer); finish(req.result); };
+      req.onerror = () => { clearTimeout(timer); finish(null); };
+      req.onblocked = () => { clearTimeout(timer); finish(null); };
+    } catch { clearTimeout(timer); finish(null); }
   });
 }
 function idbGetAll(db) {
@@ -1695,6 +1790,85 @@ function stopSync(forget) {
   dispatchSync({ status: "off", error: null });
 }
 function autoStartSync() { try { if (kvGet("sync:on", false) && kvGet("sync:config", null) && kvGet("sync:code", null)) startSync(kvGet("sync:config", null), kvGet("sync:code", null)); } catch (e) {} }
+
+/* ============================== ACCOUNTS (Firebase email/password) ==============================
+   Real per-user accounts: sign in with email+password and your data lives under users/{uid} in
+   Firestore, isolated by security rules and synced live — automatic cross-device (no sync code).
+   The Firebase config is embedded (public by design; protected by per-uid rules) so a new person
+   just signs up. Only works where Firebase can load (Vercel/local, not the sandboxed artifact). */
+const ACCOUNT_FB_CONFIG = {
+  apiKey: "AIzaSyBbNmCmC4eiO94Sim_8h1x4MG5lcECkbes",
+  authDomain: "health-tracker-f9392.firebaseapp.com",
+  projectId: "health-tracker-f9392",
+  storageBucket: "health-tracker-f9392.firebasestorage.app",
+  messagingSenderId: "490510742498",
+  appId: "1:490510742498:web:830a7dc938623038da7fbb",
+};
+let AUTH = { status: "signedout", email: null, uid: null, error: null }; // signedout | working | signedin | error
+let AUTH_INITED = false;
+function authState() { return AUTH; }
+function dispatchAuth(patch) { AUTH = { ...AUTH, ...patch }; try { window.dispatchEvent(new CustomEvent("auth-state")); } catch (e) {} }
+async function ensureFirebaseApp() {
+  await loadFirebaseSDK();
+  const fb = window.firebase;
+  if (!(fb.apps && fb.apps.length)) fb.initializeApp(ACCOUNT_FB_CONFIG);
+  return fb;
+}
+function authMsg(e) {
+  const c = (e && e.code) || "";
+  if (/email-already-in-use/.test(c)) return "That email already has an account — try Sign in instead.";
+  if (/invalid-email/.test(c)) return "That doesn't look like a valid email.";
+  if (/weak-password/.test(c)) return "Password should be at least 6 characters.";
+  if (/wrong-password|invalid-credential|invalid-login/.test(c)) return "Wrong email or password.";
+  if (/user-not-found/.test(c)) return "No account with that email — create one first.";
+  if (/operation-not-allowed/.test(c)) return "Email sign-in isn't enabled in Firebase yet (turn on the Email/Password provider).";
+  if (/too-many-requests/.test(c)) return "Too many attempts — wait a minute and try again.";
+  if (/network/.test(c)) return "Network problem — check your connection (and that you're not on the claude.ai preview).";
+  return (e && e.message) || "Something went wrong.";
+}
+// Sync the signed-in user's data to users/{uid} — reuses the sync engine's apply/gather/push.
+async function startAccountSync(uid) {
+  const fb = window.firebase;
+  const ref = fb.firestore().collection("users").doc(uid);
+  FB = { app: fb.app(), db: fb.firestore(), auth: fb.auth(), ref, unsub: null };
+  const snap = await ref.get();
+  if (snap.exists && snap.data() && snap.data().data) applyRemote(snap.data().data);   // pull their cloud data
+  await ref.set({ data: gatherAppData(), updatedAt: Date.now(), origin: SYNC_CLIENT }, { merge: true }); // push local up
+  FB.unsub = ref.onSnapshot(s => { const d = s.data(); if (d && d.data && d.origin !== SYNC_CLIENT) applyRemote(d.data); });
+}
+// Attach the auth-state listener once; on sign-in start per-uid sync, on sign-out stop it.
+async function authInit() {
+  if (AUTH_INITED) return; AUTH_INITED = true;
+  const fb = await ensureFirebaseApp();
+  fb.auth().onAuthStateChanged(async (user) => {
+    if (user) {
+      dispatchAuth({ status: "signedin", email: user.email, uid: user.uid, error: null });
+      kvSetLocal("account:on", true);
+      try { await startAccountSync(user.uid); } catch (e) { dispatchAuth({ status: "error", error: authMsg(e) }); }
+    } else {
+      try { if (FB && FB.unsub) FB.unsub(); } catch (e) {}
+      dispatchAuth({ status: "signedout", email: null, uid: null });
+    }
+  });
+}
+async function authSignUp(email, pass) {
+  dispatchAuth({ status: "working", error: null });
+  try { const fb = await ensureFirebaseApp(); await authInit(); await fb.auth().createUserWithEmailAndPassword((email || "").trim(), pass); return true; }
+  catch (e) { dispatchAuth({ status: "error", error: authMsg(e) }); return false; }
+}
+async function authSignIn(email, pass) {
+  dispatchAuth({ status: "working", error: null });
+  try { const fb = await ensureFirebaseApp(); await authInit(); await fb.auth().signInWithEmailAndPassword((email || "").trim(), pass); return true; }
+  catch (e) { dispatchAuth({ status: "error", error: authMsg(e) }); return false; }
+}
+async function authSignOut() {
+  try { if (FB && FB.unsub) FB.unsub(); } catch (e) {} FB = null;
+  kvSetLocal("account:on", false);
+  try { const fb = window.firebase; if (fb) await fb.auth().signOut(); } catch (e) {}
+  dispatchAuth({ status: "signedout", email: null, uid: null, error: null });
+}
+// On launch, resume a previous account session (Firebase persists the login itself).
+function autoStartAccount() { try { if (kvGet("account:on", false)) authInit(); } catch (e) {} }
 
 /* ============================== SMALL UI PIECES ============================== */
 function Pulse({ children }) { return <div className="pulseWrap">{children}</div>; }
@@ -3063,6 +3237,30 @@ function SupplementsTab({ selectedDate, setSelectedDate, supplementsForDate, tog
 }
 
 function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegeneratePlan, onSwapMeal }) {
+  const guides = personGuidance(advice.flaggedKeys, advice.weightGoal);   // dietitian + lifestyle guidance for their conditions
+  const myConds = personConditions(advice.flaggedKeys, advice.weightGoal);
+  const reco = myConds.length >= 2 ? reconcileFoods(myConds) : null;   // reconcile only matters with 2+ conditions
+  const labels = arr => (arr || []).map(condLabel).join(", ");
+  const fRow = (r, tint, i) => (
+    <div key={i} style={{ display: "flex", flexDirection: "column", gap: 1, padding: "5px 0", borderTop: i > 0 ? `1px solid ${T.creamDeep}` : "none" }}>
+      <div style={{ fontFamily: "Inter", fontSize: 13, fontWeight: 600, color: T.ink }}>{r.food}</div>
+      <div style={{ fontFamily: "Inter", fontSize: 11.5, color: tint, lineHeight: 1.35 }}>
+        {r.conflict
+          ? `Helps your ${labels(r.helps)} — but not safe for your ${labels(r.harms)}, so skip it`
+          : r.harms.length ? `Not good for your ${labels(r.harms)}`
+          : r.cautions.length && r.helps.length ? `Good for your ${labels(r.helps)} · go easy — watch your ${labels(r.cautions)}`
+          : r.cautions.length ? `Go easy — watch your ${labels(r.cautions)}`
+          : `Good for your ${labels(r.helps)}`}
+        {r.note ? ` — ${r.note}` : ""}
+      </div>
+    </div>
+  );
+  const gBlock = (title, items, color, emoji) => (!items || !items.length) ? null : (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11, letterSpacing: 0.3, color: color, marginBottom: 4 }}>{emoji} {title}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>{items.map((x, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.35 }}>• {x}</div>)}</div>
+    </div>
+  );
   const planDayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const vMeta = (dish) => verdictMetaMap()[demoVerdictFor(dish)] || verdictMetaMap().moderate;
   const mealIdeas = todaysMealIdeas();
@@ -3132,6 +3330,46 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
       <Card style={{ marginBottom: 18 }}><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{advice.avoidList.map((b, i) => (
         <div key={i}><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.alert }}>🔴 {b.item}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{b.reason}</div></div>
       ))}</div></Card>
+      {reco && (reco.eatMore.length + reco.careful.length + reco.avoid.length > 0) && (
+        <>
+          <SectionLabel>Your combined food plan</SectionLabel>
+          <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginTop: -4, marginBottom: 8, lineHeight: 1.4 }}>
+            You have {myConds.length} conditions ({myConds.map(condLabel).join(", ")}). Some foods help one but hurt another — these are reconciled so nothing clashes. <b>Safety first:</b> anything risky for even one of your conditions is moved to Avoid.
+          </div>
+          <Card style={{ marginBottom: 18 }}>
+            {reco.eatMore.length > 0 && <>
+              <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11, letterSpacing: 0.3, color: T.forest, marginBottom: 2 }}>🌿 EAT FREELY — good for you, safe across all your conditions</div>
+              {reco.eatMore.map((r, i) => fRow(r, T.forest, i))}
+            </>}
+            {reco.careful.length > 0 && <>
+              <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11, letterSpacing: 0.3, color: T.amber, marginTop: reco.eatMore.length ? 12 : 0, marginBottom: 2 }}>🟡 IN MODERATION — helpful, but keep portions small</div>
+              {reco.careful.map((r, i) => fRow(r, T.amberDeep || T.amber, i))}
+            </>}
+            {reco.avoid.length > 0 && <>
+              <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11, letterSpacing: 0.3, color: T.alert, marginTop: (reco.eatMore.length || reco.careful.length) ? 12 : 0, marginBottom: 2 }}>🔴 AVOID — risky for at least one of your conditions</div>
+              {reco.avoid.map((r, i) => fRow(r, T.alert, i))}
+            </>}
+          </Card>
+        </>
+      )}
+      {guides.length > 0 && (
+        <>
+          <SectionLabel>Your plan by condition</SectionLabel>
+          {guides.map(g => (
+            <Card key={g.id} style={{ marginBottom: 12 }}>
+              <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 14.5, marginBottom: 2 }}>{g.label}</div>
+              {g.improves && <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>Helps: {g.improves}</div>}
+              {gBlock("EAT MORE", g.eat_more, T.forest, "🌿")}
+              {gBlock("EAT LESS", g.eat_less, T.amber, "🟡")}
+              {gBlock("STRONG NO", g.strong_no, T.alert, "🔴")}
+              {gBlock("HOME REMEDIES", g.home_remedies, T.saffronDeep, "🍵")}
+              {gBlock("ROUTINE / LIFESTYLE", g.lifestyle, T.teal, "🧘")}
+              {g.caveat && <div style={{ fontFamily: "Inter", fontSize: 11, color: T.alert, marginTop: 6, lineHeight: 1.4 }}>⚠ {g.caveat}</div>}
+            </Card>
+          ))}
+          <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: -4, marginBottom: 18, lineHeight: 1.4 }}>{(GUIDANCE_DB && GUIDANCE_DB.disclaimer) || "General guidance, not medical advice — home remedies are traditional/complementary. Consult a dietitian/doctor."}</div>
+        </>
+      )}
       <SectionLabel>Next up — {nextMeal.label.toLowerCase()} ideas</SectionLabel>
       <Card style={{ marginBottom: 8 }}>
         {nextMeal.ideas.map((idea, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 13.5, color: T.ink, marginBottom: 6, display: "flex", gap: 6 }}><Icon name="chevron" size={14} color={T.saffron} style={{ flexShrink: 0, marginTop: 3 }} /> {idea}</div>)}
@@ -3196,6 +3434,10 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
   const [syncCode, setSyncCode] = useState(() => kvGet("sync:code", "") || "");
   const [, setSyncTick] = useState(0);
   useEffect(() => { const h = () => setSyncTick(t => t + 1); window.addEventListener("sync-state", h); return () => window.removeEventListener("sync-state", h); }, []);
+  const [acctEmail, setAcctEmail] = useState("");
+  const [acctPass, setAcctPass] = useState("");
+  const [, setAuthTick] = useState(0);
+  useEffect(() => { const h = () => setAuthTick(t => t + 1); window.addEventListener("auth-state", h); return () => window.removeEventListener("auth-state", h); }, []);
   const [editingSuppId, setEditingSuppId] = useState(null);
   const [suppForm, setSuppForm] = useState({ name: "", dose: "", time: "morning", timeLabel: "", why: "" });
   useEffect(() => { setForm(profile); }, [profile, open]);
@@ -3246,7 +3488,7 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
       return { label: m.label, latest, delta, better, unit: m.unit };
     }).filter(Boolean);
   })();
-  const SECTIONS = [{ id: "profile", label: "Profile" }, { id: "setup", label: "Health & Diet" }, { id: "goals", label: "Goals" }, { id: "reports", label: "Reports" }, { id: "supplements", label: "Supplements" }, { id: "alerts", label: "Alerts" }, { id: "data", label: "Data" }];
+  const SECTIONS = [{ id: "profile", label: "Profile" }, { id: "setup", label: "Health & Diet" }, { id: "goals", label: "Goals" }, { id: "reports", label: "Reports" }, { id: "supplements", label: "Supplements" }, { id: "alerts", label: "Alerts" }, { id: "account", label: "Account" }, { id: "data", label: "Data" }];
   // Edit the same fields captured during guided setup, saved straight to the profile.
   const pset = (k, v) => saveProfile({ ...profile, [k]: v });
   const ptoggle = (k, val) => { const a = profile[k] || []; pset(k, a.includes(val) ? a.filter(x => x !== val) : [...a, val]); };
@@ -3449,6 +3691,35 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
               </div>
             );
           })()}
+          {section === "account" && (() => {
+            const a = authState();
+            const inS2 = { width: "100%", boxSizing: "border-box", border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", fontFamily: "Inter", fontSize: 14, marginBottom: 8 };
+            if (a.status === "signedin") {
+              return (
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <span style={{ width: 9, height: 9, borderRadius: 5, background: T.forest }} />
+                    <span style={{ fontFamily: "Inter", fontSize: 13.5, color: T.ink }}>Signed in as <b>{a.email}</b></span>
+                  </div>
+                  <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 16, lineHeight: 1.5 }}>Your data is private to this account and syncs automatically on every device where you sign in — no sync code needed.</div>
+                  <button onClick={() => authSignOut()} style={{ width: "100%", background: T.alertPale, border: `1px solid ${T.alert}`, borderRadius: 10, padding: "10px 0", color: T.alert, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5 }}>Sign out</button>
+                </div>
+              );
+            }
+            return (
+              <div>
+                <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 14, lineHeight: 1.5 }}>Create an account to save your data safely and use it on any device — just sign in and your profile, logs and plan follow you. Your data stays private to you.</div>
+                <input type="email" autoComplete="email" placeholder="Email" value={acctEmail} onChange={e => setAcctEmail(e.target.value)} style={inS2} />
+                <input type="password" autoComplete="current-password" placeholder="Password (6+ characters)" value={acctPass} onChange={e => setAcctPass(e.target.value)} style={inS2} />
+                {a.error && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.alert, marginBottom: 8, lineHeight: 1.4 }}>{a.error}</div>}
+                <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                  <button disabled={a.status === "working"} onClick={() => authSignIn(acctEmail, acctPass)} style={{ flex: 1, background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 10, padding: "11px 0", color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, opacity: a.status === "working" ? 0.6 : 1 }}>{a.status === "working" ? "…" : "Sign in"}</button>
+                  <button disabled={a.status === "working"} onClick={() => authSignUp(acctEmail, acctPass)} style={{ flex: 1, background: T.tealSolid, border: "none", borderRadius: 10, padding: "11px 0", color: "#fff", fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, opacity: a.status === "working" ? 0.6 : 1 }}>{a.status === "working" ? "…" : "Create account"}</button>
+                </div>
+                <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginTop: 10, lineHeight: 1.5 }}>New here? Enter an email + password and tap <b>Create account</b>. Already have one? <b>Sign in</b>. Needs internet; not available inside the claude.ai preview.</div>
+              </div>
+            );
+          })()}
           {section === "data" && (
             <div>
               <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>BACKUP &amp; RESTORE</div>
@@ -3461,7 +3732,9 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
               {importMsg && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.teal, marginBottom: 20 }}>{importMsg}</div>}
 
               <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>CLOUD SYNC · phone ↔ desktop</div>
-              {(() => {
+              {authState().status === "signedin" ? (
+                <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 20, lineHeight: 1.5 }}>✓ Sync is handled by your <b>account</b> — your data follows you on every device you sign in to. (Manage it in the <b>Account</b> tab.)</div>
+              ) : (() => {
                 const st = syncState();
                 const live = st.status === "live";
                 const dot = live ? T.forest : st.status === "connecting" ? T.amber : st.status === "error" ? T.alert : T.inkSoft;
@@ -3522,7 +3795,7 @@ function OnbChip({ label, on, onClick }) {
 // the rich profile (conditions, goals, diet, cuisines, activity, plan opt-in) and flips the two
 // body-composition goal toggles the advice/target engine reads. Built now so adding another
 // person is just a fresh run of this wizard.
-function OnboardingWizard({ open, onClose, profile, saveProfile, goalToggles, saveGoalToggles, onGenerateSample, onDone }) {
+function OnboardingWizard({ open, onClose, profile, saveProfile, goalToggles, saveGoalToggles, onGenerateSample, firstSetup, onFreshSetup, onDone }) {
   const build = () => ({
     name: profile.name || "", gender: profile.gender || "Male", age: profile.age ?? "", height: profile.height ?? "", weight: profile.weight ?? "", city: profile.city || "",
     conditions: profile.conditions || [], goals: profile.goals || [], dietPattern: profile.dietPattern || "Vegetarian",
@@ -3545,6 +3818,7 @@ function OnboardingWizard({ open, onClose, profile, saveProfile, goalToggles, sa
     const built = { ...profile, name: form.name, gender: form.gender, age: Number(form.age) || profile.age, height: Number(form.height) || profile.height, weight: Number(form.weight) || profile.weight, city: form.city, conditions: form.conditions, goals: form.goals, dietPattern: form.dietPattern, diet: form.dietPattern, dietRules: form.dietRules, cuisines: form.cuisines, activityLevel: form.activityLevel, wantsMealPlan: form.wantsMealPlan };
     saveProfile(built);
     saveGoalToggles(goalToggles.map(g => g.id === "weightloss" ? { ...g, active: form.goals.includes("Lose weight") } : g.id === "muscle" ? { ...g, active: form.goals.includes("Build muscle") } : g));
+    if (firstSetup && onFreshSetup) onFreshSetup(); // new person: drop any Jignesh seed so everything reflects them
     if (withSample && onGenerateSample) onGenerateSample(built);
     onDone();
   }
@@ -3670,8 +3944,8 @@ function App() {
   const [weeklyPlan, setWeeklyPlan] = useKV(pk("plan:weekly"), null);
   const [corpusLoaded, setCorpusLoaded] = useState(false);
   useEffect(() => { loadDishCorpus().then(() => setCorpusLoaded(true)); }, []);
-  useEffect(() => { loadHealthDB(); loadRulesDB(); }, []);
-  useEffect(() => { autoStartSync(); }, []); // reconnect cloud sync on launch if it was set up
+  useEffect(() => { loadHealthDB(); loadRulesDB(); loadGuidance(); }, []);
+  useEffect(() => { if (kvGet("account:on", false)) autoStartAccount(); else autoStartSync(); }, []); // resume account, else sync-code, on launch
   // One-time seed of real-looking history (Jul 1 → today). Runs once per SEED_VERSION and
   // never overwrites days that already have real logged data (spread order: seed first, then
   // existing wins). Cleared history is not re-seeded — the flag stays set until they clear it
@@ -3816,6 +4090,14 @@ function App() {
     setWeekHabits(prev => ({ ...habitsByDate, ...prev }));
     try { kvSet("seed:history", SEED_VERSION); } catch (e) {}
   };
+  // First-time profile setup by a NEW person: drop the seeded (Jignesh) lab metrics + demo history so
+  // every marker, tip and chart reflects only THEM. Runs only on the very first onboarding, so the
+  // owner's existing device (already onboarded) is never touched.
+  const clearSeedForNewUser = () => {
+    setMetrics(blankMetrics()); setPeriods([]);
+    setWeekFood({}); setActivities({}); setWeekHabits({}); setWeekSupplements({});
+    try { kvSet("seed:history", SEED_VERSION); } catch (e) {}
+  };
 
   // 5-item bar: Today · Plan · ＋(log) · Progress · Me. Food/Activity/Supplement logging is
   // reached through the center ＋. "Progress" shows the health markers/trends (MyHealthTab);
@@ -3920,7 +4202,7 @@ function App() {
           </div>
         )}
         <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} initialSection={settingsSection} profile={profile} saveProfile={setProfile} goalToggles={goalToggles} saveGoalToggles={setGoalToggles} customGoals={customGoals} saveCustomGoals={setCustomGoals} metrics={metrics} saveMetrics={setMetrics} periods={periods} savePeriods={setPeriods} supplements={supplements} saveSupplements={setSupplements} onClearDate={clearDateData} onClearAll={clearAllData} onApplyDemoMonth={applyDemoMonth} onOpenWizard={() => { setSettingsOpen(false); setWizardOpen(true); }} profiles={profiles} activeId={activeId} onSwitchPerson={switchPerson} onAddPerson={addPerson} onRemovePerson={removePerson} notifSettings={notifSettings} saveNotifSettings={setNotifSettings} />
-        <OnboardingWizard open={wizardOpen} onClose={() => { setWizardOpen(false); setOnboarded(true); }} profile={profile} saveProfile={setProfile} goalToggles={goalToggles} saveGoalToggles={setGoalToggles} onGenerateSample={applySampleHistory} onDone={() => { setWizardOpen(false); setOnboarded(true); }} />
+        <OnboardingWizard open={wizardOpen} onClose={() => { setWizardOpen(false); setOnboarded(true); }} profile={profile} saveProfile={setProfile} goalToggles={goalToggles} saveGoalToggles={setGoalToggles} onGenerateSample={applySampleHistory} firstSetup={!onboarded} onFreshSetup={clearSeedForNewUser} onDone={() => { setWizardOpen(false); setOnboarded(true); }} />
       </div>
     </div>
   );
