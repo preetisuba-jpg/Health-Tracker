@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
 <link rel="icon" href="icons/icon-192.png" />
-<title>Jignesh Health Companion</title>
+<title>Health Companion</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
@@ -305,22 +305,32 @@ function flaggedMarkerKeys(metrics, periods) {
     .sort((a, b) => (a.status === "bad" ? 0 : 1) - (b.status === "bad" ? 0 : 1))
     .map(m => m.key);
 }
-function computeAvoidList(metrics, periods) {
-  const keys = flaggedMarkerKeys(metrics, periods);
+// Map the plain-language conditions a person picks in onboarding to marker keys, so their advice
+// reflects what they TELL us even before they enter any lab report.
+const CONDITION_TO_MARKER = [
+  [/triglyceride/i, "tg"], [/ldl|cholesterol/i, "ldl"], [/hdl/i, "hdl"],
+  [/fatty liver|ggt/i, "ggt"], [/thyroid/i, "tsh"],
+  [/diabet|blood sugar|hba1c/i, "sugar"], [/hypertension|blood pressure/i, "bp"],
+  [/obesity|overweight/i, "weight"],
+];
+function conditionMarkerKeys(profile) {
+  const conds = (profile && profile.conditions) || []; const keys = [];
+  conds.forEach(c => CONDITION_TO_MARKER.forEach(([re, k]) => { if (re.test(c) && !keys.includes(k)) keys.push(k); }));
+  return keys;
+}
+function avoidFromKeys(keys) {
   const seen = new Set(); const out = [];
-  keys.forEach(k => (MARKER_INFO[k]?.avoid || []).forEach(a => { const id = a.item.toLowerCase(); if (!seen.has(id)) { seen.add(id); out.push(a); } }));
+  (keys || []).forEach(k => (MARKER_INFO[k]?.avoid || []).forEach(a => { const id = a.item.toLowerCase(); if (!seen.has(id)) { seen.add(id); out.push(a); } }));
   return out.length ? out : GENERAL_AVOID;
 }
-function computeEatMore(metrics, periods) {
-  const keys = flaggedMarkerKeys(metrics, periods);
+function eatMoreFromKeys(keys) {
   const seen = new Set(); const out = [];
-  keys.forEach(k => (MARKER_INFO[k]?.eatMore || []).forEach(e => { const id = e.toLowerCase(); if (!seen.has(id)) { seen.add(id); out.push(e); } }));
+  (keys || []).forEach(k => (MARKER_INFO[k]?.eatMore || []).forEach(e => { const id = e.toLowerCase(); if (!seen.has(id)) { seen.add(id); out.push(e); } }));
   return out.length ? out : GENERAL_EATMORE;
 }
-function computeDailyFocus(metrics, periods) {
-  const keys = flaggedMarkerKeys(metrics, periods);
-  if (!keys.length) return GENERAL_FOCUS;
-  const out = keys.map(k => MARKER_INFO[k]).filter(i => i && i.focus).map(i => ({ marker: (i.short || "").toUpperCase(), tip: i.focus }));
+function focusFromKeys(keys) {
+  const out = (keys || []).map(k => MARKER_INFO[k]).filter(i => i && i.focus).map(i => ({ marker: (i.short || "").toUpperCase(), tip: i.focus }));
+  if (!out.length) return GENERAL_FOCUS;
   out.push({ marker: "ACTIVITY", tip: "A 30-minute brisk walk is your single most effective all-round lever." });
   return out;
 }
@@ -339,16 +349,20 @@ function computeTestNext(metrics, periods) {
 }
 // The single object every tab reads its personalized advice from. Pure function of the entered
 // data — swap in another person's profile/report/supplements and all of this changes.
-function computeAdvice(metrics, periods, supplements, goalToggles) {
-  const flaggedKeys = flaggedMarkerKeys(metrics, periods);
+function computeAdvice(metrics, periods, supplements, goalToggles, profile) {
+  // Union of markers flagged by their actual report AND the conditions they stated in onboarding,
+  // so advice is personal from day one and gets sharper once real lab values are entered.
+  const labKeys = flaggedMarkerKeys(metrics, periods);
+  const condKeys = conditionMarkerKeys(profile);
+  const flaggedKeys = [...new Set([...labKeys, ...condKeys])];
   const sugarKey = flaggedKeys.find(k => MARKER_INFO[k]?.drivers?.sugar != null);
   const cardioKeys = flaggedKeys.filter(k => k === "hdl" || k === "tg");
   const critNames = supplements.filter(s => s.critical).map(s => s.name.replace(/\s*\(.*?\)/, "").trim());
   return {
     flaggedKeys,
-    avoidList: computeAvoidList(metrics, periods),
-    eatMore: computeEatMore(metrics, periods),
-    dailyFocus: computeDailyFocus(metrics, periods),
+    avoidList: avoidFromKeys(flaggedKeys),
+    eatMore: eatMoreFromKeys(flaggedKeys),
+    dailyFocus: focusFromKeys(flaggedKeys),
     testNext: computeTestNext(metrics, periods),
     criticalSuppNames: critNames.length ? joinNames(critNames) : "your key supplements",
     sugarMarkerLabel: sugarKey ? MARKER_INFO[sugarKey].short : null,
@@ -659,6 +673,41 @@ function generateHistory(endKey) {
       else supp[s.id] = seededRand(i * 10 + si) < (CRITICAL_SUPP_IDS.includes(s.id) ? 0.65 : 0.3);
     });
     supplementsByDate[dk] = supp;
+  }
+  return { foodByDate, activitiesByDate, habitsByDate, supplementsByDate };
+}
+
+// Shared/blank mode: when the app is opened via a share link (?new / ?fresh / ?blank) it starts
+// EMPTY — no personal (Jignesh) demo profile or history — so a new person sets up their own.
+const FRESH_MODE = (() => { try { return /[?&](new|fresh|blank)\b/i.test(location.search); } catch (e) { return false; } })();
+
+// Build ~30 days of sample history TAILORED to a new person's onboarding choices: meals drawn from
+// their liked cuisines + diet/restrictions (same engine as the meal plan), activity from their
+// stated activity level. Mirrors generateHistory's shape but personalised and ending today.
+function generateTailoredHistory(profile, days) {
+  const foodByDate = {}, activitiesByDate = {}, habitsByDate = {}, supplementsByDate = {};
+  const prefs = mealPrefs(profile || {});
+  const pools = mealPoolsFor(prefs);
+  const pick = (pool, i) => { let a = (pool || []).filter(d => mealAllowed(d, prefs)); if (a.length < 3) a = (pool || []).filter(Boolean); return a.length ? a[((i % a.length) + a.length) % a.length] : null; };
+  const lvl = (profile && profile.activityLevel) || "light";
+  const actP = { not: { p: 0.25, min: 20 }, light: { p: 0.5, min: 30 }, active: { p: 0.75, min: 40 }, very: { p: 0.9, min: 55 } }[lvl] || { p: 0.5, min: 30 };
+  const N = days || 30;
+  const end = new Date(); end.setHours(0, 0, 0, 0);
+  for (let off = N - 1; off >= 0; off--) {
+    const d = new Date(end); d.setDate(d.getDate() - off);
+    const dk = ymd(d), dow = d.getDay(), i = N - off;
+    const entries = [];
+    [["Breakfast", pick(pools.breakfast, i)], ["Lunch", pick(pools.lunch, i * 2 + 1)], ["Dinner", pick(pools.dinner, i * 3 + 2)]].forEach(([slot, dish]) => {
+      const c = dish ? classifyDemoMeal(dish, slot, i) : null;
+      if (c) entries.push({ ...c, mealSlot: slot, time: d.getTime(), sample: true });
+    });
+    if (entries.length) foodByDate[dk] = entries;
+    const acts = [];
+    if (dow !== 0 && seededRand(i * 6.3 + lvl.length) < actP.p) acts.push({ type: "Walk", duration: actP.min, time: d.getTime(), demo: true, sample: true });
+    if ((lvl === "active" || lvl === "very") && seededRand(i * 5.7) < 0.4) acts.push({ type: "Gym / Strength", duration: 40, time: d.getTime(), demo: true, sample: true });
+    if (acts.length) activitiesByDate[dk] = acts;
+    habitsByDate[dk] = { walk: acts.some(a => a.type === "Walk"), water: seededRand(i * 3.9) < 0.6, noFried: seededRand(i * 2.1) < 0.55, noSugar: seededRand(i * 5.3) < 0.5, noAlcohol: seededRand(i * 1.7) < 0.7 };
+    // New users have no supplement list yet, so no supplement history is generated.
   }
   return { foodByDate, activitiesByDate, habitsByDate, supplementsByDate };
 }
@@ -1935,7 +1984,7 @@ function TodayTab({ profile, targets, advice, foodToday, habitToday, supplements
       <DateBar selectedDate={selectedDate} onOpenCalendar={() => setCalendarOpen(true)} onBackToToday={() => setSelectedDate(todayKey())} />
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>{dateStr}</div>
-        <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22, color: T.teal }}>Hi {profile.name} 👋</div>
+        <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22, color: T.teal }}>Hi {(profile.name || "").trim().split(/\s+/)[0] || "there"} 👋</div>
       </div>
       <Card style={{ padding: 16 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, textAlign: "center" }}>
@@ -3473,7 +3522,7 @@ function OnbChip({ label, on, onClick }) {
 // the rich profile (conditions, goals, diet, cuisines, activity, plan opt-in) and flips the two
 // body-composition goal toggles the advice/target engine reads. Built now so adding another
 // person is just a fresh run of this wizard.
-function OnboardingWizard({ open, onClose, profile, saveProfile, goalToggles, saveGoalToggles, onDone }) {
+function OnboardingWizard({ open, onClose, profile, saveProfile, goalToggles, saveGoalToggles, onGenerateSample, onDone }) {
   const build = () => ({
     name: profile.name || "", gender: profile.gender || "Male", age: profile.age ?? "", height: profile.height ?? "", weight: profile.weight ?? "", city: profile.city || "",
     conditions: profile.conditions || [], goals: profile.goals || [], dietPattern: profile.dietPattern || "Vegetarian",
@@ -3485,16 +3534,18 @@ function OnboardingWizard({ open, onClose, profile, saveProfile, goalToggles, sa
   if (!open) return null;
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const toggleIn = (k, v) => setForm(f => { const a = f[k] || []; return { ...f, [k]: a.includes(v) ? a.filter(x => x !== v) : [...a, v] }; });
-  const STEPS = ["About you", "Health conditions", "Your goals", "Diet", "Cuisines you like", "Activity & plans"];
+  const STEPS = ["About you", "Health conditions", "Your goals", "Diet", "Cuisines you like", "Activity & plans", "You're all set"];
   const last = STEPS.length - 1;
   const inS = { width: "100%", border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", fontFamily: "Inter", fontSize: 14, background: T.cream, color: T.ink };
   const lS = { fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 4 };
   const hint = { fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 12 };
   const subL = { fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 10 };
 
-  function finish() {
-    saveProfile({ ...profile, name: form.name, gender: form.gender, age: Number(form.age) || profile.age, height: Number(form.height) || profile.height, weight: Number(form.weight) || profile.weight, city: form.city, conditions: form.conditions, goals: form.goals, dietPattern: form.dietPattern, diet: form.dietPattern, dietRules: form.dietRules, cuisines: form.cuisines, activityLevel: form.activityLevel, wantsMealPlan: form.wantsMealPlan });
+  function finish(withSample) {
+    const built = { ...profile, name: form.name, gender: form.gender, age: Number(form.age) || profile.age, height: Number(form.height) || profile.height, weight: Number(form.weight) || profile.weight, city: form.city, conditions: form.conditions, goals: form.goals, dietPattern: form.dietPattern, diet: form.dietPattern, dietRules: form.dietRules, cuisines: form.cuisines, activityLevel: form.activityLevel, wantsMealPlan: form.wantsMealPlan };
+    saveProfile(built);
     saveGoalToggles(goalToggles.map(g => g.id === "weightloss" ? { ...g, active: form.goals.includes("Lose weight") } : g.id === "muscle" ? { ...g, active: form.goals.includes("Build muscle") } : g));
+    if (withSample && onGenerateSample) onGenerateSample(built);
     onDone();
   }
 
@@ -3556,10 +3607,19 @@ function OnboardingWizard({ open, onClose, profile, saveProfile, goalToggles, sa
               <div><div style={subL}>Want a weekly meal plan?</div><div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{ONB_MEALPLAN.map(c => <OnbChip key={c} label={c} on={form.wantsMealPlan === c} onClick={() => set("wantsMealPlan", c)} />)}</div></div>
             </div>
           )}
+          {step === 6 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 17, color: T.teal }}>Nice — you're set up{form.name ? `, ${form.name}` : ""}! 🎉</div>
+              <div style={hint}>Based on your choices, we've prepared a <b>sample month</b> of meals and activity — built from the {(form.cuisines || []).length ? (form.cuisines.slice(0, 3).join(", ") + (form.cuisines.length > 3 ? "…" : "")) : "cuisines"} you like and your activity level — so the app isn't empty while you find your feet.</div>
+              <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 2 }}>Want to explore with that sample, or start with a clean slate? You can switch anytime in ⚙️ → Data.</div>
+              <button onClick={() => finish(true)} style={{ background: T.tealSolid, color: "#fff", border: "none", borderRadius: 12, padding: "13px 0", fontFamily: "Manrope", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>✨ Show me my sample month</button>
+              <button onClick={() => finish(false)} style={{ background: T.white, color: T.teal, border: `1.5px solid ${T.teal}`, borderRadius: 12, padding: "13px 0", fontFamily: "Manrope", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>Start with a blank slate</button>
+            </div>
+          )}
         </div>
         <div style={{ display: "flex", gap: 10, padding: "12px 18px 20px", borderTop: `1px solid ${T.border}` }}>
           {step > 0 && <button onClick={() => setStep(step - 1)} style={{ flex: "0 0 auto", background: T.creamDeep, border: `1px solid ${T.border}`, borderRadius: 12, padding: "12px 18px", fontFamily: "Manrope", fontWeight: 700, fontSize: 14, color: T.ink, cursor: "pointer" }}>Back</button>}
-          <button onClick={() => step < last ? setStep(step + 1) : finish()} style={{ flex: 1, background: T.saffron, border: "none", borderRadius: 12, padding: "12px 0", fontFamily: "Manrope", fontWeight: 800, fontSize: 15, color: "#fff", cursor: "pointer" }}>{step < last ? "Next" : "Finish setup"}</button>
+          {step < last && <button onClick={() => setStep(step + 1)} style={{ flex: 1, background: T.saffron, border: "none", borderRadius: 12, padding: "12px 0", fontFamily: "Manrope", fontWeight: 800, fontSize: 15, color: "#fff", cursor: "pointer" }}>Next</button>}
         </div>
       </div>
     </div>
@@ -3595,12 +3655,12 @@ function App() {
   const [demoCleared, setDemoCleared] = useKV(pk("week:demoCleared"), false);
   const [activities, setActivities] = useKV(pk("activities:log"), {});
   const [vitals, setVitals] = useKV(pk("week:vitals"), {}); // { [dateKey]: { water, steps, weight } } — MFP-style daily quick log
-  const [profile, setProfile] = useKV(pk("profile:data"), isSelf ? PROFILE_SEED : BLANK_PROFILE);
+  const [profile, setProfile] = useKV(pk("profile:data"), (isSelf && !FRESH_MODE) ? PROFILE_SEED : BLANK_PROFILE);
   const [goalToggles, setGoalToggles] = useKV(pk("goals:toggles"), DEFAULT_GOAL_TOGGLES);
   const [customGoals, setCustomGoals] = useKV(pk("goals:custom"), []);
-  const [metrics, setMetrics] = useKV(pk("reports:metrics"), isSelf ? METRICS_SEED : blankMetrics());
-  const [periods, setPeriods] = useKV(pk("reports:periods"), isSelf ? PERIODS_SEED : []);
-  const [supplements, setSupplements] = useKV(pk("supplements:list"), isSelf ? SUPPLEMENTS_SEED : []);
+  const [metrics, setMetrics] = useKV(pk("reports:metrics"), (isSelf && !FRESH_MODE) ? METRICS_SEED : blankMetrics());
+  const [periods, setPeriods] = useKV(pk("reports:periods"), (isSelf && !FRESH_MODE) ? PERIODS_SEED : []);
+  const [supplements, setSupplements] = useKV(pk("supplements:list"), (isSelf && !FRESH_MODE) ? SUPPLEMENTS_SEED : []);
   const [theme, setTheme] = useKV("ui:theme", "dark");
   const [notifSettings, setNotifSettings] = useKV("ui:notifs", { meals: true, water: true, activity: true, supplements: true, focus: true, weekly: true, endOfDay: true, endOfDayTime: "22:00" });
   T = theme === "light" ? T_LIGHT : T_DARK; // apply the chosen palette before this render tree paints
@@ -3616,9 +3676,24 @@ function App() {
   // never overwrites days that already have real logged data (spread order: seed first, then
   // existing wins). Cleared history is not re-seeded — the flag stays set until they clear it
   // or use "Generate history" in ⚙️ → Data.
+  // Fresh/shared mode: never seed the personal demo; lock the profile blank so it stays empty even
+  // if onboarding is closed and the page is reopened without the ?new flag.
+  useEffect(() => {
+    if (!FRESH_MODE || activeId !== "self") return;
+    try {
+      if (kvGet("seed:history", null)) return; // already locked to blank on a prior fresh load
+      kvSet("seed:history", SEED_VERSION);
+      // Persist ALL blank defaults so a later visit WITHOUT ?new still reads blank, never the
+      // personal (Jignesh) seed that "self" otherwise defaults to.
+      if (!kvGet("profile:data", null)) kvSet("profile:data", BLANK_PROFILE);
+      if (!kvGet("reports:metrics", null)) kvSet("reports:metrics", blankMetrics());
+      if (!kvGet("reports:periods", null)) kvSet("reports:periods", []);
+      if (!kvGet("supplements:list", null)) kvSet("supplements:list", []);
+    } catch (e) {}
+  }, []);
   useEffect(() => {
     try {
-      if (activeId !== "self") return; // only the primary profile gets the demo history
+      if (activeId !== "self" || FRESH_MODE) return; // only the primary profile gets the demo history
       if (kvGet("seed:history", null) === SEED_VERSION) return;
       const { foodByDate, activitiesByDate, habitsByDate, supplementsByDate } = generateHistory();
       setWeekFood(prev => ({ ...foodByDate, ...prev }));
@@ -3653,7 +3728,7 @@ function App() {
   const habitsForDate = weekHabits[selectedDate] || {};
   const targets = computeTargets(profile.weight, goalToggles, profile);
   const suggestedSupps = suggestSupplements(profile);
-  const advice = computeAdvice(metrics, periods, supplements, goalToggles);
+  const advice = computeAdvice(metrics, periods, supplements, goalToggles, profile);
   // Notification engine — live nudges derived from today's data, gated by the user's per-category
   // settings, plus a weekly win/warning, goal coaching, and a mandatory end-of-day catch-all.
   const notifications = (() => {
@@ -3732,6 +3807,14 @@ function App() {
     setWeekHabits(prev => ({ ...habitsByDate, ...prev }));
     setWeekSupplements(prev => ({ ...supplementsByDate, ...prev }));
     try { kvSet("seed:history", SEED_VERSION); } catch {}
+  };
+  // Fill a tailored ~30-day sample from the person's onboarding choices (used by the wizard's final step).
+  const applySampleHistory = (prof) => {
+    const { foodByDate, activitiesByDate, habitsByDate } = generateTailoredHistory(prof || profile);
+    setWeekFood(prev => ({ ...foodByDate, ...prev }));
+    setActivities(prev => ({ ...activitiesByDate, ...prev }));
+    setWeekHabits(prev => ({ ...habitsByDate, ...prev }));
+    try { kvSet("seed:history", SEED_VERSION); } catch (e) {}
   };
 
   // 5-item bar: Today · Plan · ＋(log) · Progress · Me. Food/Activity/Supplement logging is
@@ -3837,7 +3920,7 @@ function App() {
           </div>
         )}
         <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} initialSection={settingsSection} profile={profile} saveProfile={setProfile} goalToggles={goalToggles} saveGoalToggles={setGoalToggles} customGoals={customGoals} saveCustomGoals={setCustomGoals} metrics={metrics} saveMetrics={setMetrics} periods={periods} savePeriods={setPeriods} supplements={supplements} saveSupplements={setSupplements} onClearDate={clearDateData} onClearAll={clearAllData} onApplyDemoMonth={applyDemoMonth} onOpenWizard={() => { setSettingsOpen(false); setWizardOpen(true); }} profiles={profiles} activeId={activeId} onSwitchPerson={switchPerson} onAddPerson={addPerson} onRemovePerson={removePerson} notifSettings={notifSettings} saveNotifSettings={setNotifSettings} />
-        <OnboardingWizard open={wizardOpen} onClose={() => { setWizardOpen(false); setOnboarded(true); }} profile={profile} saveProfile={setProfile} goalToggles={goalToggles} saveGoalToggles={setGoalToggles} onDone={() => { setWizardOpen(false); setOnboarded(true); }} />
+        <OnboardingWizard open={wizardOpen} onClose={() => { setWizardOpen(false); setOnboarded(true); }} profile={profile} saveProfile={setProfile} goalToggles={goalToggles} saveGoalToggles={setGoalToggles} onGenerateSample={applySampleHistory} onDone={() => { setWizardOpen(false); setOnboarded(true); }} />
       </div>
     </div>
   );
