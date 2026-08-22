@@ -1830,13 +1830,28 @@ function authMsg(e) {
   return (e && e.message) || "Something went wrong.";
 }
 // Sync the signed-in user's data to users/{uid} — reuses the sync engine's apply/gather/push.
+// Rough "how much real data" score — so signing in never overwrites a device that already has
+// your profile/reports with an emptier cloud copy.
+function dataScore(d) {
+  if (!d) return 0;
+  let s = 0;
+  const days = k => { try { return Object.keys(d[k] || {}).length; } catch (e) { return 0; } };
+  s += days("week:foodlog") + days("activities:log") + days("week:supplements") + days("week:habits");
+  try { const m = d["reports:metrics"]; if (Array.isArray(m)) s += m.reduce((a, x) => a + ((x.points || []).filter(v => v != null).length), 0); } catch (e) {}
+  try { const p = d["profile:data"]; if (p && p.name) s += 2; if (p && (p.conditions || []).length) s += (p.conditions || []).length; } catch (e) {}
+  return s;
+}
 async function startAccountSync(uid) {
   const fb = window.firebase;
   const ref = fb.firestore().collection("users").doc(uid);
   FB = { app: fb.app(), db: fb.firestore(), auth: fb.auth(), ref, unsub: null };
   const snap = await ref.get();
-  if (snap.exists && snap.data() && snap.data().data) applyRemote(snap.data().data);   // pull their cloud data
-  await ref.set({ data: gatherAppData(), updatedAt: Date.now(), origin: SYNC_CLIENT }, { merge: true }); // push local up
+  const remote = (snap.exists && snap.data() && snap.data().data) ? snap.data().data : null;
+  // Adopt the cloud copy ONLY if it's richer than what's on this device (second device pulling your
+  // data) — otherwise keep local and push it up (creating an account from a device that already has
+  // your profile/reports must never wipe them with an empty cloud doc).
+  if (remote && dataScore(remote) > dataScore(gatherAppData())) applyRemote(remote);
+  await ref.set({ data: gatherAppData(), updatedAt: Date.now(), origin: SYNC_CLIENT }, { merge: true }); // push the winner up
   FB.unsub = ref.onSnapshot(s => { const d = s.data(); if (d && d.data && d.origin !== SYNC_CLIENT) applyRemote(d.data); });
 }
 // Attach the auth-state listener once; on sign-in start per-uid sync, on sign-out stop it.
@@ -3543,7 +3558,7 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
                     {profiles.map(p => (
                       <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 4, background: p.id === activeId ? T.saffron : T.white, border: `1px solid ${p.id === activeId ? T.saffron : T.border}`, borderRadius: 999, padding: "5px 6px 5px 12px" }}>
-                        <button onClick={() => p.id !== activeId && onSwitchPerson(p.id)} style={{ background: "none", border: "none", color: p.id === activeId ? "#fff" : T.ink, fontFamily: "Inter", fontSize: 13, fontWeight: 700, cursor: "pointer", padding: 0 }}>{p.name || "Unnamed"}</button>
+                        <button onClick={() => p.id !== activeId && onSwitchPerson(p.id)} style={{ background: "none", border: "none", color: p.id === activeId ? "#fff" : T.ink, fontFamily: "Inter", fontSize: 13, fontWeight: 700, cursor: "pointer", padding: 0 }}>{p.name || (p.id === "self" ? "You" : "Unnamed")}</button>
                         {p.id !== "self" && <button onClick={() => onRemovePerson(p.id)} aria-label="Remove person" style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}><Icon name="x" size={13} color={p.id === activeId ? "#fff" : T.inkSoft} /></button>}
                       </div>
                     ))}
@@ -3940,7 +3955,7 @@ function App() {
   // Multi-profile: the "self" profile keeps the original UNPREFIXED keys (zero migration for
   // Jignesh's data); anyone added later gets a `p:<id>:` keyspace. useKV reloads on key change,
   // so switching the active profile swaps every store below to that person's data.
-  const [profiles, setProfiles] = useKV("profiles:list", [{ id: "self", name: PROFILE_SEED.name }]);
+  const [profiles, setProfiles] = useKV("profiles:list", [{ id: "self", name: FRESH_MODE ? "" : PROFILE_SEED.name }]);
   const [activeId, setActiveId] = useKV("profiles:active", "self");
   const isSelf = activeId === "self";
   const pk = (k) => isSelf ? k : `p:${activeId}:${k}`;
@@ -4122,6 +4137,7 @@ function App() {
   const clearSeedForNewUser = () => {
     setMetrics(blankMetrics()); setPeriods([]);
     setWeekFood({}); setActivities({}); setWeekHabits({}); setWeekSupplements({});
+    setProfiles([{ id: "self", name: "" }]); // drop the seeded "Jignesh" from the People list; name-sync fills their name
     try { kvSet("seed:history", SEED_VERSION); } catch (e) {}
   };
 
