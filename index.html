@@ -3236,6 +3236,22 @@ function SupplementsTab({ selectedDate, setSelectedDate, supplementsForDate, tog
   );
 }
 
+// Collapsible category card — collapsed by default so long tabs (Plan) stay clean; tap to expand.
+function Collapsible({ title, subtitle, emoji, accent, defaultOpen, right, children }) {
+  const [open, setOpen] = useState(!!defaultOpen);
+  return (
+    <div style={{ marginBottom: 12, border: `1px solid ${T.border}`, borderRadius: 16, background: T.white, overflow: "hidden" }}>
+      <button onClick={() => setOpen(o => !o)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, background: "none", border: "none", padding: "13px 15px", cursor: "pointer", textAlign: "left" }}>
+        <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+          <span style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 14, color: accent || T.teal }}>{emoji ? emoji + " " : ""}{title}</span>
+          {subtitle && <span style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginTop: 2 }}>{subtitle}</span>}
+        </span>
+        <span style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }}>▾</span>
+      </button>
+      {open && <div style={{ padding: "0 15px 15px" }}>{children}</div>}
+    </div>
+  );
+}
 function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegeneratePlan, onSwapMeal }) {
   const guides = personGuidance(advice.flaggedKeys, advice.weightGoal);   // dietitian + lifestyle guidance for their conditions
   const myConds = personConditions(advice.flaggedKeys, advice.weightGoal);
@@ -3280,10 +3296,11 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
     const entry = FOOD_DB[dish];
     return entry && (entry.verdict === "avoid" || entry.verdict === "limit" || entry.verdict === "caution");
   });
+  const homeRemedies = (guides || []).map(g => ({ label: g.label, items: g.home_remedies || [] })).filter(x => x.items.length);
   return (
     <div className="tabPane">
       {targets && (
-        <Card style={{ marginBottom: 18, background: `linear-gradient(180deg, ${T.tealPale}, ${T.white})` }}>
+        <Card style={{ marginBottom: 14, background: `linear-gradient(180deg, ${T.tealPale}, ${T.white})` }}>
           <SectionLabel>Your plan targets</SectionLabel>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19 }}>{targets.calories}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>kcal/day</div></div>
@@ -3299,90 +3316,94 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
           )}
         </Card>
       )}
+      <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, margin: "2px 2px 10px" }}>Tap a section to open it.</div>
       {weeklyPlan && weeklyPlan.days && (
-        <>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <SectionLabel>This week's meal plan</SectionLabel>
-            <button onClick={onRegeneratePlan} style={{ background: T.tealPale, border: "none", borderRadius: 8, padding: "5px 10px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.teal, marginBottom: 8, cursor: "pointer" }}>↻ Regenerate</button>
+        <Collapsible title="This week's meal plan" subtitle="7 days · tap ↻ to swap a meal" defaultOpen>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+            <button onClick={onRegeneratePlan} style={{ background: T.tealPale, border: "none", borderRadius: 8, padding: "5px 10px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.teal, cursor: "pointer" }}>↻ Regenerate</button>
           </div>
-          <Card style={{ marginBottom: 18 }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {weeklyPlan.days.map((d, i) => (
-                <div key={i} style={{ borderBottom: i < 6 ? `1px solid ${T.creamDeep}` : "none", paddingBottom: i < 6 ? 10 : 0 }}>
-                  <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12.5, color: T.teal, marginBottom: 6 }}>{planDayLabels[i]}</div>
-                  {["breakfast", "lunch", "dinner"].map(slot => (
-                    <div key={slot} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
-                      <span style={{ width: 8, height: 8, borderRadius: 4, background: vMeta(d[slot]).fg, flexShrink: 0 }} />
-                      <span style={{ flex: 1, fontFamily: "Inter", fontSize: 13, color: T.ink }}><span style={{ color: T.inkSoft, textTransform: "capitalize", fontSize: 11 }}>{slot} · </span>{d[slot]}</span>
-                      <button onClick={() => onSwapMeal(i, slot)} aria-label={"Swap " + slot} style={{ background: "none", border: "none", cursor: "pointer", color: T.saffron, fontSize: 15, padding: 2 }}>↻</button>
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </Card>
-          <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: -12, marginBottom: 18 }}>Filtered to your diet, leaning on safer choices for your markers. Tap ↻ to swap a meal, or Regenerate for a fresh week — it also changes automatically each week.</div>
-        </>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {weeklyPlan.days.map((d, i) => (
+              <div key={i} style={{ borderBottom: i < 6 ? `1px solid ${T.creamDeep}` : "none", paddingBottom: i < 6 ? 10 : 0 }}>
+                <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12.5, color: T.teal, marginBottom: 6 }}>{planDayLabels[i]}</div>
+                {["breakfast", "lunch", "dinner"].map(slot => (
+                  <div key={slot} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 4, background: vMeta(d[slot]).fg, flexShrink: 0 }} />
+                    <span style={{ flex: 1, fontFamily: "Inter", fontSize: 13, color: T.ink }}><span style={{ color: T.inkSoft, textTransform: "capitalize", fontSize: 11 }}>{slot} · </span>{d[slot]}</span>
+                    <button onClick={() => onSwapMeal(i, slot)} aria-label={"Swap " + slot} style={{ background: "none", border: "none", cursor: "pointer", color: T.saffron, fontSize: 15, padding: 2 }}>↻</button>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+          <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 10 }}>Filtered to your diet, leaning on safer choices for your markers. Regenerate for a fresh week — it also changes automatically each week.</div>
+        </Collapsible>
       )}
-      <SectionLabel>Eat more of</SectionLabel>
-      <Card style={{ marginBottom: 18 }}><div style={{ display: "flex", flexDirection: "column", gap: 6 }}>{advice.eatMore.map((e, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 13, color: T.ink }}>🌿 {e}</div>)}</div></Card>
-      <SectionLabel>Foods to avoid this week</SectionLabel>
-      <Card style={{ marginBottom: 18 }}><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{advice.avoidList.map((b, i) => (
-        <div key={i}><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.alert }}>🔴 {b.item}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{b.reason}</div></div>
-      ))}</div></Card>
+      <Collapsible title="Eat more of" emoji="🌿" accent={T.forest}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>{advice.eatMore.map((e, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 13, color: T.ink }}>🌿 {e}</div>)}</div>
+      </Collapsible>
+      <Collapsible title="Foods to avoid this week" emoji="🔴" accent={T.alert}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{advice.avoidList.map((b, i) => (
+          <div key={i}><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.alert }}>🔴 {b.item}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{b.reason}</div></div>
+        ))}</div>
+      </Collapsible>
       {reco && (reco.eatMore.length + reco.careful.length + reco.avoid.length > 0) && (
-        <>
-          <SectionLabel>Your combined food plan</SectionLabel>
-          <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginTop: -4, marginBottom: 8, lineHeight: 1.4 }}>
-            You have {myConds.length} conditions ({myConds.map(condLabel).join(", ")}). Some foods help one but hurt another — these are reconciled so nothing clashes. <b>Safety first:</b> anything risky for even one of your conditions is moved to Avoid.
+        <Collapsible title="Your combined food plan" subtitle={`Reconciled across your ${myConds.length} conditions`}>
+          <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 8, lineHeight: 1.4 }}>
+            Some foods help one condition but hurt another — these are reconciled so nothing clashes. <b>Safety first:</b> anything risky for even one of your conditions is moved to Avoid.
           </div>
-          <Card style={{ marginBottom: 18 }}>
-            {reco.eatMore.length > 0 && <>
-              <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11, letterSpacing: 0.3, color: T.forest, marginBottom: 2 }}>🌿 EAT FREELY — good for you, safe across all your conditions</div>
-              {reco.eatMore.map((r, i) => fRow(r, T.forest, i))}
-            </>}
-            {reco.careful.length > 0 && <>
-              <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11, letterSpacing: 0.3, color: T.amber, marginTop: reco.eatMore.length ? 12 : 0, marginBottom: 2 }}>🟡 IN MODERATION — helpful, but keep portions small</div>
-              {reco.careful.map((r, i) => fRow(r, T.amberDeep || T.amber, i))}
-            </>}
-            {reco.avoid.length > 0 && <>
-              <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11, letterSpacing: 0.3, color: T.alert, marginTop: (reco.eatMore.length || reco.careful.length) ? 12 : 0, marginBottom: 2 }}>🔴 AVOID — risky for at least one of your conditions</div>
-              {reco.avoid.map((r, i) => fRow(r, T.alert, i))}
-            </>}
-          </Card>
-        </>
+          {reco.eatMore.length > 0 && <>
+            <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11, letterSpacing: 0.3, color: T.forest, marginBottom: 2 }}>🌿 EAT FREELY — good for you, safe across all your conditions</div>
+            {reco.eatMore.map((r, i) => fRow(r, T.forest, i))}
+          </>}
+          {reco.careful.length > 0 && <>
+            <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11, letterSpacing: 0.3, color: T.amber, marginTop: reco.eatMore.length ? 12 : 0, marginBottom: 2 }}>🟡 IN MODERATION — helpful, but keep portions small</div>
+            {reco.careful.map((r, i) => fRow(r, T.amberDeep || T.amber, i))}
+          </>}
+          {reco.avoid.length > 0 && <>
+            <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11, letterSpacing: 0.3, color: T.alert, marginTop: (reco.eatMore.length || reco.careful.length) ? 12 : 0, marginBottom: 2 }}>🔴 AVOID — risky for at least one of your conditions</div>
+            {reco.avoid.map((r, i) => fRow(r, T.alert, i))}
+          </>}
+        </Collapsible>
       )}
       {guides.length > 0 && (
-        <>
-          <SectionLabel>Your plan by condition</SectionLabel>
+        <Collapsible title="Your plan by condition" subtitle="Eat-more / eat-less / lifestyle for each">
           {guides.map(g => (
-            <Card key={g.id} style={{ marginBottom: 12 }}>
+            <div key={g.id} style={{ marginBottom: 14, paddingBottom: 14, borderBottom: `1px solid ${T.creamDeep}` }}>
               <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 14.5, marginBottom: 2 }}>{g.label}</div>
               {g.improves && <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>Helps: {g.improves}</div>}
               {gBlock("EAT MORE", g.eat_more, T.forest, "🌿")}
               {gBlock("EAT LESS", g.eat_less, T.amber, "🟡")}
               {gBlock("STRONG NO", g.strong_no, T.alert, "🔴")}
-              {gBlock("HOME REMEDIES", g.home_remedies, T.saffronDeep, "🍵")}
               {gBlock("ROUTINE / LIFESTYLE", g.lifestyle, T.teal, "🧘")}
               {g.caveat && <div style={{ fontFamily: "Inter", fontSize: 11, color: T.alert, marginTop: 6, lineHeight: 1.4 }}>⚠ {g.caveat}</div>}
-            </Card>
+            </div>
           ))}
-          <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: -4, marginBottom: 18, lineHeight: 1.4 }}>{(GUIDANCE_DB && GUIDANCE_DB.disclaimer) || "General guidance, not medical advice — home remedies are traditional/complementary. Consult a dietitian/doctor."}</div>
-        </>
+          <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, lineHeight: 1.4 }}>{(GUIDANCE_DB && GUIDANCE_DB.disclaimer) || "General guidance, not medical advice. Consult a dietitian/doctor."}</div>
+        </Collapsible>
       )}
-      <SectionLabel>Next up — {nextMeal.label.toLowerCase()} ideas</SectionLabel>
-      <Card style={{ marginBottom: 8 }}>
+      {homeRemedies.length > 0 && (
+        <Collapsible title="Home remedies" emoji="🍵" accent={T.saffronDeep || T.saffron} subtitle="Traditional / complementary — not medical advice">
+          {homeRemedies.map((h, i) => (
+            <div key={i} style={{ marginBottom: 10 }}>
+              <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.teal, marginBottom: 3 }}>{h.label}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>{h.items.map((x, j) => <div key={j} style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.35 }}>🍵 {x}</div>)}</div>
+            </div>
+          ))}
+        </Collapsible>
+      )}
+      <Collapsible title={`Next up — ${nextMeal.label.toLowerCase()} ideas`}>
         {nextMeal.ideas.map((idea, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 13.5, color: T.ink, marginBottom: 6, display: "flex", gap: 6 }}><Icon name="chevron" size={14} color={T.saffron} style={{ flexShrink: 0, marginTop: 3 }} /> {idea}</div>)}
-      </Card>
-      <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 18 }}>Focused on your next meal — log a couple and it moves on. The full week is in the meal plan above.</div>
-      <SectionLabel>How to make your choices healthier</SectionLabel>
-      <Card style={{ marginBottom: 18 }}><div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{SWAPS.map((s, i) => (
-        <div key={i}><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13 }}>{s.craving}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, lineHeight: 1.4 }}>{s.swap}</div></div>
-      ))}</div></Card>
+        <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 8 }}>Focused on your next meal — log a couple and it moves on.</div>
+      </Collapsible>
+      <Collapsible title="How to make your choices healthier">
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{SWAPS.map((s, i) => (
+          <div key={i}><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13 }}>{s.craving}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, lineHeight: 1.4 }}>{s.swap}</div></div>
+        ))}</div>
+      </Collapsible>
       {frequentlyEaten.length > 0 && (
-        <>
-          <SectionLabel>What you've been eating this week</SectionLabel>
-          <Card style={{ marginBottom: 18 }}><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{frequentlyEaten.map(([dish, count]) => {
+        <Collapsible title="What you've been eating this week">
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{frequentlyEaten.map(([dish, count]) => {
             const entry = FOOD_DB[dish];
             const isUnhealthy = entry && (entry.verdict === "avoid" || entry.verdict === "limit" || entry.verdict === "caution");
             return (
@@ -3393,13 +3414,12 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
                 </div>
               </div>
             );
-          })}</div></Card>
-        </>
+          })}</div>
+        </Collapsible>
       )}
       {flaggedFrequent.length > 0 && (
-        <>
-          <SectionLabel>How to make them healthier</SectionLabel>
-          <Card style={{ marginBottom: 90 }}><div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{flaggedFrequent.map(([dish]) => {
+        <Collapsible title="How to make them healthier">
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{flaggedFrequent.map(([dish]) => {
             const entry = FOOD_DB[dish];
             const tip = entry.healthierTip || suggestSwap(dish);
             return (
@@ -3408,10 +3428,10 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
                 <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, lineHeight: 1.4 }}>{tip || "Cut back on frequency — no lighter version identified for this one."}</div>
               </div>
             );
-          })}</div></Card>
-        </>
+          })}</div>
+        </Collapsible>
       )}
-      {flaggedFrequent.length === 0 && <div style={{ height: 90 }} />}
+      <div style={{ height: 90 }} />
     </div>
   );
 }
@@ -3488,7 +3508,7 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
       return { label: m.label, latest, delta, better, unit: m.unit };
     }).filter(Boolean);
   })();
-  const SECTIONS = [{ id: "profile", label: "Profile" }, { id: "setup", label: "Health & Diet" }, { id: "goals", label: "Goals" }, { id: "reports", label: "Reports" }, { id: "supplements", label: "Supplements" }, { id: "alerts", label: "Alerts" }, { id: "account", label: "Account" }, { id: "data", label: "Data" }];
+  const SECTIONS = [{ id: "profile", label: "Profile" }, { id: "setup", label: "Health & Diet" }, { id: "reports", label: "Reports" }, { id: "supplements", label: "Supplements" }, { id: "alerts", label: "Alerts" }, { id: "account", label: "Account" }, { id: "data", label: "Data" }];
   // Edit the same fields captured during guided setup, saved straight to the profile.
   const pset = (k, v) => saveProfile({ ...profile, [k]: v });
   const ptoggle = (k, val) => { const a = profile[k] || []; pset(k, a.includes(val) ? a.filter(x => x !== val) : [...a, val]); };
@@ -3565,7 +3585,18 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
                   </div>
                 ))}
               </div>
-              <div><div style={subLbl}>Goals</div><div style={chipWrap}>{ONB_GOALS.map(c => <OnbChip key={c} label={c} on={(profile.goals || []).includes(c)} onClick={() => setSetupGoal(c)} />)}</div></div>
+              <div>
+                <div style={subLbl}>Goals</div>
+                <div style={chipWrap}>{ONB_GOALS.map(c => <OnbChip key={c} label={c} on={(profile.goals || []).includes(c)} onClick={() => setSetupGoal(c)} />)}</div>
+                <div style={{ fontFamily: "Inter", fontWeight: 700, fontSize: 12, color: T.inkSoft, margin: "12px 0 6px" }}>Other goals</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+                  {(customGoals || []).map(g => <div key={g.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: T.creamDeep, borderRadius: 10, padding: "7px 10px" }}><span style={{ fontFamily: "Inter", fontSize: 13 }}>{g.label}</span><button onClick={() => removeCustomGoal(g.id)} style={{ background: "none", border: "none", cursor: "pointer" }}><Icon name="x" size={13} color={T.inkSoft} /></button></div>)}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input value={newGoalText} onChange={e => setNewGoalText(e.target.value)} placeholder="e.g. Improve sleep" style={{ flex: 1, border: `1px solid ${T.border}`, borderRadius: 10, padding: "8px 11px", fontFamily: "Inter", fontSize: 13 }} />
+                  <button onClick={addCustomGoal} style={{ background: T.tealSolid, border: "none", borderRadius: 10, padding: "0 14px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5 }}>Add</button>
+                </div>
+              </div>
               <div><div style={subLbl}>Diet pattern</div><div style={chipWrap}>{ONB_DIET_PATTERNS.map(c => <OnbChip key={c} label={c} on={profile.dietPattern === c} onClick={() => pset("dietPattern", c)} />)}</div></div>
               <div><div style={subLbl}>Restrictions & allergies</div><div style={chipWrap}>{ONB_DIET_RULES.map(c => <OnbChip key={c} label={c} on={(profile.dietRules || []).includes(c)} onClick={() => ptoggle("dietRules", c)} />)}</div><div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginTop: 6 }}>Allergy and “-free” tags remove matching dishes from your meal suggestions.</div></div>
               <div><div style={subLbl}>Cuisines you like</div><div style={chipWrap}>{ONB_CUISINES.map(c => <OnbChip key={c} label={c} on={(profile.cuisines || []).includes(c)} onClick={() => ptoggle("cuisines", c)} />)}</div></div>
@@ -3911,6 +3942,9 @@ function App() {
   // Surface any failed persist (e.g. storage full) instead of silently dropping the save.
   const [kvErr, setKvErr] = useState(false);
   useEffect(() => { const h = () => setKvErr(true); window.addEventListener("kv-write-error", h); if (KV_WRITE_ERROR) setKvErr(true); return () => window.removeEventListener("kv-write-error", h); }, []);
+  const [, setAuthTick] = useState(0);
+  useEffect(() => { const h = () => setAuthTick(t => t + 1); window.addEventListener("auth-state", h); return () => window.removeEventListener("auth-state", h); }, []);
+  const [acctPromptOff, setAcctPromptOff] = useKV("ui:acctPromptOff", false);
   // Multi-profile: the "self" profile keeps the original UNPREFIXED keys (zero migration for
   // Jignesh's data); anyone added later gets a `p:<id>:` keyspace. useKV reloads on key change,
   // so switching the active profile swaps every store below to that person's data.
@@ -4134,6 +4168,14 @@ function App() {
         {kvErr && (
           <div onClick={() => openSettings("data")} style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 40, background: T.alert, color: "#fff", padding: "8px 12px", fontFamily: "Inter", fontSize: 12.5, textAlign: "center", lineHeight: 1.4, cursor: "pointer" }}>
             ⚠️ Couldn't save to this browser's storage — it may be full. Tap to open Data & export a backup.
+          </div>
+        )}
+        {onboarded && !acctPromptOff && authState().status !== "signedin" && (
+          <div style={{ position: "fixed", bottom: 78, left: "50%", transform: "translateX(-50%)", width: "calc(100% - 24px)", maxWidth: 396, zIndex: 35, background: T.tealSolid, color: "#fff", borderRadius: 14, padding: "11px 13px", boxShadow: "0 6px 20px rgba(0,0,0,0.22)", display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 18, flexShrink: 0 }}>☁️</span>
+            <span style={{ flex: 1, fontFamily: "Inter", fontSize: 12.5, lineHeight: 1.35 }}>Create a free account to save your data &amp; use it on any device.</span>
+            <button onClick={() => { setAcctPromptOff(true); openSettings("account"); }} style={{ background: "#fff", color: T.teal, border: "none", borderRadius: 9, padding: "7px 11px", fontFamily: "Manrope", fontWeight: 800, fontSize: 12, cursor: "pointer", flexShrink: 0 }}>Create</button>
+            <button onClick={() => setAcctPromptOff(true)} aria-label="Dismiss" style={{ background: "transparent", border: "none", color: "rgba(255,255,255,0.85)", fontSize: 16, cursor: "pointer", flexShrink: 0, padding: 2 }}>✕</button>
           </div>
         )}
         <button onClick={() => setNotifsOpen(true)} aria-label="Notifications" style={{ position: "absolute", top: "calc(14px + env(safe-area-inset-top, 0px))", right: 102, zIndex: 15, background: T.white, border: `1px solid ${T.border}`, borderRadius: 999, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.08)" }}>
