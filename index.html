@@ -166,7 +166,11 @@ function computeTargets(weight, goalToggles, profile) {
   if (hasC("blood pressure")) { sodiumMg = 1500; }
   if (hasC("uric acid") || hasC("gout")) { proteinPerKg = Math.min(proteinPerKg, 1.0); }
   const weeklyLossKg = deficit > 0 ? +((deficit * 7) / 7700).toFixed(2) : 0;
-  return { calories, maintenance, deficit, weeklyLossKg, protein: Math.round(weight * proteinPerKg), fiber, carbs, sugar, sodiumMg, note };
+  // How many calories to aim to BURN through activity each day. Weight-loss adds a burn target on
+  // top of the eating deficit; underweight keeps it minimal; others get a general "stay active" goal.
+  const burnTarget = underweight ? 0 : (weightLoss && !muscle) ? 250 : muscle ? 150 : 200;
+  const burnMins = Math.round(burnTarget / 5); // ≈ minutes of brisk walking (~5 kcal/min, matches the app's walk calc)
+  return { calories, maintenance, deficit, weeklyLossKg, burnTarget, burnMins, protein: Math.round(weight * proteinPerKg), fiber, carbs, sugar, sodiumMg, note };
 }
 
 // General, non-prescriptive supplement ideas mapped from the conditions a person selects.
@@ -2202,10 +2206,10 @@ function TodayTab({ profile, targets, advice, foodToday, habitToday, supplements
         <SectionLabel>Energy balance</SectionLabel>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, textAlign: "center", marginTop: 2 }}>
           <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22 }}>{sums.calories}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>eaten</div></div>
-          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22, color: T.forest }}>{burned}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>burned</div></div>
+          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22, color: (targets.burnTarget && burned >= targets.burnTarget) ? T.forest : T.ink }}>{burned}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>burned{targets.burnTarget ? ` / ${targets.burnTarget}` : ""}</div></div>
           <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22, color: netCals > targets.calories ? T.alert : T.teal }}>{netCals}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>net</div></div>
         </div>
-        <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 8, lineHeight: 1.45 }}>Net = eaten − burned{burned > 0 ? ` · ${dayActs.length} activit${dayActs.length > 1 ? "ies" : "y"} burned ~${burned} kcal today` : " · log activity to see calories burned"}. Target ≈ {targets.calories} kcal.</div>
+        <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 8, lineHeight: 1.45 }}>Net = eaten − burned. {targets.burnTarget ? (burned >= targets.burnTarget ? `Burn goal ~${targets.burnTarget} kcal — hit it! 🎉` : `Burn goal ~${targets.burnTarget} kcal — ${targets.burnTarget - burned} to go (≈ a ${Math.max(1, Math.round((targets.burnTarget - burned) / 5))}-min walk).`) : (burned > 0 ? `Burned ~${burned} kcal today.` : "Log activity to see calories burned.")} Eat target ≈ {targets.calories} kcal.</div>
       </Card>
       <div style={{ height: 14 }} />
       <Card>
@@ -3332,13 +3336,18 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
             <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19 }}>{targets.protein}g</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>protein</div></div>
             <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19 }}>{targets.fiber}g</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>fiber</div></div>
             <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19, color: T.amber }}>&lt;{targets.sugar}g</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>sugar cap</div></div>
+            {targets.burnTarget > 0 && <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19, color: T.forest }}>🔥{targets.burnTarget}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>to burn</div></div>}
           </div>
           <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 8 }}>Tuned to your goals ({targets.note}){advice.focusMarkerLabel ? ` and ${advice.focusMarkerLabel}` : ""}.</div>
-          {targets.deficit > 0 && (
-            <div style={{ marginTop: 10, background: T.creamDeep, borderRadius: 10, padding: "9px 11px", fontFamily: "Inter", fontSize: 12.5, color: T.ink }}>
-              To lose weight you're eating <b>{targets.deficit} kcal under</b> your maintenance of {targets.maintenance} kcal — about <b>{targets.weeklyLossKg} kg/week</b> of fat loss. Add activity to lose a bit faster.
+          {targets.deficit > 0 ? (
+            <div style={{ marginTop: 10, background: T.creamDeep, borderRadius: 10, padding: "9px 11px", fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.5 }}>
+              You're eating <b>{targets.deficit} kcal under</b> your maintenance of {targets.maintenance} kcal (≈ <b>{targets.weeklyLossKg} kg/week</b>). On top of that, aim to <b>burn ~{targets.burnTarget} kcal/day</b> through activity — about a <b>{targets.burnMins}-min brisk walk</b> — to lose a bit faster.
             </div>
-          )}
+          ) : targets.burnTarget > 0 ? (
+            <div style={{ marginTop: 10, background: T.creamDeep, borderRadius: 10, padding: "9px 11px", fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.5 }}>
+              Stay active: aim to <b>burn ~{targets.burnTarget} kcal/day</b> — about a <b>{targets.burnMins}-min brisk walk</b>. Your Today screen tracks calories burned against this.
+            </div>
+          ) : null}
         </Card>
       )}
       <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, margin: "2px 2px 10px" }}>Tap a section to open it.</div>
@@ -4152,7 +4161,7 @@ function App() {
   // reached through the center ＋. "Progress" shows the health markers/trends (MyHealthTab);
   // "Me" opens Profile & Reports. Nav colours are literals because the bar is always deep teal.
   const NAV = [
-    { id: "today", label: "Today", icon: "home" },
+    { id: "today", label: "Dashboard", icon: "home" },
     { id: "plan", label: "Plan", icon: "clipboard" },
     { center: true },
     { id: "health", label: "Progress", icon: "activity" },
