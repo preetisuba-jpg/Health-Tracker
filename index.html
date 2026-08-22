@@ -1365,7 +1365,6 @@ function parsePastedNutrition(text) {
 // Omega-3 and Isabgol removed from here — they're already tracked precisely (dose + time)
 // in the Supplements checklist, so keeping them here was double-counting the same action.
 const HABITS = [
-  { id: "walk", label: "Walk done" },
   { id: "noAlcohol", label: "No alcohol" },
   { id: "noFried", label: "No fried food" },
   { id: "noSugar", label: "Sugar avoided" },
@@ -1418,7 +1417,7 @@ function dayScore(entries, habitsForDay, supplementsForDay, actsForDay) {
   const badMeals = entries.filter(f => f.verdict === "avoid" || f.verdict === "limit").length;
   const goodMeals = mealsCount - badMeals;
   const foodScore = mealsCount === 0 ? 70 : Math.round((goodMeals / mealsCount) * 100);
-  const habitsDone = Object.values(habitsForDay || {}).filter(Boolean).length;
+  const habitsDone = HABITS.filter(h => (habitsForDay || {})[h.id]).length;
   const habitScore = Math.round((habitsDone / HABITS.length) * 100);
   const supplementsDone = Object.values(supplementsForDay || {}).filter(Boolean).length;
   const supScore = Math.round((supplementsDone / (TOTAL_SUPPLEMENTS || 1)) * 100);
@@ -2141,7 +2140,7 @@ function TrendRow({ label, value, compareLabel, compareValue }) {
   );
 }
 
-function TodayTab({ profile, targets, advice, foodToday, habitToday, supplementsToday, weekFood, weekHabits, weekSupplements, activities, vitals, setVital, toggleHabit, supplements, onNavigate, demoCleared, clearDemo, selectedDate, setSelectedDate }) {
+function TodayTab({ profile, targets, advice, foodToday, habitToday, supplementsToday, weekFood, weekHabits, weekSupplements, activities, vitals, setVital, toggleHabit, onToggleWalk, supplements, onNavigate, demoCleared, clearDemo, selectedDate, setSelectedDate }) {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const day = new Date(selectedDate + "T00:00:00");
   const dateStr = day.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
@@ -2157,6 +2156,7 @@ function TodayTab({ profile, targets, advice, foodToday, habitToday, supplements
   // Energy balance: calories burned from the day's logged activity (MET × body weight × time),
   // and net = eaten − burned. Surfaced prominently so movement visibly offsets intake.
   const dayActs = activities[tk] || [];
+  const walkedToday = dayActs.some(a => a.type === "Walk"); // walk status now comes from the Activity Log
   const burned = dayActs.reduce((s, a) => s + activityCalories(a.type, a.duration, profile.weight), 0);
   const netCals = sums.calories - burned;
   const dayVitals = (vitals && vitals[tk]) || {}; // { water, steps, weight } for the viewed day
@@ -2181,7 +2181,7 @@ function TodayTab({ profile, targets, advice, foodToday, habitToday, supplements
       <Card style={{ padding: 16 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, textAlign: "center" }}>
           <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 23, color: score >= 70 ? T.forest : score >= 45 ? T.amber : T.alert }}>{score}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>score</div></div>
-          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 23, color: habitToday.walk ? T.forest : T.inkSoft }}>{sunday ? "—" : habitToday.walk ? "✓" : "✗"}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>walk</div></div>
+          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 23, color: walkedToday ? T.forest : T.inkSoft }}>{sunday ? "—" : walkedToday ? "✓" : "✗"}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>walk</div></div>
           <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 23 }}>{supplements.length ? `${supplementsDone}/${supplements.length}` : "—"}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>supplements</div></div>
           <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 23 }}>{sums.calories}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>calories</div></div>
         </div>
@@ -2247,13 +2247,13 @@ function TodayTab({ profile, targets, advice, foodToday, habitToday, supplements
         ) : (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon name="walk" color={T.teal} /><span style={{ fontFamily: "Inter", fontSize: 14 }}>30-min brisk walk</span></div>
-            <button onClick={() => toggleHabit(tk, "walk")} style={{ background: habitToday.walk ? T.forestPale : T.saffron, border: "none", borderRadius: 999, padding: "7px 14px", display: "flex", alignItems: "center", gap: 5, cursor: "pointer" }}>
-              {habitToday.walk && <Icon name="check" size={14} color={T.forest} />}
-              <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: habitToday.walk ? T.forest : T.white }}>{habitToday.walk ? "Done" : "Mark done"}</span>
+            <button onClick={() => onToggleWalk(tk)} style={{ background: walkedToday ? T.forestPale : T.saffron, border: "none", borderRadius: 999, padding: "7px 14px", display: "flex", alignItems: "center", gap: 5, cursor: "pointer" }}>
+              {walkedToday && <Icon name="check" size={14} color={T.forest} />}
+              <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: walkedToday ? T.forest : T.white }}>{walkedToday ? "Done" : "Mark done"}</span>
             </button>
           </div>
         )}
-        <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 8 }}>Gym, yoga, cycling log on the Habits tab under Activity Log.</div>
+        <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 8 }}>Tapping "Done" logs a 30-min walk to your Activity Log. For a different length, gym, yoga or cycling, use ＋ → Activity.</div>
       </Card>
       <div style={{ height: 14 }} />
       <Card>
@@ -4102,6 +4102,13 @@ function App() {
   const clearDemo = () => setDemoCleared(true);
   const addActivity = (dateKey, entry) => setActivities(prev => ({ ...prev, [dateKey]: [...(prev[dateKey] || []), entry] }));
   const deleteActivity = (dateKey, index) => setActivities(prev => ({ ...prev, [dateKey]: (prev[dateKey] || []).filter((_, i) => i !== index) }));
+  // One-tap "30-min brisk walk" — writes to the SAME Activity Log (single source), so walking isn't
+  // recorded in two places. On → add a 30-min Walk if none today; off → remove today's Walk entries.
+  const toggleWalk = (dateKey) => setActivities(prev => {
+    const list = prev[dateKey] || [];
+    const has = list.some(a => a.type === "Walk");
+    return { ...prev, [dateKey]: has ? list.filter(a => a.type !== "Walk") : [...list, { type: "Walk", duration: 30, time: Date.now() }] };
+  });
   const setVital = (dateKey, field, value) => {
     // value may be a plain value or an updater fn(prevFieldValue) — the latter makes rapid taps correct.
     setVitals(prev => { const day = prev[dateKey] || {}; const nv = typeof value === "function" ? value(day[field]) : value; return { ...prev, [dateKey]: { ...day, [field]: nv } }; });
@@ -4192,7 +4199,7 @@ function App() {
         </button>
         <button onClick={() => setTheme(theme === "light" ? "dark" : "light")} aria-label="Toggle light or dark mode" style={{ position: "absolute", top: "calc(14px + env(safe-area-inset-top, 0px))", right: 58, zIndex: 15, background: T.white, border: `1px solid ${T.border}`, borderRadius: 999, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.08)", fontSize: 16 }}>{theme === "light" ? "🌙" : "☀️"}</button>
         <button onClick={() => openSettings("profile")} aria-label="Profile and reports" style={{ position: "absolute", top: "calc(14px + env(safe-area-inset-top, 0px))", right: 14, zIndex: 15, background: T.white, border: `1px solid ${T.border}`, borderRadius: 999, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.08)" }}><Icon name="settings" size={17} color={T.teal} /></button>
-        {tab === "today" && <TodayTab profile={profile} targets={targets} advice={advice} foodToday={foodForDate} habitToday={habitsForDate} supplementsToday={supplementsForDate} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} activities={activities} vitals={vitals} setVital={setVital} toggleHabit={toggleHabit} supplements={supplements} onNavigate={setTab} demoCleared={demoCleared} clearDemo={clearDemo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />}
+        {tab === "today" && <TodayTab profile={profile} targets={targets} advice={advice} foodToday={foodForDate} habitToday={habitsForDate} supplementsToday={supplementsForDate} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} activities={activities} vitals={vitals} setVital={setVital} toggleHabit={toggleHabit} onToggleWalk={toggleWalk} supplements={supplements} onNavigate={setTab} demoCleared={demoCleared} clearDemo={clearDemo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />}
         {tab === "food" && <FoodCheckTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} foodForDate={foodForDate} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} addFoodEntry={addFoodEntry} deleteFoodEntry={deleteFoodEntry} updateFoodEntry={updateFoodEntry} splitFoodEntry={splitFoodEntry} customDishes={customDishes} saveCustomDish={saveCustomDish} metrics={metrics} periods={periods} targets={targets} advice={advice} />}
         {tab === "health" && <MyHealthTab metrics={metrics} periods={periods} supplementsToday={supplementsToday} toggleSupplement={(id) => toggleSupplement(tk, id)} supplements={supplements} onAddReport={() => openSettings("reports")} advice={advice} selectedDate={selectedDate} setSelectedDate={setSelectedDate} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} activities={activities} targets={targets} demoCleared={demoCleared} clearDemo={clearDemo} />}
         {tab === "habits" && <HabitsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} habitsForDate={habitsForDate} toggleHabit={toggleHabit} weekHabits={weekHabits} weekFood={weekFood} weekSupplements={weekSupplements} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} advice={advice} />}
