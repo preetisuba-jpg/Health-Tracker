@@ -2255,7 +2255,19 @@ function TodayTab({ profile, targets, advice, foodToday, habitToday, supplements
         <NutrientBar label="Fiber" value={Math.round(sums.fiber)} target={targets.fiber} unit="g" />
         <NutrientBar label="Carbs" value={Math.round(sums.carbs)} target={targets.carbs} unit="g" />
         <NutrientBar label="Sugar" value={Math.round(sums.sugar)} target={targets.sugar} unit="g" warnOver />
-        <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>Estimated targets ({targets.note}). Change goals in ⚙️ Profile.</div>
+        {isToday && mealsCount > 0 && (() => {
+          const flags = [];
+          if (sums.calories > targets.calories) flags.push({ over: true, msg: `Over on calories — ${sums.calories} of ${targets.calories}` });
+          if (sums.sugar > targets.sugar) flags.push({ over: true, msg: `Over on sugar — ${Math.round(sums.sugar)}g of ${targets.sugar}g` });
+          if (mealsCount >= 2 && sums.protein < targets.protein * 0.7) flags.push({ over: false, msg: "Low on protein — add dal, curd or paneer" });
+          if (mealsCount >= 2 && sums.fiber < targets.fiber * 0.6) flags.push({ over: false, msg: "Low on fibre — more veg, fruit & whole grain" });
+          return flags.length ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+              {flags.map((f, i) => <div key={i} style={{ display: "flex", gap: 7, alignItems: "flex-start", fontFamily: "Inter", fontSize: 12.5, fontWeight: 600 }}><span style={{ flexShrink: 0 }}>{f.over ? "⚠️" : "🔻"}</span><span style={{ color: f.over ? T.alert : T.amber }}>{f.msg}</span></div>)}
+            </div>
+          ) : <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.forest, marginTop: 10, fontWeight: 700 }}>✓ Nutrients on track today</div>;
+        })()}
+        <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 8 }}>Estimated targets ({targets.note}). Change goals in ⚙️ Profile.</div>
       </Card>
       <div style={{ height: 14 }} />
       <Card>
@@ -3294,7 +3306,33 @@ function Collapsible({ title, subtitle, emoji, accent, defaultOpen, right, child
     </div>
   );
 }
+// Turn the week's meal names into a rough shopping list by matching common ingredient keywords.
+const GROCERY_MAP = [
+  [/palak|spinach|methi|leaf|greens|saag|amaranth/i, "Leafy greens (palak / methi)"],
+  [/paneer/i, "Paneer"], [/tofu|soya|\bsoy\b/i, "Tofu / soya"],
+  [/\bdal\b|daal|moong|toor|masoor|urad|lentil|rajma|chana|chhole|chole|kidney bean|sprout/i, "Dal / legumes / sprouts"],
+  [/curd|dahi|yogurt|raita|buttermilk|chaas|lassi/i, "Curd"], [/\bmilk\b|kheer/i, "Milk"],
+  [/roti|paratha|chapati|thepla|naan|poori|\bpuri\b|phulka|bhakri|rotla|handvo|dhokla|chilla|besan/i, "Wheat / atta / besan"],
+  [/jowar|bajra|ragi|millet|nachni/i, "Millet flour (jowar / bajra / ragi)"],
+  [/\brice\b|pulao|biryani|khichdi|idli|dosa|upma|poha|pongal|sambar|uttapam|rava/i, "Rice / poha / rava"],
+  [/oats/i, "Oats"], [/\begg\b|anda|omelet/i, "Eggs"], [/chicken|murgh|tandoori/i, "Chicken"], [/fish|prawn|macher|meen/i, "Fish / prawns"],
+  [/tomato/i, "Tomatoes"], [/onion|kanda/i, "Onions"], [/potato|aloo|batata/i, "Potatoes"],
+  [/carrot|beans|cauliflower|gobi|cabbage|capsicum|brinjal|baingan|ringan|bhindi|okra|lauki|dudhi|gourd|pumpkin|peas|matar|\bveg|bharta|sabji|sabzi|shaak|shak/i, "Mixed vegetables"],
+  [/cucumber|salad|kachumber|kachombar|koshimbir/i, "Salad veg"],
+  [/coconut|nariyal/i, "Coconut"], [/peanut|groundnut|almond|cashew|walnut|\bnut/i, "Nuts / peanuts"],
+  [/fruit|banana|apple|guava|papaya|orange|berr|jamun|amla/i, "Seasonal fruit & amla"],
+  [/ghee|butter/i, "Ghee"], [/\boil\b/i, "Cooking oil"],
+];
+function groceryFromPlan(plan) {
+  if (!plan || !plan.days) return [];
+  const text = plan.days.map(d => [d.breakfast, d.lunch, d.dinner].join(" ")).join(" ");
+  const out = []; GROCERY_MAP.forEach(([re, item]) => { if (re.test(text) && !out.includes(item)) out.push(item); });
+  return out;
+}
 function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegeneratePlan, onSwapMeal }) {
+  const [checkedGro, setCheckedGro] = useState(() => new Set());
+  const grocery = groceryFromPlan(weeklyPlan);
+  const toggleGro = g => setCheckedGro(s => { const n = new Set(s); n.has(g) ? n.delete(g) : n.add(g); return n; });
   const guides = personGuidance(advice.flaggedKeys, advice.weightGoal);   // dietitian + lifestyle guidance for their conditions
   const myConds = personConditions(advice.flaggedKeys, advice.weightGoal);
   const reco = myConds.length >= 2 ? reconcileFoods(myConds) : null;   // reconcile only matters with 2+ conditions
@@ -3376,6 +3414,17 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
             <button onClick={onRegeneratePlan} style={{ background: T.tealPale, border: "none", borderRadius: 8, padding: "5px 10px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.teal, cursor: "pointer" }}>↻ Regenerate</button>
           </div>
+          <div style={{ display: "flex", gap: 14, alignItems: "center", background: T.tealPale, borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
+            <div style={{ width: 74, height: 74, borderRadius: "50%", flexShrink: 0, background: "conic-gradient(#3FA46A 0 50%, #E08A3C 50% 75%, #CDA52A 75% 100%)", boxShadow: `inset 0 0 0 4px ${T.white}` }} />
+            <div>
+              <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12.5, color: T.teal, marginBottom: 5 }}>Build every meal like this</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3, fontFamily: "Inter", fontSize: 12, color: T.ink }}>
+                <div><span style={{ color: "#3FA46A", fontWeight: 800 }}>½</span> vegetables &amp; salad</div>
+                <div><span style={{ color: "#E08A3C", fontWeight: 800 }}>¼</span> protein — dal, paneer, egg, fish</div>
+                <div><span style={{ color: "#CDA52A", fontWeight: 800 }}>¼</span> whole grain — roti, millet, brown rice</div>
+              </div>
+            </div>
+          </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {weeklyPlan.days.map((d, i) => (
               <div key={i} style={{ borderBottom: i < 6 ? `1px solid ${T.creamDeep}` : "none", paddingBottom: i < 6 ? 10 : 0 }}>
@@ -3391,6 +3440,20 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
             ))}
           </div>
           <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 10 }}>Filtered to your diet, leaning on safer choices for your markers. Regenerate for a fresh week — it also changes automatically each week.</div>
+        </Collapsible>
+      )}
+      {grocery.length > 0 && (
+        <Collapsible title="This week's shopping" emoji="🛒" subtitle={`${grocery.length} things, from your meal plan`}>
+          {grocery.map((g, i) => {
+            const on = checkedGro.has(g);
+            return (
+              <div key={i} onClick={() => toggleGro(g)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", cursor: "pointer" }}>
+                <span style={{ width: 19, height: 19, borderRadius: 5, flexShrink: 0, border: `1.5px solid ${on ? T.tealSolid : T.border}`, background: on ? T.tealSolid : "transparent", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 900 }}>{on ? "✓" : ""}</span>
+                <span style={{ fontFamily: "Inter", fontSize: 13.5, color: on ? T.inkSoft : T.ink, textDecoration: on ? "line-through" : "none" }}>{g}</span>
+              </div>
+            );
+          })}
+          <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginTop: 8, lineHeight: 1.5 }}>Auto-made from this week's meals. Prep tip: soak dal &amp; chop veg on Sunday to make the week easy.</div>
         </Collapsible>
       )}
       <Collapsible title="Eat more of" emoji="🌿" accent={T.forest} subtitle={eatMoreByCond.length ? "By your goals — chosen so they don't clash" : null}>
