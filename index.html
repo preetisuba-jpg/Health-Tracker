@@ -501,16 +501,37 @@ const CUISINE_MEALS_NV = {
 };
 // Merge the balanced library down to the cuisines the person likes; fall back to a rounded
 // default. For non-veg/pescatarian/eggetarian diets, also mix in matching non-veg dishes.
+// Predicate for which non-veg dishes fit the person's pattern (full non-veg = all; pescatarian =
+// fish+egg; eggetarian = egg only). Shared by the pool builder and the "guarantee non-veg" step.
+function nonVegPredicate(prefs) {
+  return d => {
+    const n = (d || "").toLowerCase();
+    const fish = /fish|prawn|shrimp|salmon|tuna|meen|seafood|macher/.test(n);
+    const egg = /\begg\b|omelette|bhurji|shakshuka|congee|jok/.test(n);
+    const meat = /chicken|murgh|mutton|lamb|keema|tikka|tandoori|korma|xacuti|cafreal|chettinad|souvlaki|haleem|biryani|stew|jhol/.test(n) && !fish;
+    if (prefs.nonveg) return true;
+    if (prefs.pescatarian) return fish || egg;
+    if (prefs.eggOk) return egg && !meat && !fish;
+    return false;
+  };
+}
+// Non-veg-only pools (used to GUARANTEE non-veg dishes land in the weekly plan for a non-veg user —
+// otherwise the healthiness score always ranks veg dishes above them and they never appear).
+function nvOnlyPools(prefs) {
+  const cuisines = (prefs.cuisines || []).filter(c => CUISINE_MEALS_NV[c]);
+  const useC = cuisines.length ? cuisines : Object.keys(CUISINE_MEALS_NV);
+  const okNV = nonVegPredicate(prefs);
+  const merge = slot => useC.reduce((a, c) => a.concat(((CUISINE_MEALS_NV[c] || {})[slot] || []).filter(okNV)), []);
+  return { breakfast: merge("breakfast"), lunch: merge("lunch"), dinner: merge("dinner") };
+}
 function mealPoolsFor(prefs) {
   const picked = (prefs.cuisines || []).filter(c => CUISINE_MEALS[c]);
   const cuisines = picked.length ? picked : ["North Indian", "South Indian", "Gujarati", "Continental"];
   const merge = slot => cuisines.reduce((a, c) => a.concat(CUISINE_MEALS[c][slot] || []), []);
   const pools = { breakfast: merge("breakfast"), lunch: merge("lunch"), dinner: merge("dinner") };
   if (prefs.nonveg || prefs.pescatarian || prefs.eggOk) {
-    const nvC = cuisines.filter(c => CUISINE_MEALS_NV[c]); const useC = nvC.length ? nvC : Object.keys(CUISINE_MEALS_NV);
-    const okNV = d => { const n = d.toLowerCase(); const fish = /fish|prawn|shrimp|salmon|tuna|meen|seafood|macher/.test(n); const egg = /\begg\b|omelette|bhurji|shakshuka|congee|jok/.test(n); const meat = /chicken|murgh|mutton|lamb|keema|tikka|tandoori|korma|xacuti|cafreal|chettinad|souvlaki|haleem|biryani|stew|jhol/.test(n) && !fish; if (prefs.nonveg) return true; if (prefs.pescatarian) return fish || egg; if (prefs.eggOk) return egg && !meat && !fish; return false; };
-    const mergeNV = slot => useC.reduce((a, c) => a.concat(((CUISINE_MEALS_NV[c] || {})[slot] || []).filter(okNV)), []);
-    ["breakfast", "lunch", "dinner"].forEach(s => { pools[s] = pools[s].concat(mergeNV(s)); });
+    const nv = nvOnlyPools(prefs);
+    ["breakfast", "lunch", "dinner"].forEach(s => { pools[s] = pools[s].concat(nv[s]); });
   }
   return pools;
 }
@@ -575,9 +596,35 @@ function pickWeek(pool, seed, prefs) {
   while (out.length < 7) out.push(top[out.length % (top.length || 1)] || "—");
   return out;
 }
+// Force at least `count` distinct non-veg dishes into a 7-day slot line-up (spread across the week),
+// replacing veg picks — so a non-veg user actually SEES non-veg food, not an all-veg plan.
+function ensureNonVeg(week7, nvPool, prefs, seed, count) {
+  const cleanNV = (nvPool || []).filter(x => x && mealAllowed(x, prefs));
+  if (!cleanNV.length || count <= 0) return week7;
+  const have = week7.filter(x => cleanNV.includes(x)).length;
+  let need = Math.min(count, cleanNV.length) - have;
+  if (need <= 0) return week7;
+  const usedNV = new Set(week7.filter(x => cleanNV.includes(x)));
+  const picks = cleanNV.map((x, i) => ({ x, s: mealScore(x), r: seededRand(seed + i * 2.7) }))
+    .sort((a, b) => b.s - a.s || a.r - b.r).map(o => o.x).filter(x => !usedNV.has(x));
+  const out = week7.slice();
+  const positions = [3, 6, 1, 4, 0, 5, 2]; // deterministic spread, not clustered
+  for (const idx of positions) {
+    if (need <= 0 || !picks.length) break;
+    if (cleanNV.includes(out[idx])) continue; // already non-veg here
+    out[idx] = picks.shift(); need--;
+  }
+  return out;
+}
 function generateWeeklyPlan(week, seed, prefs) {
   const pools = mealPoolsFor(prefs);
-  const b = pickWeek(pools.breakfast, seed, prefs), l = pickWeek(pools.lunch, seed + 1, prefs), d = pickWeek(pools.dinner, seed + 2, prefs);
+  let b = pickWeek(pools.breakfast, seed, prefs), l = pickWeek(pools.lunch, seed + 1, prefs), d = pickWeek(pools.dinner, seed + 2, prefs);
+  if (prefs.nonveg || prefs.pescatarian || prefs.eggOk) {
+    const nv = nvOnlyPools(prefs);
+    d = ensureNonVeg(d, nv.dinner, prefs, seed + 5, 3);              // ≥3 non-veg dinners
+    l = ensureNonVeg(l, nv.lunch, prefs, seed + 6, 2);              // ≥2 non-veg lunches
+    b = ensureNonVeg(b, nv.breakfast, prefs, seed + 7, prefs.eggOk ? 2 : 0); // eggs at breakfast when eggs are OK
+  }
   return { week, seed, days: [0, 1, 2, 3, 4, 5, 6].map(i => ({ breakfast: b[i], lunch: l[i], dinner: d[i] })) };
 }
 function swapMeal(plan, dayIdx, slot, prefs) {
@@ -1661,7 +1708,7 @@ function idbPut(db, key, value) {
 // this fix), migrate the existing localStorage health keys across so nothing already saved is lost.
 async function initKV() {
   KV_IDB = await idbOpen();
-  if (!KV_IDB) return; // no IndexedDB (e.g. hard-blocked) -> useKV falls back to localStorage reads
+  if (!KV_IDB) { freshResetIfNeeded(); return; } // no IndexedDB (e.g. hard-blocked) -> useKV falls back to localStorage reads
   const all = await idbGetAll(KV_IDB);
   Object.assign(KV_MEM, all);
   if (!Object.keys(all).some(isAppKey)) {
@@ -1673,6 +1720,25 @@ async function initKV() {
       }
     } catch {}
   }
+  freshResetIfNeeded();
+}
+// ?new is an explicit "start fresh" link. A device that saw an OLDER build (or visited before) may
+// already have the personal demo saved — and the in-component blank-lock BAILS when it finds the
+// seed flag set, so that stale data (Jignesh profile/history/People) would show. So here, ONCE per
+// device (guarded by "fresh:reset"), we hard-clear to a truly blank slate BEFORE the app renders —
+// no flash of old data. Skipped for signed-in accounts (their data lives in their cloud account).
+function freshResetIfNeeded() {
+  try {
+    if (!FRESH_MODE || kvGet("fresh:reset", null)) return;
+    if (kvGet("account:on", false)) { kvSetLocal("fresh:reset", 1); return; }
+    const blanks = {
+      "profile:data": BLANK_PROFILE, "reports:metrics": blankMetrics(), "reports:periods": [],
+      "supplements:list": [], "profiles:list": [{ id: "self", name: "" }], "profiles:active": "self",
+      "week:foodlog": {}, "activities:log": {}, "week:habits": {}, "week:supplements": {},
+      "plan:weekly": null, "seed:history": SEED_VERSION, "profile:onboarded": false, "fresh:reset": 1,
+    };
+    Object.keys(blanks).forEach(k => kvSetLocal(k, blanks[k]));
+  } catch (e) {}
 }
 function kvGet(key, initial) {
   if (Object.prototype.hasOwnProperty.call(KV_MEM, key)) return KV_MEM[key];
@@ -3945,7 +4011,6 @@ function WelcomeScreen({ onTryFirst, onDone }) {
         <div style={{ textAlign: "center", marginTop: 12, fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>Already have one? <button disabled={working} onClick={signin} style={{ background: "none", border: "none", color: T.teal, fontWeight: 800, cursor: "pointer", fontSize: 13, fontFamily: "Inter", padding: 0 }}>Sign in</button></div>
         <div style={{ height: 1, background: T.border, margin: "16px 0" }} />
         <button onClick={onTryFirst} style={{ width: "100%", background: "none", border: "none", color: T.inkSoft, fontFamily: "Inter", fontSize: 13.5, cursor: "pointer" }}>Just try it first →</button>
-        <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, textAlign: "center", marginTop: 10, lineHeight: 1.4 }}>Needs internet. (Not available inside the shared claude.ai preview.)</div>
       </div>
     </div>
   );
