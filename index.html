@@ -3922,6 +3922,34 @@ function OnbChip({ label, on, onClick }) {
 // the rich profile (conditions, goals, diet, cuisines, activity, plan opt-in) and flips the two
 // body-composition goal toggles the advice/target engine reads. Built now so adding another
 // person is just a fresh run of this wizard.
+// First-launch welcome: account-first (so data is safe from the start), with a "try it first" escape.
+function WelcomeScreen({ onTryFirst, onDone }) {
+  const [email, setEmail] = useState("");
+  const [pass, setPass] = useState("");
+  const [, setTick] = useState(0);
+  useEffect(() => { const h = () => setTick(t => t + 1); window.addEventListener("auth-state", h); return () => window.removeEventListener("auth-state", h); }, []);
+  const a = authState(); const working = a.status === "working";
+  const create = async () => { const ok = await authSignUp(email, pass); if (ok) onDone(true); };
+  const signin = async () => { const ok = await authSignIn(email, pass); if (ok) onDone(false); };
+  const inS = { width: "100%", boxSizing: "border-box", border: `1px solid ${T.border}`, borderRadius: 12, padding: "12px 14px", fontFamily: "Inter", fontSize: 15, marginBottom: 10, background: T.cream, color: T.ink };
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 60, background: `linear-gradient(160deg, ${T.teal}, ${T.tealSolid})`, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "26px 20px", overflowY: "auto" }}>
+      <div style={{ width: "100%", maxWidth: 380, background: T.cream, borderRadius: 22, padding: 22, boxShadow: "0 20px 50px rgba(0,0,0,0.3)" }}>
+        <div style={{ fontSize: 34, textAlign: "center", marginBottom: 4 }}>🥗</div>
+        <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 21, color: T.teal, textAlign: "center", marginBottom: 4 }}>Welcome to Health Companion</div>
+        <div style={{ fontFamily: "Inter", fontSize: 13.5, color: T.inkSoft, textAlign: "center", marginBottom: 18, lineHeight: 1.45 }}>Create a free account so your data is safe and follows you on every device.</div>
+        <input type="email" autoComplete="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} style={inS} />
+        <input type="password" autoComplete="current-password" placeholder="Password (6+ characters)" value={pass} onChange={e => setPass(e.target.value)} style={inS} />
+        {a.error && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.alert, marginBottom: 8, lineHeight: 1.4 }}>{a.error}</div>}
+        <button disabled={working} onClick={create} style={{ width: "100%", background: T.tealSolid, border: "none", borderRadius: 12, padding: "13px 0", color: "#fff", fontFamily: "Manrope", fontWeight: 800, fontSize: 15.5, cursor: "pointer", opacity: working ? 0.6 : 1 }}>{working ? "…" : "Create free account"}</button>
+        <div style={{ textAlign: "center", marginTop: 12, fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>Already have one? <button disabled={working} onClick={signin} style={{ background: "none", border: "none", color: T.teal, fontWeight: 800, cursor: "pointer", fontSize: 13, fontFamily: "Inter", padding: 0 }}>Sign in</button></div>
+        <div style={{ height: 1, background: T.border, margin: "16px 0" }} />
+        <button onClick={onTryFirst} style={{ width: "100%", background: "none", border: "none", color: T.inkSoft, fontFamily: "Inter", fontSize: 13.5, cursor: "pointer" }}>Just try it first →</button>
+        <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, textAlign: "center", marginTop: 10, lineHeight: 1.4 }}>Needs internet. (Not available inside the shared claude.ai preview.)</div>
+      </div>
+    </div>
+  );
+}
 function OnboardingWizard({ open, onClose, profile, saveProfile, goalToggles, saveGoalToggles, onGenerateSample, firstSetup, onFreshSetup, onDone }) {
   const build = () => ({
     name: profile.name || "", gender: profile.gender || "Male", age: profile.age ?? "", height: profile.height ?? "", weight: profile.weight ?? "", city: profile.city || "",
@@ -4050,7 +4078,10 @@ function App() {
   const pk = (k) => isSelf ? k : `p:${activeId}:${k}`;
   const [onboarded, setOnboarded] = useKV(pk("profile:onboarded"), false);
   const [wizardOpen, setWizardOpen] = useState(false);
-  useEffect(() => { if (!onboarded) setWizardOpen(true); }, []); // first-launch guided setup (skippable)
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+  // First launch: a brand-new, signed-out device sees the Welcome (account-first, with a "try it
+  // first" escape). A device that has signed in before just resumes and its data syncs back.
+  useEffect(() => { if (onboarded) return; if (!kvGet("account:on", false)) setWelcomeOpen(true); else setWizardOpen(true); }, []);
   const tk = todayKey();
 
   const [weekFood, setWeekFood] = useKV(pk("week:foodlog"), {});
@@ -4274,14 +4305,6 @@ function App() {
             ⚠️ Couldn't save to this browser's storage — it may be full. Tap to open Data & export a backup.
           </div>
         )}
-        {onboarded && !acctPromptOff && authState().status !== "signedin" && (
-          <div style={{ position: "fixed", bottom: 78, left: "50%", transform: "translateX(-50%)", width: "calc(100% - 24px)", maxWidth: 396, zIndex: 35, background: T.tealSolid, color: "#fff", borderRadius: 14, padding: "11px 13px", boxShadow: "0 6px 20px rgba(0,0,0,0.22)", display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 18, flexShrink: 0 }}>☁️</span>
-            <span style={{ flex: 1, fontFamily: "Inter", fontSize: 12.5, lineHeight: 1.35 }}>Create a free account to save your data &amp; use it on any device.</span>
-            <button onClick={() => { setAcctPromptOff(true); openSettings("account"); }} style={{ background: "#fff", color: T.teal, border: "none", borderRadius: 9, padding: "7px 11px", fontFamily: "Manrope", fontWeight: 800, fontSize: 12, cursor: "pointer", flexShrink: 0 }}>Create</button>
-            <button onClick={() => setAcctPromptOff(true)} aria-label="Dismiss" style={{ background: "transparent", border: "none", color: "rgba(255,255,255,0.85)", fontSize: 16, cursor: "pointer", flexShrink: 0, padding: 2 }}>✕</button>
-          </div>
-        )}
         <button onClick={() => setNotifsOpen(true)} aria-label="Notifications" style={{ position: "absolute", top: "calc(14px + env(safe-area-inset-top, 0px))", right: 102, zIndex: 15, background: T.white, border: `1px solid ${T.border}`, borderRadius: 999, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.08)" }}>
           <Icon name="bell" size={17} color={T.teal} />
           {notifications.length > 0 && <span style={{ position: "absolute", top: -4, right: -4, minWidth: 18, height: 18, padding: "0 4px", borderRadius: 9, background: T.alert, color: "#fff", fontFamily: "Manrope", fontWeight: 800, fontSize: 12, display: "grid", placeItems: "center", border: `2px solid ${T.cream}` }}>{notifications.length}</span>}
@@ -4348,6 +4371,7 @@ function App() {
           </div>
         )}
         <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} initialSection={settingsSection} profile={profile} saveProfile={setProfile} goalToggles={goalToggles} saveGoalToggles={setGoalToggles} customGoals={customGoals} saveCustomGoals={setCustomGoals} metrics={metrics} saveMetrics={setMetrics} periods={periods} savePeriods={setPeriods} supplements={supplements} saveSupplements={setSupplements} onClearDate={clearDateData} onClearAll={clearAllData} onApplyDemoMonth={applyDemoMonth} onOpenWizard={() => { setSettingsOpen(false); setWizardOpen(true); }} profiles={profiles} activeId={activeId} onSwitchPerson={switchPerson} onAddPerson={addPerson} onRemovePerson={removePerson} notifSettings={notifSettings} saveNotifSettings={setNotifSettings} />
+        {welcomeOpen && <WelcomeScreen onTryFirst={() => { setWelcomeOpen(false); setWizardOpen(true); }} onDone={(isNew) => { setWelcomeOpen(false); if (isNew) setWizardOpen(true); }} />}
         <OnboardingWizard open={wizardOpen} onClose={() => { setWizardOpen(false); setOnboarded(true); }} profile={profile} saveProfile={setProfile} goalToggles={goalToggles} saveGoalToggles={setGoalToggles} onGenerateSample={applySampleHistory} firstSetup={!onboarded} onFreshSetup={clearSeedForNewUser} onDone={() => { setWizardOpen(false); setOnboarded(true); }} />
       </div>
     </div>
