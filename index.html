@@ -1767,8 +1767,23 @@ function parseFirebaseConfig(text) {
   try { return (new Function("return (" + t + ")"))(); } catch (e) {}
   return null;
 }
-function gatherAppData() { const d = {}; Object.keys(KV_MEM).forEach(k => { if (isAppKey(k) && !k.startsWith("sync:")) d[k] = KV_MEM[k]; }); return d; }
-function applyRemote(data) { if (!data) return; Object.keys(data).forEach(k => { if (!isAppKey(k) || k.startsWith("sync:")) return; try { if (JSON.stringify(KV_MEM[k]) !== JSON.stringify(data[k])) kvSetLocal(k, data[k]); } catch (e) { kvSetLocal(k, data[k]); } }); }
+// "profiles:active" (which profile is on screen) is DEVICE-LOCAL — never sync it, or signing in on a
+// device could silently switch you to a different profile and make your data look gone.
+function isSyncedKey(k) { return isAppKey(k) && !k.startsWith("sync:") && k !== "profiles:active" && k !== "account:on"; }
+function gatherAppData() { const d = {}; Object.keys(KV_MEM).forEach(k => { if (isSyncedKey(k)) d[k] = KV_MEM[k]; }); return d; }
+function applyRemote(data) { if (!data) return; Object.keys(data).forEach(k => { if (!isSyncedKey(k)) return; try { if (JSON.stringify(KV_MEM[k]) !== JSON.stringify(data[k])) kvSetLocal(k, data[k]); } catch (e) { kvSetLocal(k, data[k]); } }); }
+// True if THIS device already holds real data in ANY profile (self or an added person). Used so a
+// device with data never gets overwritten by an emptier cloud copy on sign-in.
+function deviceHasData() {
+  for (const k of Object.keys(KV_MEM)) {
+    try {
+      if (/(^|:)week:foodlog$|(^|:)activities:log$|(^|:)week:supplements$|(^|:)week:habits$/.test(k) && Object.keys(KV_MEM[k] || {}).length) return true;
+      if (/(^|:)profile:data$/.test(k) && KV_MEM[k] && KV_MEM[k].name) return true;
+      if (/(^|:)reports:metrics$/.test(k) && (KV_MEM[k] || []).some(m => (m.points || []).some(v => v != null))) return true;
+    } catch (e) {}
+  }
+  return false;
+}
 let _pushTimer = null;
 function syncPushSoon() { if (!FB) return; clearTimeout(_pushTimer); _pushTimer = setTimeout(syncPushNow, 900); }
 function syncPushNow() { if (!FB) return; FB.ref.set({ data: gatherAppData(), updatedAt: Date.now(), origin: SYNC_CLIENT }, { merge: true }).catch(e => dispatchSync({ status: "error", error: String(e && e.message || e) })); }
@@ -1856,8 +1871,8 @@ async function startAccountSync(uid) {
   // Adopt the cloud copy ONLY if it's richer than what's on this device (second device pulling your
   // data) — otherwise keep local and push it up (creating an account from a device that already has
   // your profile/reports must never wipe them with an empty cloud doc).
-  if (remote && dataScore(remote) > dataScore(gatherAppData())) applyRemote(remote);
-  await ref.set({ data: gatherAppData(), updatedAt: Date.now(), origin: SYNC_CLIENT }, { merge: true }); // push the winner up
+  if (remote && !deviceHasData()) applyRemote(remote); // only a blank device pulls; a device with data keeps it and pushes up
+  await ref.set({ data: gatherAppData(), updatedAt: Date.now(), origin: SYNC_CLIENT }, { merge: true }); // push local up
   FB.unsub = ref.onSnapshot(s => { const d = s.data(); if (d && d.data && d.origin !== SYNC_CLIENT) applyRemote(d.data); });
 }
 // Attach the auth-state listener once; on sign-in start per-uid sync, on sign-out stop it.
@@ -3273,7 +3288,7 @@ function Collapsible({ title, subtitle, emoji, accent, defaultOpen, right, child
           <span style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 14, color: accent || T.teal }}>{emoji ? emoji + " " : ""}{title}</span>
           {subtitle && <span style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginTop: 2 }}>{subtitle}</span>}
         </span>
-        <span style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }}>▾</span>
+        <span style={{ flexShrink: 0, width: 28, height: 28, borderRadius: 999, background: T.tealPale, color: T.teal, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800, lineHeight: 1, transform: open ? "rotate(180deg)" : "none", transition: "transform .18s" }}>⌄</span>
       </button>
       {open && <div style={{ padding: "0 15px 15px" }}>{children}</div>}
     </div>
@@ -3357,7 +3372,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
       )}
       <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, margin: "2px 2px 10px" }}>Tap a section to open it.</div>
       {weeklyPlan && weeklyPlan.days && (
-        <Collapsible title="This week's meal plan" subtitle="7 days · tap ↻ to swap a meal" defaultOpen>
+        <Collapsible title="This week's meal plan" subtitle="Built to hit your calorie & nutrient targets · tap ↻ to swap">
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
             <button onClick={onRegeneratePlan} style={{ background: T.tealPale, border: "none", borderRadius: 8, padding: "5px 10px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.teal, cursor: "pointer" }}>↻ Regenerate</button>
           </div>
@@ -3419,19 +3434,16 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
         </Collapsible>
       )}
       {guides.length > 0 && (
-        <Collapsible title="Your plan by condition" subtitle="Eat-more / eat-less / lifestyle for each">
+        <Collapsible title="Daily habits by condition" subtitle="Simple routines for each of your conditions">
           {guides.map(g => (
-            <div key={g.id} style={{ marginBottom: 14, paddingBottom: 14, borderBottom: `1px solid ${T.creamDeep}` }}>
+            <div key={g.id} style={{ marginBottom: 12, paddingBottom: 12, borderBottom: `1px solid ${T.creamDeep}` }}>
               <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 14.5, marginBottom: 2 }}>{g.label}</div>
-              {g.improves && <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>Helps: {g.improves}</div>}
-              {gBlock("EAT MORE", g.eat_more, T.forest, "🌿")}
-              {gBlock("EAT LESS", g.eat_less, T.amber, "🟡")}
-              {gBlock("STRONG NO", g.strong_no, T.alert, "🔴")}
-              {gBlock("ROUTINE / LIFESTYLE", g.lifestyle, T.teal, "🧘")}
+              {g.improves && <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 8 }}>Helps: {g.improves}</div>}
+              {gBlock("DO THIS", g.lifestyle, T.teal, "🧘")}
               {g.caveat && <div style={{ fontFamily: "Inter", fontSize: 11, color: T.alert, marginTop: 6, lineHeight: 1.4 }}>⚠ {g.caveat}</div>}
             </div>
           ))}
-          <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, lineHeight: 1.4 }}>{(GUIDANCE_DB && GUIDANCE_DB.disclaimer) || "General guidance, not medical advice. Consult a dietitian/doctor."}</div>
+          <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, lineHeight: 1.4 }}>Food to eat &amp; avoid are in the sections above. {(GUIDANCE_DB && GUIDANCE_DB.disclaimer) || "General guidance, not medical advice."}</div>
         </Collapsible>
       )}
       {homeRemedies.length > 0 && (
