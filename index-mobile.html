@@ -5038,11 +5038,14 @@ function syncPushSoon() {
 }
 function syncPushNow() {
   if (!FB) return;
-  FB.ref.set({
+  const payload = {
     data: gatherAppData(),
     updatedAt: Date.now(),
     origin: SYNC_CLIENT
-  }, {
+  };
+  const contact = kvGet("account:contact", null);
+  if (contact) payload.contact = contact;
+  FB.ref.set(payload, {
     merge: true
   }).catch(e => dispatchSync({
     status: "error",
@@ -5215,11 +5218,14 @@ async function startAccountSync(uid) {
   // treated a seed-only device as "has data" and let it push the demo over your real data).
   const localData = gatherAppData();
   if (remote && dataScore(remote) >= dataScore(localData)) applyRemote(remote);
-  await ref.set({
+  const payload = {
     data: gatherAppData(),
     updatedAt: Date.now(),
     origin: SYNC_CLIENT
-  }, {
+  };
+  const contact = kvGet("account:contact", null);
+  if (contact) payload.contact = contact; // name+phone of who registered (owner-visible in Firestore)
+  await ref.set(payload, {
     merge: true
   }); // push the winner up
   FB.unsub = ref.onSnapshot(s => {
@@ -5261,7 +5267,7 @@ async function authInit() {
     }
   });
 }
-async function authSignUp(email, pass) {
+async function authSignUp(email, pass, contact) {
   dispatchAuth({
     status: "working",
     error: null
@@ -5269,6 +5275,24 @@ async function authSignUp(email, pass) {
   try {
     const fb = await ensureFirebaseApp();
     await authInit();
+    // Capture the sign-up name + phone BEFORE creating the account, so onAuthStateChanged/sync can
+    // stamp them onto the cloud user doc (owner can see who registered) and prefill the profile name.
+    if (contact && (contact.name || contact.phone)) {
+      const rec = {
+        name: (contact.name || "").trim(),
+        phone: (contact.phone || "").trim(),
+        email: (email || "").trim(),
+        at: Date.now()
+      };
+      kvSetLocal("account:contact", rec);
+      try {
+        const pd = kvGet("profile:data", null) || {};
+        if (rec.name) kvSetLocal("profile:data", {
+          ...pd,
+          name: rec.name
+        });
+      } catch (e) {}
+    }
     await fb.auth().createUserWithEmailAndPassword((email || "").trim(), pass);
     return true;
   } catch (e) {
@@ -12752,11 +12776,14 @@ function OnbChip({
 // person is just a fresh run of this wizard.
 // First-launch welcome: account-first (so data is safe from the start), with a "try it first" escape.
 function WelcomeScreen({
-  onTryFirst,
   onDone
 }) {
+  const [mode, setMode] = useState("create"); // create | signin
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("+");
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
+  const [err, setErr] = useState("");
   const [, setTick] = useState(0);
   useEffect(() => {
     const h = () => setTick(t => t + 1);
@@ -12766,10 +12793,21 @@ function WelcomeScreen({
   const a = authState();
   const working = a.status === "working";
   const create = async () => {
-    const ok = await authSignUp(email, pass);
+    setErr("");
+    if (!name.trim()) return setErr("Please enter your name.");
+    const digits = (phone || "").replace(/[^0-9]/g, "");
+    if (!(phone || "").trim().startsWith("+") || digits.length < 8) return setErr("Enter a mobile number with country code, starting with + (e.g. +91 98765 43210).");
+    if (!email.trim()) return setErr("Please enter your email.");
+    if ((pass || "").length < 6) return setErr("Password should be at least 6 characters.");
+    const ok = await authSignUp(email, pass, {
+      name: name.trim(),
+      phone: phone.trim()
+    });
     if (ok) onDone(true);
   };
   const signin = async () => {
+    setErr("");
+    if (!email.trim() || !pass) return setErr("Enter your email and password.");
     const ok = await authSignIn(email, pass);
     if (ok) onDone(false);
   };
@@ -12784,6 +12822,14 @@ function WelcomeScreen({
     marginBottom: 10,
     background: T.cream,
     color: T.ink
+  };
+  const lbl = {
+    fontFamily: "Inter",
+    fontSize: 11.5,
+    fontWeight: 700,
+    color: T.inkSoft,
+    marginBottom: 4,
+    marginTop: 2
   };
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -12831,21 +12877,42 @@ function WelcomeScreen({
       marginBottom: 18,
       lineHeight: 1.45
     }
-  }, "Create a free account so your data is safe and follows you on every device."), /*#__PURE__*/React.createElement("input", {
+  }, mode === "create" ? "Create a free account so your data is safe and follows you on every device." : "Welcome back — sign in to your account."), mode === "create" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: lbl
+  }, "YOUR NAME"), /*#__PURE__*/React.createElement("input", {
+    autoComplete: "name",
+    placeholder: "e.g. Jignesh Suba",
+    value: name,
+    onChange: e => setName(e.target.value),
+    style: inS
+  }), /*#__PURE__*/React.createElement("div", {
+    style: lbl
+  }, "MOBILE NUMBER (with country code)"), /*#__PURE__*/React.createElement("input", {
+    type: "tel",
+    autoComplete: "tel",
+    placeholder: "+91 98765 43210",
+    value: phone,
+    onChange: e => setPhone(e.target.value),
+    style: inS
+  })), /*#__PURE__*/React.createElement("div", {
+    style: lbl
+  }, "EMAIL ", mode === "create" ? "(this is your username)" : ""), /*#__PURE__*/React.createElement("input", {
     type: "email",
     autoComplete: "email",
-    placeholder: "Email",
+    placeholder: "you@example.com",
     value: email,
     onChange: e => setEmail(e.target.value),
     style: inS
-  }), /*#__PURE__*/React.createElement("input", {
+  }), /*#__PURE__*/React.createElement("div", {
+    style: lbl
+  }, "PASSWORD"), /*#__PURE__*/React.createElement("input", {
     type: "password",
-    autoComplete: "current-password",
-    placeholder: "Password (6+ characters)",
+    autoComplete: mode === "create" ? "new-password" : "current-password",
+    placeholder: mode === "create" ? "At least 6 characters" : "Your password",
     value: pass,
     onChange: e => setPass(e.target.value),
     style: inS
-  }), a.error && /*#__PURE__*/React.createElement("div", {
+  }), (err || a.error) && /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: "Inter",
       fontSize: 12.5,
@@ -12853,9 +12920,9 @@ function WelcomeScreen({
       marginBottom: 8,
       lineHeight: 1.4
     }
-  }, a.error), /*#__PURE__*/React.createElement("button", {
+  }, err || a.error), /*#__PURE__*/React.createElement("button", {
     disabled: working,
-    onClick: create,
+    onClick: mode === "create" ? create : signin,
     style: {
       width: "100%",
       background: T.tealSolid,
@@ -12869,17 +12936,20 @@ function WelcomeScreen({
       cursor: "pointer",
       opacity: working ? 0.6 : 1
     }
-  }, working ? "…" : "Create free account"), /*#__PURE__*/React.createElement("div", {
+  }, working ? "…" : mode === "create" ? "Create free account" : "Sign in"), /*#__PURE__*/React.createElement("div", {
     style: {
       textAlign: "center",
-      marginTop: 12,
+      marginTop: 14,
       fontFamily: "Inter",
       fontSize: 13,
       color: T.inkSoft
     }
-  }, "Already have one? ", /*#__PURE__*/React.createElement("button", {
+  }, mode === "create" ? /*#__PURE__*/React.createElement(React.Fragment, null, "Already have an account? ", /*#__PURE__*/React.createElement("button", {
     disabled: working,
-    onClick: signin,
+    onClick: () => {
+      setMode("signin");
+      setErr("");
+    },
     style: {
       background: "none",
       border: "none",
@@ -12890,24 +12960,23 @@ function WelcomeScreen({
       fontFamily: "Inter",
       padding: 0
     }
-  }, "Sign in")), /*#__PURE__*/React.createElement("div", {
+  }, "Sign in")) : /*#__PURE__*/React.createElement(React.Fragment, null, "New here? ", /*#__PURE__*/React.createElement("button", {
+    disabled: working,
+    onClick: () => {
+      setMode("create");
+      setErr("");
+    },
     style: {
-      height: 1,
-      background: T.border,
-      margin: "16px 0"
-    }
-  }), /*#__PURE__*/React.createElement("button", {
-    onClick: onTryFirst,
-    style: {
-      width: "100%",
       background: "none",
       border: "none",
-      color: T.inkSoft,
+      color: T.teal,
+      fontWeight: 800,
+      cursor: "pointer",
+      fontSize: 13,
       fontFamily: "Inter",
-      fontSize: 13.5,
-      cursor: "pointer"
+      padding: 0
     }
-  }, "Just try it first \u2192")));
+  }, "Create account")))));
 }
 function OnboardingWizard({
   open,
@@ -13408,6 +13477,7 @@ function App() {
   const [selectedDate, setSelectedDate] = useState(todayKey());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState("profile");
+  const [gearMenuOpen, setGearMenuOpen] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const [notifsOpen, setNotifsOpen] = useState(false);
   // Surface any failed persist (e.g. storage full) instead of silently dropping the save.
@@ -14059,13 +14129,13 @@ function App() {
       fontSize: 16
     }
   }, theme === "light" ? "🌙" : "☀️"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => openSettings("profile"),
-    "aria-label": "Profile and reports",
+    onClick: () => setGearMenuOpen(o => !o),
+    "aria-label": "Menu",
     style: {
       position: "absolute",
       top: "calc(14px + env(safe-area-inset-top, 0px))",
       right: 14,
-      zIndex: 15,
+      zIndex: 20,
       background: T.white,
       border: `1px solid ${T.border}`,
       borderRadius: 999,
@@ -14081,7 +14151,101 @@ function App() {
     name: "settings",
     size: 17,
     color: T.teal
-  })), tab === "today" && /*#__PURE__*/React.createElement(TodayTab, {
+  })), gearMenuOpen && (() => {
+    const acc = authState();
+    const rowS = {
+      display: "flex",
+      alignItems: "center",
+      gap: 11,
+      width: "100%",
+      background: "none",
+      border: "none",
+      padding: "12px 15px",
+      cursor: "pointer",
+      fontFamily: "Manrope",
+      fontWeight: 700,
+      fontSize: 14,
+      color: T.ink,
+      textAlign: "left"
+    };
+    const item = (emoji, label, sub, onClick) => /*#__PURE__*/React.createElement("button", {
+      onClick: onClick,
+      style: rowS,
+      onMouseDown: e => e.preventDefault()
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 17,
+        width: 20,
+        textAlign: "center"
+      }
+    }, emoji), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", null, label), sub && /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "block",
+        fontFamily: "Inter",
+        fontWeight: 400,
+        fontSize: 11.5,
+        color: T.inkSoft,
+        marginTop: 1
+      }
+    }, sub)));
+    return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+      onClick: () => setGearMenuOpen(false),
+      style: {
+        position: "fixed",
+        inset: 0,
+        zIndex: 18
+      }
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        position: "absolute",
+        top: "calc(56px + env(safe-area-inset-top, 0px))",
+        right: 14,
+        zIndex: 19,
+        background: T.white,
+        border: `1px solid ${T.border}`,
+        borderRadius: 14,
+        boxShadow: "0 12px 34px rgba(0,0,0,0.20)",
+        overflow: "hidden",
+        minWidth: 220
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: "10px 15px",
+        borderBottom: `1px solid ${T.border}`,
+        background: T.cream
+      }
+    }, acc.status === "signedin" ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "Inter",
+        fontSize: 11.5,
+        color: T.inkSoft
+      }
+    }, "Signed in as", /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "Manrope",
+        fontWeight: 700,
+        fontSize: 12.5,
+        color: T.ink,
+        marginTop: 1,
+        wordBreak: "break-all"
+      }
+    }, acc.email)) : /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "Inter",
+        fontSize: 12,
+        color: T.inkSoft
+      }
+    }, "Not signed in")), item("👤", "Profile", "Your details & reports", () => {
+      setGearMenuOpen(false);
+      openSettings("profile");
+    }), item("⚙️", "Settings", "Reminders, backup & data", () => {
+      setGearMenuOpen(false);
+      openSettings("data");
+    }), item("🔐", "Account", acc.status === "signedin" ? "Switch account or sign out" : "Sign in / create account", () => {
+      setGearMenuOpen(false);
+      openSettings("account");
+    })));
+  })(), tab === "today" && /*#__PURE__*/React.createElement(TodayTab, {
     profile: profile,
     targets: targets,
     advice: advice,
@@ -14420,10 +14584,6 @@ function App() {
     notifSettings: notifSettings,
     saveNotifSettings: setNotifSettings
   }), welcomeOpen && /*#__PURE__*/React.createElement(WelcomeScreen, {
-    onTryFirst: () => {
-      setWelcomeOpen(false);
-      setWizardOpen(true);
-    },
     onDone: isNew => {
       setWelcomeOpen(false);
       if (isNew) setWizardOpen(true);
