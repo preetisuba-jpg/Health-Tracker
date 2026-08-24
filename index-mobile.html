@@ -4867,12 +4867,39 @@ function exportAppData() {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
+// Summarize how much REAL data a backup holds, counted across every profile (self + p: people), so
+// the user can instantly see whether a backup actually contains their reports/food or just names.
+function summarizeAppData(data) {
+  let markers = 0,
+    foodDays = 0,
+    supps = 0,
+    actDays = 0;
+  Object.keys(data || {}).forEach(k => {
+    try {
+      if (/(^|:)week:foodlog$/.test(k)) foodDays += Object.keys(data[k] || {}).length;
+      if (/(^|:)activities:log$/.test(k)) actDays += Object.keys(data[k] || {}).length;
+      if (/(^|:)supplements:list$/.test(k) && Array.isArray(data[k])) supps += data[k].length;
+      if (/(^|:)reports:metrics$/.test(k) && Array.isArray(data[k])) markers += data[k].filter(x => (x.points || []).some(v => v != null)).length;
+    } catch (e) {}
+  });
+  const pl = data && data["profiles:list"];
+  const profiles = Array.isArray(pl) ? pl.map(p => p.name || "(unnamed)") : [];
+  return {
+    markers,
+    foodDays,
+    supps,
+    actDays,
+    profiles,
+    hasData: markers + foodDays + supps + actDays > 0
+  };
+}
 function importAppData(file, onDone) {
   const reader = new FileReader();
   reader.onload = () => {
     try {
       const parsed = JSON.parse(reader.result);
       const data = parsed && parsed.data ? parsed.data : parsed;
+      const summary = summarizeAppData(data);
       let n = 0;
       Object.keys(data).forEach(k => {
         if (isAppKey(k)) {
@@ -4880,9 +4907,9 @@ function importAppData(file, onDone) {
           n++;
         }
       });
-      onDone && onDone(n);
+      onDone && onDone(n, summary);
     } catch {
-      onDone && onDone(-1);
+      onDone && onDone(-1, null);
     }
   };
   reader.readAsText(file);
@@ -12522,11 +12549,18 @@ function SettingsPanel({
     onChange: e => {
       const f = e.target.files && e.target.files[0];
       if (!f) return;
-      importAppData(f, n => {
-        if (n < 0) setImportMsg("Couldn't read that file.");else {
-          setImportMsg(`Restored ${n} item${n === 1 ? "" : "s"}. Reloading…`);
-          setTimeout(() => location.reload(), 900);
+      importAppData(f, (n, sum) => {
+        if (n < 0 || !sum) {
+          setImportMsg("⚠ Couldn't read that file — is it a health-backup .json?");
+          return;
         }
+        const who = sum.profiles.length ? ` · people: ${sum.profiles.join(", ")}` : "";
+        if (!sum.hasData) {
+          setImportMsg(`This backup has NO logged data (${sum.markers} report markers, ${sum.foodDays} food days, ${sum.supps} supplements)${who}. It only contains profile names — try your OTHER backup file.`);
+          return;
+        }
+        setImportMsg(`Restored ${sum.markers} report markers, ${sum.foodDays} food days, ${sum.supps} supplements${who}. Reloading…`);
+        setTimeout(() => location.reload(), 1600);
       });
       e.target.value = "";
     }
