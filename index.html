@@ -109,7 +109,8 @@ function Icon({ name, size = 18, color = T.ink, style }) {
 /* ============================== DATA ============================== */
 const PROFILE_SEED = { name: "Jignesh", fullName: "Jignesh Suba", age: 54, weight: 78, height: 165, gender: "Male", city: "Rajkot, India", diet: "Indian vegetarian (Gujarati)", latestReportDate: "Jul 12, 2026",
   conditions: ["High triglycerides", "High cholesterol", "Fatty liver", "Underactive thyroid"], goals: ["Lose weight", "Lower a specific marker"],
-  dietPattern: "Vegetarian", dietRules: [], cuisines: ["Gujarati", "Punjabi", "South Indian", "Chinese", "Italian", "Mexican"], activityLevel: "light", wantsMealPlan: "open" };
+  dietPattern: "Vegetarian", dietRules: [], cuisines: ["Gujarati", "Punjabi", "South Indian", "Chinese", "Italian", "Mexican"], activityLevel: "light", wantsMealPlan: "open",
+  smoking: "none", vaping: "none", alcohol: "weekly", sleepHours: "6-7", bedtime: "late", chronotype: "late", dayNaps: false, pregnant: false, periodDuration: 5, periodCycle: 28, periodSymptoms: [] };
 // Onboarding / profile option lists (used by the setup wizard and, later, the meal-plan engine).
 const ONB_CONDITIONS = ["High triglycerides", "High LDL / cholesterol", "Low HDL", "Fatty liver / high GGT", "Thyroid (hypo/hyper)", "Diabetes / pre-diabetes", "High blood sugar / HbA1c", "Hypertension", "PCOS / PCOD", "High uric acid / gout", "Anaemia / low iron", "Vitamin D / B12 deficiency", "Kidney issues", "Acidity / GERD", "IBS / gut issues", "Obesity", "None"];
 // Common lifestyle-related conditions (curated from the WHO common-conditions list, using the
@@ -128,8 +129,16 @@ const ONB_DIET_RULES = ["No onion/garlic", "Jain", "Gluten-free", "Dairy-free / 
 const ONB_CUISINES = ["Gujarati", "Punjabi", "North Indian", "South Indian", "Maharashtrian", "Bengali", "Rajasthani", "Hyderabadi", "Mughlai", "Goan", "Kashmiri", "Sindhi", "Chinese", "Thai", "Japanese", "Korean", "Italian", "Mexican", "Mediterranean", "Middle Eastern", "Continental", "American"];
 const ONB_ACTIVITY = [{ k: "not", l: "Not very active", d: "Mostly sitting — desk work, little walking" }, { k: "light", l: "Lightly active", d: "Some walking through the day" }, { k: "active", l: "Active", d: "On your feet a good part of the day" }, { k: "very", l: "Very active", d: "Physically demanding day or hard training" }];
 const ONB_MEALPLAN = ["Yes, definitely", "Open to trying", "No thanks"];
+// Lifestyle frequency scale — used for smoking, vaping and alcohol. Feeds guidance + liver/heart logic.
+const ONB_FREQ = [{ k: "none", l: "Never" }, { k: "rare", l: "Very occasionally" }, { k: "sometimes", l: "Occasionally" }, { k: "weekly", l: "Weekly" }, { k: "daily", l: "Daily" }];
+const FREQ_LABEL = { none: "Never", rare: "Very occasionally", sometimes: "Occasionally", weekly: "Weekly", daily: "Daily" };
+const ONB_SLEEP_HOURS = [{ k: "<5", l: "Under 5 hrs" }, { k: "5-6", l: "5–6 hrs" }, { k: "6-7", l: "6–7 hrs" }, { k: "7-8", l: "7–8 hrs" }, { k: "8+", l: "8+ hrs" }];
+const ONB_BEDTIME = [{ k: "early", l: "Before 10 pm" }, { k: "mid", l: "10–11 pm" }, { k: "late", l: "11 pm–12 am" }, { k: "verylate", l: "After midnight" }];
+const ONB_CHRONO = [{ k: "early", l: "Early to bed & early riser" }, { k: "late", l: "Night owl" }, { k: "varies", l: "It varies a lot" }];
+const ONB_PERIOD_SYMPTOMS = ["Cramps / pain", "Nausea", "Low energy / stamina", "Bloating", "Headaches", "Mood swings", "Back pain", "Food cravings", "Breast tenderness", "Trouble sleeping"];
 // Defaults for a NEWLY added person (the "self" profile keeps Jignesh's seed data).
-const BLANK_PROFILE = { name: "", fullName: "", age: 30, weight: 70, height: 165, gender: "Male", city: "", diet: "Vegetarian", latestReportDate: "", conditions: [], goals: [], dietPattern: "Vegetarian", dietRules: [], cuisines: [], activityLevel: "light", wantsMealPlan: "Open to trying" };
+const BLANK_PROFILE = { name: "", fullName: "", age: 30, weight: 70, height: 165, gender: "Male", city: "", diet: "Vegetarian", latestReportDate: "", conditions: [], goals: [], dietPattern: "Vegetarian", dietRules: [], cuisines: [], activityLevel: "light", wantsMealPlan: "Open to trying",
+  smoking: "none", vaping: "none", alcohol: "none", sleepHours: "", bedtime: "", chronotype: "", dayNaps: false, pregnant: false, periodDuration: 5, periodCycle: 28, periodSymptoms: [] };
 const blankMetrics = () => METRICS_SEED.map(m => ({ ...m, points: [], note: "" }));
 function computeBMI(weightKg, heightCm) {
   if (!weightKg || !heightCm) return null;
@@ -143,6 +152,58 @@ function bmiCategory(bmi) {
   if (bmi < 30) return "Overweight";
   return "Obese";
 }
+function isFemale(profile) { return /female|woman/i.test((profile && profile.gender) || ""); }
+// ---- Menstrual-cycle helpers (female profiles). Kept entirely separate from reports:periods (which
+// are lab-report dates). Cycle history lives in its own cycle:log key. ----
+function cycleDaysBetween(a, b) { try { return Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 86400000); } catch (e) { return null; } }
+function cycleAddDays(dateStr, n) { const d = new Date(dateStr + "T00:00:00"); d.setDate(d.getDate() + n); return ymd(d); }
+// Average cycle length LEARNED from logged history; falls back to the stated cycle length.
+function avgCycleLength(log, fallback) {
+  const starts = (log || []).map(e => e && e.start).filter(Boolean).sort();
+  const gaps = [];
+  for (let i = 1; i < starts.length; i++) { const g = cycleDaysBetween(starts[i - 1], starts[i]); if (g != null && g > 15 && g < 60) gaps.push(g); }
+  if (gaps.length) return Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length);
+  return Number(fallback) || 28;
+}
+function cyclePrediction(log, profile) {
+  const starts = (log || []).map(e => e && e.start).filter(Boolean).sort();
+  const last = starts.length ? starts[starts.length - 1] : (profile && profile.periodLastStart) || null;
+  if (!last) return null;
+  const cycle = avgCycleLength(log, (profile && profile.periodCycle) || 28);
+  const next = cycleAddDays(last, cycle);
+  const daysUntil = cycleDaysBetween(ymd(new Date()), next);
+  return { last, cycle, next, daysUntil, logged: starts.length, learned: (log || []).filter(e => e && e.start).length >= 2 };
+}
+// Symptom-aware, plain-language tips for the days before + during a period.
+const PERIOD_TIP_MAP = {
+  "Cramps / pain": { before: "Ease off caffeine and very salty food a few days ahead.", during: "Warm foods, ginger or peppermint tea, and gentle movement ease cramps." },
+  "Nausea": { before: "Keep meals small and regular; go easy on heavy fried food.", during: "Bland, dry foods (toast, khichdi, banana) and ginger settle the stomach." },
+  "Low energy / stamina": { before: "Build up iron-rich foods — greens, dates, jaggery, lentils.", during: "Pair iron with vitamin C (lemon, amla) to absorb more; rest when you need to." },
+  "Bloating": { before: "Cut back on salt and fizzy drinks in the days before.", during: "Smaller meals, plenty of water, and potassium foods (banana, coconut water)." },
+  "Headaches": { before: "Stay well hydrated and keep sleep regular.", during: "Water, magnesium foods (nuts, seeds, dark greens), and less screen time." },
+  "Mood swings": { before: "Steady your blood sugar — regular meals, less refined sugar.", during: "Complex carbs, omega-3 foods and light exercise lift mood." },
+  "Back pain": { before: "Gentle stretching or yoga through the week.", during: "A heat pad, and anti-inflammatory foods (turmeric, ginger)." },
+  "Food cravings": { before: "Protein + fibre at each meal so cravings hit less hard.", during: "Pick the better version — dark chocolate over sweets, fruit over fried." },
+  "Breast tenderness": { before: "Lower caffeine and salt.", during: "Keep salt down; magnesium and vitamin-E foods may help." },
+  "Trouble sleeping": { before: "Wind down earlier; skip caffeine after the afternoon.", during: "Warm milk, magnesium foods, and a steady bedtime." },
+};
+// Whole-picture lifestyle guidance (NIDDK-style plain language) from smoking / vaping / alcohol / sleep,
+// so the plan reflects more than food. Returns [{tag, tone, body}].
+function lifestyleGuidance(profile) {
+  const p = profile || {}, out = [];
+  const any = f => f && f !== "none";
+  const heavy = f => f === "weekly" || f === "daily";
+  if (any(p.alcohol)) {
+    const liver = (p.conditions || []).some(c => /liver|ggt/i.test(c));
+    out.push({ tag: "Alcohol", tone: heavy(p.alcohol) ? "avoid" : "limit", body: liver ? "Alcohol is the biggest single lever for your liver (GGT). Cutting down — ideally to rare or none — can lower GGT within weeks." : "Alcohol adds empty calories and pushes triglycerides up. Keep it occasional at most, and never daily." });
+  }
+  if (any(p.smoking)) out.push({ tag: "Smoking", tone: "avoid", body: "Smoking works against every heart and cholesterol goal here. Quitting is the highest-impact change you can make — ask your doctor about support to stop." });
+  if (any(p.vaping)) out.push({ tag: "Vaping", tone: "avoid", body: "Vaping isn't a safe swap — it still strains the heart and lungs. Aim to taper down and off." });
+  if (p.sleepHours === "<5" || p.sleepHours === "5-6") out.push({ tag: "Short sleep", tone: "limit", body: "Under 6 hours raises hunger hormones and next-day sugar cravings — it quietly works against weight and blood-sugar goals. Aim for 7–8 hours. (Regular meals + enough sleep are also the front line against binge-eating urges — NIDDK.)" });
+  if (p.bedtime === "verylate" || p.chronotype === "late") out.push({ tag: "Late nights", tone: "info", body: "Late nights tend to mean late, heavier dinners. Try to finish eating 2–3 hours before bed." });
+  return out;
+}
+const TONE_COLOR = { avoid: "#B8433A", limit: "#C4841F", info: "#3D6B4F" };
 const DEFAULT_GOAL_TOGGLES = [{ id: "weightloss", label: "Weight loss / Fat loss", active: false }, { id: "muscle", label: "Muscle building", active: false }];
 
 function computeTargets(weight, goalToggles, profile) {
@@ -1602,7 +1663,7 @@ function suppHeadline(thisKeys, lastKeys, weekSupplements, total, criticalSuppNa
 const KV_MEM = {};            // key -> parsed value; synchronous source of truth for the session
 let KV_IDB = null;            // IDBDatabase, or null when IndexedDB is unavailable (falls back to localStorage)
 let KV_WRITE_ERROR = false;   // flips true if a persist ever fails; surfaced as a banner in the app
-const APP_KEY_PREFIXES = ["week:", "activities:", "profile:", "profiles:", "goals:", "reports:", "supplements:", "dishes:", "plan:", "seed:", "ui:"];
+const APP_KEY_PREFIXES = ["week:", "activities:", "profile:", "profiles:", "goals:", "reports:", "supplements:", "dishes:", "plan:", "seed:", "ui:", "cycle:"];
 const isAppKey = (k) => typeof k === "string" && (k === "profiles:list" || k === "profiles:active" || k.startsWith("p:") || APP_KEY_PREFIXES.some(p => k.startsWith(p)));
 function markKvWriteError() { KV_WRITE_ERROR = true; try { window.dispatchEvent(new Event("kv-write-error")); } catch {} }
 
@@ -3364,8 +3425,14 @@ function groceryFromPlan(plan) {
   const out = []; GROCERY_MAP.forEach(([re, item]) => { if (re.test(text) && !out.includes(item)) out.push(item); });
   return out;
 }
-function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegeneratePlan, onSwapMeal }) {
+function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegeneratePlan, onSwapMeal, cycleLog, onLogPeriod }) {
   const [checkedGro, setCheckedGro] = useState(() => new Set());
+  const [logDate, setLogDate] = useState(() => ymd(new Date()));
+  const female = isFemale(profile) && !profile.pregnant;
+  const pred = female ? cyclePrediction(cycleLog, profile) : null;
+  const periodTips = female ? (profile.periodSymptoms || []).map(s => ({ s, ...(PERIOD_TIP_MAP[s] || {}) })).filter(t => t.before || t.during) : [];
+  const lifeGuide = lifestyleGuidance(profile);
+  const cycleHistory = female ? [...(cycleLog || [])].filter(e => e && e.start).sort((a, b) => a.start < b.start ? 1 : -1) : [];
   const grocery = groceryFromPlan(weeklyPlan);
   const toggleGro = g => setCheckedGro(s => { const n = new Set(s); n.has(g) ? n.delete(g) : n.add(g); return n; });
   const guides = personGuidance(advice.flaggedKeys, advice.weightGoal);   // dietitian + lifestyle guidance for their conditions
@@ -3444,6 +3511,56 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
         </Card>
       )}
       <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, margin: "2px 2px 10px" }}>Tap a section to open it.</div>
+      {female && (
+        <Collapsible title="🌸 Your cycle" subtitle={pred ? (pred.daysUntil > 1 ? `Next period in about ${pred.daysUntil} days` : pred.daysUntil >= 0 ? "Period expected around now" : `Period is ~${Math.abs(pred.daysUntil)} days late`) : "Add your last period date to start"}>
+          {pred ? (
+            <div style={{ background: pred.daysUntil < 0 ? T.alertPale : T.tealPale, borderRadius: 12, padding: "12px 14px", marginBottom: 12 }}>
+              <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, color: pred.daysUntil < 0 ? T.alert : T.teal }}>Next period ≈ {formatDateLabel(pred.next)}</div>
+              <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, marginTop: 3, lineHeight: 1.45 }}>
+                {pred.daysUntil > 1 ? `in about ${pred.daysUntil} days` : pred.daysUntil >= 0 ? "expected around now" : `${Math.abs(pred.daysUntil)} days late — log it below when it comes`} · cycle ~{pred.cycle} days {pred.learned ? "(learned from your logs)" : "(from your stated cycle)"}
+              </div>
+              {pred.daysUntil <= 1 && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.ink, marginTop: 8, background: T.white, borderRadius: 8, padding: "7px 9px" }}>Did it start? Log the date below — that confirms the prediction and teaches it your real pattern.</div>}
+            </div>
+          ) : (
+            <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 12, lineHeight: 1.5 }}>Add your last period's first day in ⚙️ → Profile → Health &amp; Diet, and your next date will be predicted here.</div>
+          )}
+          {periodTips.length > 0 ? (
+            <div style={{ marginBottom: 12 }}>
+              {periodTips.some(t => t.before) && <><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.saffron, marginBottom: 6 }}>Prepare in the days before</div>{periodTips.filter(t => t.before).map((t, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.4, marginBottom: 4 }}>• <b>{t.s}:</b> {t.before}</div>)}</>}
+              {periodTips.some(t => t.during) && <><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.teal, margin: "10px 0 6px" }}>During your period</div>{periodTips.filter(t => t.during).map((t, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.4, marginBottom: 4 }}>• <b>{t.s}:</b> {t.during}</div>)}</>}
+            </div>
+          ) : <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 12, lineHeight: 1.5 }}>Add the symptoms you usually get (⚙️ Profile) to see tailored eating &amp; lifestyle tips before and during your period.</div>}
+          <div style={{ borderTop: `1px solid ${T.creamDeep}`, paddingTop: 10 }}>
+            <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11.5, color: T.inkSoft, marginBottom: 6 }}>LOG A PERIOD</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+              <input type="date" value={logDate} onChange={e => setLogDate(e.target.value)} style={{ flex: 1, minWidth: 0, border: `1px solid ${T.border}`, borderRadius: 10, padding: "8px 10px", fontFamily: "Inter", fontSize: 13, background: T.white, color: T.ink }} />
+              <button onClick={() => onLogPeriod && onLogPeriod(logDate)} style={{ background: T.tealSolid, border: "none", borderRadius: 10, padding: "9px 13px", color: "#fff", fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, cursor: "pointer", whiteSpace: "nowrap" }}>Save date</button>
+            </div>
+            {cycleHistory.length > 0 && (<>
+              <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11.5, color: T.inkSoft, marginBottom: 6 }}>HISTORY ({cycleHistory.length})</div>
+              <div style={{ maxHeight: 156, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+                {cycleHistory.map((e, i) => { const nx = cycleHistory[i + 1]; const gap = nx ? cycleDaysBetween(nx.start, e.start) : null; return (
+                  <div key={e.start + i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: T.creamDeep, borderRadius: 8, padding: "7px 10px", fontFamily: "Inter", fontSize: 12.5, color: T.ink }}>
+                    <span>{formatDateLabel(e.start)}</span><span style={{ color: T.inkSoft, fontSize: 11.5 }}>{gap ? `${gap}-day cycle` : "most recent"}</span>
+                  </div>
+                ); })}
+              </div>
+            </>)}
+          </div>
+        </Collapsible>
+      )}
+      {lifeGuide.length > 0 && (
+        <Collapsible title="Lifestyle notes" subtitle="How alcohol, smoking &amp; sleep affect your goals">
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {lifeGuide.map((g, i) => (
+              <div key={i} style={{ borderLeft: `3px solid ${TONE_COLOR[g.tone] || T.teal}`, paddingLeft: 11 }}>
+                <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12.5, color: TONE_COLOR[g.tone] || T.teal }}>{g.tag}</div>
+                <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.5, marginTop: 2 }}>{g.body}</div>
+              </div>
+            ))}
+          </div>
+        </Collapsible>
+      )}
       {weeklyPlan && weeklyPlan.days && (
         <Collapsible title="This week's meal plan" subtitle="Built to hit your calorie & nutrient targets · tap ↻ to swap">
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
@@ -3616,7 +3733,8 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
   useEffect(() => { setForm(profile); }, [profile, open]);
   useEffect(() => { if (open) setSection(initialSection || "profile"); }, [open, initialSection]);
   if (!open) return null;
-  function saveProfileForm() { saveProfile({ ...form, weight: Number(form.weight) || profile.weight, age: Number(form.age) || profile.age, height: Number(form.height) || profile.height }); }
+  const [profileSaved, setProfileSaved] = useState(false);
+  function saveProfileForm() { saveProfile({ ...form, weight: Number(form.weight) || profile.weight, age: Number(form.age) || profile.age, height: Number(form.height) || profile.height }); setProfileSaved(true); setTimeout(() => setProfileSaved(false), 1800); }
   function toggleGoal(id) { saveGoalToggles(goalToggles.map(g => g.id === id ? { ...g, active: !g.active } : g)); }
   function addCustomGoal() { if (!newGoalText.trim()) return; saveCustomGoals([...customGoals, { id: `custom-${Date.now()}`, label: newGoalText.trim(), active: true }]); setNewGoalText(""); }
   function removeCustomGoal(id) { saveCustomGoals(customGoals.filter(g => g.id !== id)); }
@@ -3700,7 +3818,7 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
                   <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>Recalculates automatically from weight and height.</div>
                 </Card>
               ) : null; })()}
-              <button onClick={saveProfileForm} style={{ background: T.saffron, border: "none", borderRadius: 10, padding: "10px 0", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, marginTop: 6 }}>Save profile</button>
+              <button onClick={saveProfileForm} style={{ background: profileSaved ? T.forest : T.saffron, border: "none", borderRadius: 10, padding: "10px 0", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, marginTop: 6, transition: "background 0.2s" }}>{profileSaved ? "✓ Saved" : "Save profile"}</button>
               {onOpenWizard && <button onClick={onOpenWizard} style={{ background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 10, padding: "10px 0", color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5 }}>Guided setup (conditions, goals, diet, cuisines…)</button>}
               <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>Changing weight recalculates calorie/protein targets automatically.</div>
             </div>
@@ -3754,6 +3872,33 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
               <div><div style={subLbl}>Restrictions & allergies</div><div style={chipWrap}>{ONB_DIET_RULES.map(c => <OnbChip key={c} label={c} on={(profile.dietRules || []).includes(c)} onClick={() => ptoggle("dietRules", c)} />)}</div><div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginTop: 6 }}>Allergy and “-free” tags remove matching dishes from your meal suggestions.</div></div>
               <div><div style={subLbl}>Cuisines you like</div><div style={chipWrap}>{ONB_CUISINES.map(c => <OnbChip key={c} label={c} on={(profile.cuisines || []).includes(c)} onClick={() => ptoggle("cuisines", c)} />)}</div></div>
               <div><div style={subLbl}>Activity level</div><div style={chipWrap}>{ONB_ACTIVITY.map(a => <OnbChip key={a.k} label={a.l} on={profile.activityLevel === a.k} onClick={() => pset("activityLevel", a.k)} />)}</div></div>
+              <div style={{ height: 1, background: T.border, margin: "4px 0" }} />
+              <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 13, color: T.teal }}>Lifestyle</div>
+              <div><div style={subLbl}>Do you smoke?</div><div style={chipWrap}>{ONB_FREQ.map(f => <OnbChip key={f.k} label={f.l} on={(profile.smoking || "none") === f.k} onClick={() => pset("smoking", f.k)} />)}</div></div>
+              <div><div style={subLbl}>Do you vape?</div><div style={chipWrap}>{ONB_FREQ.map(f => <OnbChip key={f.k} label={f.l} on={(profile.vaping || "none") === f.k} onClick={() => pset("vaping", f.k)} />)}</div></div>
+              <div><div style={subLbl}>Do you drink alcohol?</div><div style={chipWrap}>{ONB_FREQ.map(f => <OnbChip key={f.k} label={f.l} on={(profile.alcohol || "none") === f.k} onClick={() => pset("alcohol", f.k)} />)}</div></div>
+              <div style={{ height: 1, background: T.border, margin: "4px 0" }} />
+              <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 13, color: T.teal }}>Sleep</div>
+              <div><div style={subLbl}>Hours of sleep a night</div><div style={chipWrap}>{ONB_SLEEP_HOURS.map(s => <OnbChip key={s.k} label={s.l} on={profile.sleepHours === s.k} onClick={() => pset("sleepHours", s.k)} />)}</div></div>
+              <div><div style={subLbl}>Usual bedtime</div><div style={chipWrap}>{ONB_BEDTIME.map(s => <OnbChip key={s.k} label={s.l} on={profile.bedtime === s.k} onClick={() => pset("bedtime", s.k)} />)}</div></div>
+              <div><div style={subLbl}>Sleep rhythm</div><div style={chipWrap}>{ONB_CHRONO.map(s => <OnbChip key={s.k} label={s.l} on={profile.chronotype === s.k} onClick={() => pset("chronotype", s.k)} />)}<OnbChip label="I nap in the day too" on={!!profile.dayNaps} onClick={() => pset("dayNaps", !profile.dayNaps)} /></div></div>
+              {isFemale(profile) && (<>
+                <div style={{ height: 1, background: T.border, margin: "4px 0" }} />
+                <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 13, color: T.teal }}>Women's health</div>
+                <div><div style={subLbl}>Are you pregnant?</div><div style={chipWrap}><OnbChip label="No" on={!profile.pregnant} onClick={() => pset("pregnant", false)} /><OnbChip label="Yes" on={!!profile.pregnant} onClick={() => pset("pregnant", true)} /></div>
+                  {profile.pregnant && <div style={{ background: T.alertPale, border: `1px solid ${T.alert}`, borderRadius: 10, padding: "9px 11px", marginTop: 6, fontFamily: "Inter", fontSize: 12, color: T.alert, lineHeight: 1.5 }}>This app isn't designed for use during pregnancy. Please don't rely on its meal or calorie targets — follow your doctor's guidance instead.</div>}
+                </div>
+                {!profile.pregnant && (<>
+                  <div><div style={subLbl}>Last period — first day</div><input type="date" value={profile.periodLastStart || ""} onChange={e => pset("periodLastStart", e.target.value)} style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", fontFamily: "Inter", fontSize: 13.5, background: T.white, color: T.ink }} /></div>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <div style={{ flex: 1 }}><div style={subLbl}>Lasts (days)</div><input type="number" min="1" max="14" value={profile.periodDuration ?? 5} onChange={e => pset("periodDuration", Number(e.target.value) || 5)} style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", fontFamily: "Inter", fontSize: 13.5 }} /></div>
+                    <div style={{ flex: 1 }}><div style={subLbl}>Cycle gap (days)</div><input type="number" min="15" max="60" value={profile.periodCycle ?? 28} onChange={e => pset("periodCycle", Number(e.target.value) || 28)} style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", fontFamily: "Inter", fontSize: 13.5 }} /></div>
+                  </div>
+                  <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft }}>Roughly how many days from the start of one period to the next (average is ~28).</div>
+                  <div><div style={subLbl}>Symptoms you usually get</div><div style={chipWrap}>{ONB_PERIOD_SYMPTOMS.map(s => <OnbChip key={s} label={s} on={(profile.periodSymptoms || []).includes(s)} onClick={() => ptoggle("periodSymptoms", s)} />)}</div></div>
+                  <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, lineHeight: 1.5 }}>Your cycle, a prediction of the next date, and symptom-based tips appear in the <b>Plan</b> tab. Log each new period there so the prediction learns your real pattern.</div>
+                </>)}
+              </>)}
             </div>
           )}
           {section === "reports" && (
@@ -4024,6 +4169,9 @@ function OnboardingWizard({ open, onClose, profile, saveProfile, goalToggles, sa
     name: profile.name || "", gender: profile.gender || "Male", age: profile.age ?? "", height: profile.height ?? "", weight: profile.weight ?? "", city: profile.city || "",
     conditions: profile.conditions || [], goals: profile.goals || [], dietPattern: profile.dietPattern || "Vegetarian",
     dietRules: profile.dietRules || [], cuisines: profile.cuisines || [], activityLevel: profile.activityLevel || "light", wantsMealPlan: profile.wantsMealPlan || "Open to trying",
+    smoking: profile.smoking || "none", vaping: profile.vaping || "none", alcohol: profile.alcohol || "none",
+    sleepHours: profile.sleepHours || "", bedtime: profile.bedtime || "", chronotype: profile.chronotype || "", dayNaps: !!profile.dayNaps,
+    pregnant: !!profile.pregnant, periodLastStart: profile.periodLastStart || "", periodDuration: profile.periodDuration ?? 5, periodCycle: profile.periodCycle ?? 28, periodSymptoms: profile.periodSymptoms || [],
   });
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(build);
@@ -4031,7 +4179,7 @@ function OnboardingWizard({ open, onClose, profile, saveProfile, goalToggles, sa
   if (!open) return null;
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const toggleIn = (k, v) => setForm(f => { const a = f[k] || []; return { ...f, [k]: a.includes(v) ? a.filter(x => x !== v) : [...a, v] }; });
-  const STEPS = ["About you", "Health conditions", "Your goals", "Diet", "Cuisines you like", "Activity & plans", "You're all set"];
+  const STEPS = ["About you", "Health conditions", "Your goals", "Diet", "Cuisines you like", "Activity & plans", "Lifestyle & sleep", "You're all set"];
   const last = STEPS.length - 1;
   const inS = { width: "100%", border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", fontFamily: "Inter", fontSize: 14, background: T.cream, color: T.ink };
   const lS = { fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 4 };
@@ -4039,7 +4187,9 @@ function OnboardingWizard({ open, onClose, profile, saveProfile, goalToggles, sa
   const subL = { fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 10 };
 
   function finish(withSample) {
-    const built = { ...profile, name: form.name, gender: form.gender, age: Number(form.age) || profile.age, height: Number(form.height) || profile.height, weight: Number(form.weight) || profile.weight, city: form.city, conditions: form.conditions, goals: form.goals, dietPattern: form.dietPattern, diet: form.dietPattern, dietRules: form.dietRules, cuisines: form.cuisines, activityLevel: form.activityLevel, wantsMealPlan: form.wantsMealPlan };
+    const built = { ...profile, name: form.name, gender: form.gender, age: Number(form.age) || profile.age, height: Number(form.height) || profile.height, weight: Number(form.weight) || profile.weight, city: form.city, conditions: form.conditions, goals: form.goals, dietPattern: form.dietPattern, diet: form.dietPattern, dietRules: form.dietRules, cuisines: form.cuisines, activityLevel: form.activityLevel, wantsMealPlan: form.wantsMealPlan,
+      smoking: form.smoking, vaping: form.vaping, alcohol: form.alcohol, sleepHours: form.sleepHours, bedtime: form.bedtime, chronotype: form.chronotype, dayNaps: form.dayNaps,
+      pregnant: form.pregnant, periodLastStart: form.periodLastStart, periodDuration: form.periodDuration, periodCycle: form.periodCycle, periodSymptoms: form.periodSymptoms };
     saveProfile(built);
     saveGoalToggles(goalToggles.map(g => g.id === "weightloss" ? { ...g, active: form.goals.includes("Lose weight") } : g.id === "muscle" ? { ...g, active: form.goals.includes("Build muscle") } : g));
     if (firstSetup && onFreshSetup) onFreshSetup(); // new person: drop any Jignesh seed so everything reflects them
@@ -4106,6 +4256,33 @@ function OnboardingWizard({ open, onClose, profile, saveProfile, goalToggles, sa
             </div>
           )}
           {step === 6 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={hint}>A fuller picture makes your plan and guidance more accurate. Skip anything you'd rather not answer.</div>
+              <div><div style={subL}>Do you smoke?</div><div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{ONB_FREQ.map(f => <OnbChip key={f.k} label={f.l} on={(form.smoking || "none") === f.k} onClick={() => set("smoking", f.k)} />)}</div></div>
+              <div><div style={subL}>Do you vape?</div><div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{ONB_FREQ.map(f => <OnbChip key={f.k} label={f.l} on={(form.vaping || "none") === f.k} onClick={() => set("vaping", f.k)} />)}</div></div>
+              <div><div style={subL}>Do you drink alcohol?</div><div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{ONB_FREQ.map(f => <OnbChip key={f.k} label={f.l} on={(form.alcohol || "none") === f.k} onClick={() => set("alcohol", f.k)} />)}</div></div>
+              <div><div style={subL}>How many hours do you sleep a night?</div><div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{ONB_SLEEP_HOURS.map(s => <OnbChip key={s.k} label={s.l} on={form.sleepHours === s.k} onClick={() => set("sleepHours", s.k)} />)}</div></div>
+              <div><div style={subL}>What time do you usually go to bed?</div><div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{ONB_BEDTIME.map(s => <OnbChip key={s.k} label={s.l} on={form.bedtime === s.k} onClick={() => set("bedtime", s.k)} />)}</div></div>
+              <div><div style={subL}>Which sounds most like you?</div><div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{ONB_CHRONO.map(s => <OnbChip key={s.k} label={s.l} on={form.chronotype === s.k} onClick={() => set("chronotype", s.k)} />)}<OnbChip label="I nap in the day too" on={!!form.dayNaps} onClick={() => set("dayNaps", !form.dayNaps)} /></div></div>
+              {isFemale(form) && (<>
+                <div style={{ height: 1, background: T.border }} />
+                <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, color: T.teal }}>Women's health</div>
+                <div><div style={subL}>Are you pregnant?</div><div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}><OnbChip label="No" on={!form.pregnant} onClick={() => set("pregnant", false)} /><OnbChip label="Yes" on={!!form.pregnant} onClick={() => set("pregnant", true)} /></div>
+                  {form.pregnant && <div style={{ background: T.alertPale, border: `1px solid ${T.alert}`, borderRadius: 10, padding: "10px 12px", marginTop: 8, fontFamily: "Inter", fontSize: 12.5, color: T.alert, lineHeight: 1.5 }}>⚠ This app isn't designed for pregnancy. Please don't use its meal or calorie targets — follow your doctor's guidance. You can still finish setup, but we'll keep this warning visible.</div>}
+                </div>
+                {!form.pregnant && (<>
+                  <div><div style={subL}>When did your last period start? (first day)</div><input type="date" value={form.periodLastStart || ""} onChange={e => set("periodLastStart", e.target.value)} style={{ ...inS }} /></div>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <div style={{ flex: 1 }}><div style={subL}>Lasts (days)</div><input type="number" min="1" max="14" value={form.periodDuration} onChange={e => set("periodDuration", Number(e.target.value) || 5)} style={inS} /></div>
+                    <div style={{ flex: 1 }}><div style={subL}>Cycle gap (days)</div><input type="number" min="15" max="60" value={form.periodCycle} onChange={e => set("periodCycle", Number(e.target.value) || 28)} style={inS} /></div>
+                  </div>
+                  <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft }}>“Cycle gap” = days from the start of one period to the next (average ≈ 28). We'll predict your next date and refine it as you log.</div>
+                  <div><div style={subL}>Which symptoms do you usually get?</div><div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{ONB_PERIOD_SYMPTOMS.map(s => <OnbChip key={s} label={s} on={(form.periodSymptoms || []).includes(s)} onClick={() => toggleIn("periodSymptoms", s)} />)}</div></div>
+                </>)}
+              </>)}
+            </div>
+          )}
+          {step === 7 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 17, color: T.teal }}>Nice — you're set up{form.name ? `, ${form.name}` : ""}! 🎉</div>
               <div style={hint}>Based on your choices, we've prepared a <b>sample month</b> of meals and activity — built from the {(form.cuisines || []).length ? (form.cuisines.slice(0, 3).join(", ") + (form.cuisines.length > 3 ? "…" : "")) : "cuisines"} you like and your activity level — so the app isn't empty while you find your feet.</div>
@@ -4173,6 +4350,7 @@ function App() {
   TOTAL_SUPPLEMENTS = supplements.length;
   const [customDishes, setCustomDishes] = useKV(pk("dishes:custom"), {});
   const [weeklyPlan, setWeeklyPlan] = useKV(pk("plan:weekly"), null);
+  const [cycleLog, setCycleLog] = useKV(pk("cycle:log"), []); // menstrual-cycle history (female): [{start, duration, symptoms, note}]
   const [corpusLoaded, setCorpusLoaded] = useState(false);
   useEffect(() => { loadDishCorpus().then(() => setCorpusLoaded(true)); }, []);
   useEffect(() => { loadHealthDB(); loadRulesDB(); loadGuidance(); }, []);
@@ -4225,6 +4403,11 @@ function App() {
   useEffect(() => { const wk = weekNumber(); if (!weeklyPlan || weeklyPlan.week !== wk || weeklyPlan.sig !== planSig) setWeeklyPlan({ ...generateWeeklyPlan(wk, wk, mealPreferences), sig: planSig }); }, [weeklyPlan, activeId, planSig]);
   const regeneratePlan = () => setWeeklyPlan({ ...generateWeeklyPlan(weekNumber(), Math.floor(Math.random() * 1e6), mealPreferences), sig: planSig });
   const swapPlanMeal = (dayIdx, slot) => setWeeklyPlan(p => (p ? swapMeal(p, dayIdx, slot, mealPreferences) : p));
+  const logPeriod = (start) => {
+    if (!start) return;
+    setCycleLog(prev => [...(prev || []).filter(e => e && e.start !== start), { start, duration: profile.periodDuration || 5, symptoms: profile.periodSymptoms || [], loggedAt: Date.now() }].sort((a, b) => a.start < b.start ? -1 : 1));
+    setProfile(p => ({ ...p, periodLastStart: start })); // keep Settings + prediction in agreement
+  };
 
   const foodToday = weekFood[tk] || [];
   const supplementsToday = weekSupplements[tk] || {};
@@ -4277,6 +4460,11 @@ function App() {
     if (S.endOfDay !== false) {
       const [eh, em] = (S.endOfDayTime || "22:00").split(":").map(Number);
       if ((hour > eh || (hour === eh && now.getMinutes() >= (em || 0))) && !anyLoggedToday) list.push({ icon: "bell", text: "Your day's wrapping up and nothing's logged — add today's food, activity or supplements before midnight.", tab: "food", mandatory: true });
+    }
+    if (isFemale(profile) && !profile.pregnant) {
+      const pr = cyclePrediction(cycleLog, profile);
+      if (pr && pr.daysUntil <= 0) list.push({ icon: "bell", text: "Your next period is due (or late) — log the date in Plan → Your cycle so predictions stay accurate.", tab: "plan" });
+      else if (pr && pr.daysUntil <= 2) list.push({ icon: "bell", text: `Your period is expected in about ${pr.daysUntil} day${pr.daysUntil === 1 ? "" : "s"} — open Plan → Your cycle for tips to prepare.`, tab: "plan" });
     }
     return list;
   })();
@@ -4377,6 +4565,11 @@ function App() {
         @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
       <div style={{ width: "100%", maxWidth: 420, background: T.cream, color: T.ink, minHeight: "100vh", position: "relative", boxShadow: "0 0 40px rgba(0,0,0,0.06)" }}>
+        {profile.pregnant && (
+          <div style={{ position: "sticky", top: 0, zIndex: 12, background: T.alert, color: "#fff", padding: "10px 14px 10px 14px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, lineHeight: 1.45, textAlign: "center", boxShadow: "0 2px 8px rgba(0,0,0,0.2)" }}>
+            ⚠ This app is not for use during pregnancy. Please don't follow its meal or calorie targets — see your doctor for pregnancy-safe guidance.
+          </div>
+        )}
         {kvErr && (
           <div onClick={() => openSettings("data")} style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 40, background: T.alert, color: "#fff", padding: "8px 12px", fontFamily: "Inter", fontSize: 12.5, textAlign: "center", lineHeight: 1.4, cursor: "pointer" }}>
             ⚠️ Couldn't save to this browser's storage — it may be full. Tap to open Data & export a backup.
@@ -4416,7 +4609,7 @@ function App() {
         {tab === "health" && <MyHealthTab metrics={metrics} periods={periods} supplementsToday={supplementsToday} toggleSupplement={(id) => toggleSupplement(tk, id)} supplements={supplements} onAddReport={() => openSettings("reports")} advice={advice} selectedDate={selectedDate} setSelectedDate={setSelectedDate} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} activities={activities} targets={targets} demoCleared={demoCleared} clearDemo={clearDemo} />}
         {tab === "habits" && <HabitsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} habitsForDate={habitsForDate} toggleHabit={toggleHabit} weekHabits={weekHabits} weekFood={weekFood} weekSupplements={weekSupplements} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} advice={advice} />}
         {tab === "supplements" && <SupplementsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} supplementsForDate={supplementsForDate} toggleSupplement={toggleSupplement} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} supplements={supplements} advice={advice} suggestedSupps={suggestedSupps} onAddSupplement={addSuggestedSupplement} />}
-        {tab === "plan" && <PlanTab weekFood={weekFood} advice={advice} profile={profile} targets={targets} weeklyPlan={weeklyPlan} onRegeneratePlan={regeneratePlan} onSwapMeal={swapPlanMeal} />}
+        {tab === "plan" && <PlanTab weekFood={weekFood} advice={advice} profile={profile} targets={targets} weeklyPlan={weeklyPlan} onRegeneratePlan={regeneratePlan} onSwapMeal={swapPlanMeal} cycleLog={cycleLog} onLogPeriod={logPeriod} />}
         <div style={{ position: "fixed", bottom: 0, width: "100%", maxWidth: 420, background: T.tealSolid, display: "flex", alignItems: "center", justifyContent: "space-around", padding: "8px 8px 10px", zIndex: 30 }}>
           {NAV.map((t, i) => {
             if (t.center) return (

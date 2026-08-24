@@ -579,7 +579,18 @@ const PROFILE_SEED = {
   dietRules: [],
   cuisines: ["Gujarati", "Punjabi", "South Indian", "Chinese", "Italian", "Mexican"],
   activityLevel: "light",
-  wantsMealPlan: "open"
+  wantsMealPlan: "open",
+  smoking: "none",
+  vaping: "none",
+  alcohol: "weekly",
+  sleepHours: "6-7",
+  bedtime: "late",
+  chronotype: "late",
+  dayNaps: false,
+  pregnant: false,
+  periodDuration: 5,
+  periodCycle: 28,
+  periodSymptoms: []
 };
 // Onboarding / profile option lists (used by the setup wizard and, later, the meal-plan engine).
 const ONB_CONDITIONS = ["High triglycerides", "High LDL / cholesterol", "Low HDL", "Fatty liver / high GGT", "Thyroid (hypo/hyper)", "Diabetes / pre-diabetes", "High blood sugar / HbA1c", "Hypertension", "PCOS / PCOD", "High uric acid / gout", "Anaemia / low iron", "Vitamin D / B12 deficiency", "Kidney issues", "Acidity / GERD", "IBS / gut issues", "Obesity", "None"];
@@ -626,6 +637,70 @@ const ONB_ACTIVITY = [{
   d: "Physically demanding day or hard training"
 }];
 const ONB_MEALPLAN = ["Yes, definitely", "Open to trying", "No thanks"];
+// Lifestyle frequency scale — used for smoking, vaping and alcohol. Feeds guidance + liver/heart logic.
+const ONB_FREQ = [{
+  k: "none",
+  l: "Never"
+}, {
+  k: "rare",
+  l: "Very occasionally"
+}, {
+  k: "sometimes",
+  l: "Occasionally"
+}, {
+  k: "weekly",
+  l: "Weekly"
+}, {
+  k: "daily",
+  l: "Daily"
+}];
+const FREQ_LABEL = {
+  none: "Never",
+  rare: "Very occasionally",
+  sometimes: "Occasionally",
+  weekly: "Weekly",
+  daily: "Daily"
+};
+const ONB_SLEEP_HOURS = [{
+  k: "<5",
+  l: "Under 5 hrs"
+}, {
+  k: "5-6",
+  l: "5–6 hrs"
+}, {
+  k: "6-7",
+  l: "6–7 hrs"
+}, {
+  k: "7-8",
+  l: "7–8 hrs"
+}, {
+  k: "8+",
+  l: "8+ hrs"
+}];
+const ONB_BEDTIME = [{
+  k: "early",
+  l: "Before 10 pm"
+}, {
+  k: "mid",
+  l: "10–11 pm"
+}, {
+  k: "late",
+  l: "11 pm–12 am"
+}, {
+  k: "verylate",
+  l: "After midnight"
+}];
+const ONB_CHRONO = [{
+  k: "early",
+  l: "Early to bed & early riser"
+}, {
+  k: "late",
+  l: "Night owl"
+}, {
+  k: "varies",
+  l: "It varies a lot"
+}];
+const ONB_PERIOD_SYMPTOMS = ["Cramps / pain", "Nausea", "Low energy / stamina", "Bloating", "Headaches", "Mood swings", "Back pain", "Food cravings", "Breast tenderness", "Trouble sleeping"];
 // Defaults for a NEWLY added person (the "self" profile keeps Jignesh's seed data).
 const BLANK_PROFILE = {
   name: "",
@@ -643,7 +718,18 @@ const BLANK_PROFILE = {
   dietRules: [],
   cuisines: [],
   activityLevel: "light",
-  wantsMealPlan: "Open to trying"
+  wantsMealPlan: "Open to trying",
+  smoking: "none",
+  vaping: "none",
+  alcohol: "none",
+  sleepHours: "",
+  bedtime: "",
+  chronotype: "",
+  dayNaps: false,
+  pregnant: false,
+  periodDuration: 5,
+  periodCycle: 28,
+  periodSymptoms: []
 };
 const blankMetrics = () => METRICS_SEED.map(m => ({
   ...m,
@@ -662,6 +748,135 @@ function bmiCategory(bmi) {
   if (bmi < 30) return "Overweight";
   return "Obese";
 }
+function isFemale(profile) {
+  return /female|woman/i.test(profile && profile.gender || "");
+}
+// ---- Menstrual-cycle helpers (female profiles). Kept entirely separate from reports:periods (which
+// are lab-report dates). Cycle history lives in its own cycle:log key. ----
+function cycleDaysBetween(a, b) {
+  try {
+    return Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 86400000);
+  } catch (e) {
+    return null;
+  }
+}
+function cycleAddDays(dateStr, n) {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + n);
+  return ymd(d);
+}
+// Average cycle length LEARNED from logged history; falls back to the stated cycle length.
+function avgCycleLength(log, fallback) {
+  const starts = (log || []).map(e => e && e.start).filter(Boolean).sort();
+  const gaps = [];
+  for (let i = 1; i < starts.length; i++) {
+    const g = cycleDaysBetween(starts[i - 1], starts[i]);
+    if (g != null && g > 15 && g < 60) gaps.push(g);
+  }
+  if (gaps.length) return Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length);
+  return Number(fallback) || 28;
+}
+function cyclePrediction(log, profile) {
+  const starts = (log || []).map(e => e && e.start).filter(Boolean).sort();
+  const last = starts.length ? starts[starts.length - 1] : profile && profile.periodLastStart || null;
+  if (!last) return null;
+  const cycle = avgCycleLength(log, profile && profile.periodCycle || 28);
+  const next = cycleAddDays(last, cycle);
+  const daysUntil = cycleDaysBetween(ymd(new Date()), next);
+  return {
+    last,
+    cycle,
+    next,
+    daysUntil,
+    logged: starts.length,
+    learned: (log || []).filter(e => e && e.start).length >= 2
+  };
+}
+// Symptom-aware, plain-language tips for the days before + during a period.
+const PERIOD_TIP_MAP = {
+  "Cramps / pain": {
+    before: "Ease off caffeine and very salty food a few days ahead.",
+    during: "Warm foods, ginger or peppermint tea, and gentle movement ease cramps."
+  },
+  "Nausea": {
+    before: "Keep meals small and regular; go easy on heavy fried food.",
+    during: "Bland, dry foods (toast, khichdi, banana) and ginger settle the stomach."
+  },
+  "Low energy / stamina": {
+    before: "Build up iron-rich foods — greens, dates, jaggery, lentils.",
+    during: "Pair iron with vitamin C (lemon, amla) to absorb more; rest when you need to."
+  },
+  "Bloating": {
+    before: "Cut back on salt and fizzy drinks in the days before.",
+    during: "Smaller meals, plenty of water, and potassium foods (banana, coconut water)."
+  },
+  "Headaches": {
+    before: "Stay well hydrated and keep sleep regular.",
+    during: "Water, magnesium foods (nuts, seeds, dark greens), and less screen time."
+  },
+  "Mood swings": {
+    before: "Steady your blood sugar — regular meals, less refined sugar.",
+    during: "Complex carbs, omega-3 foods and light exercise lift mood."
+  },
+  "Back pain": {
+    before: "Gentle stretching or yoga through the week.",
+    during: "A heat pad, and anti-inflammatory foods (turmeric, ginger)."
+  },
+  "Food cravings": {
+    before: "Protein + fibre at each meal so cravings hit less hard.",
+    during: "Pick the better version — dark chocolate over sweets, fruit over fried."
+  },
+  "Breast tenderness": {
+    before: "Lower caffeine and salt.",
+    during: "Keep salt down; magnesium and vitamin-E foods may help."
+  },
+  "Trouble sleeping": {
+    before: "Wind down earlier; skip caffeine after the afternoon.",
+    during: "Warm milk, magnesium foods, and a steady bedtime."
+  }
+};
+// Whole-picture lifestyle guidance (NIDDK-style plain language) from smoking / vaping / alcohol / sleep,
+// so the plan reflects more than food. Returns [{tag, tone, body}].
+function lifestyleGuidance(profile) {
+  const p = profile || {},
+    out = [];
+  const any = f => f && f !== "none";
+  const heavy = f => f === "weekly" || f === "daily";
+  if (any(p.alcohol)) {
+    const liver = (p.conditions || []).some(c => /liver|ggt/i.test(c));
+    out.push({
+      tag: "Alcohol",
+      tone: heavy(p.alcohol) ? "avoid" : "limit",
+      body: liver ? "Alcohol is the biggest single lever for your liver (GGT). Cutting down — ideally to rare or none — can lower GGT within weeks." : "Alcohol adds empty calories and pushes triglycerides up. Keep it occasional at most, and never daily."
+    });
+  }
+  if (any(p.smoking)) out.push({
+    tag: "Smoking",
+    tone: "avoid",
+    body: "Smoking works against every heart and cholesterol goal here. Quitting is the highest-impact change you can make — ask your doctor about support to stop."
+  });
+  if (any(p.vaping)) out.push({
+    tag: "Vaping",
+    tone: "avoid",
+    body: "Vaping isn't a safe swap — it still strains the heart and lungs. Aim to taper down and off."
+  });
+  if (p.sleepHours === "<5" || p.sleepHours === "5-6") out.push({
+    tag: "Short sleep",
+    tone: "limit",
+    body: "Under 6 hours raises hunger hormones and next-day sugar cravings — it quietly works against weight and blood-sugar goals. Aim for 7–8 hours. (Regular meals + enough sleep are also the front line against binge-eating urges — NIDDK.)"
+  });
+  if (p.bedtime === "verylate" || p.chronotype === "late") out.push({
+    tag: "Late nights",
+    tone: "info",
+    body: "Late nights tend to mean late, heavier dinners. Try to finish eating 2–3 hours before bed."
+  });
+  return out;
+}
+const TONE_COLOR = {
+  avoid: "#B8433A",
+  limit: "#C4841F",
+  info: "#3D6B4F"
+};
 const DEFAULT_GOAL_TOGGLES = [{
   id: "weightloss",
   label: "Weight loss / Fat loss",
@@ -1352,239 +1567,229 @@ const MEAL_POOL = {
 // actually likes (profile.cuisines) so it is personalised and NOT a copy of any one uploaded menu.
 const CUISINE_MEALS = {
   "Gujarati": {
-    breakfast: ["Moong dal chilla with mint chutney", "Vegetable handvo with curd", "Oats & vegetable upma", "Dhokla with sprouts salad", "Thepla with lauki sabji and curd"],
-    lunch: ["Bajra roti, ringan bharta, moong dal, kachumber", "Jowar roti, bhindi sabji, dal, salad", "Vegetable khichdi with kadhi and steamed veg", "Mix veg pulao with raita and papad"],
-    dinner: ["Vegetable khichdi with kadhi", "Methi thepla with curd and veg", "Handvo with green salad", "Moong dal dhokla with vegetable soup"]
+    "breakfast": ["Moong dal chilla with mint chutney", "Vegetable handvo with curd", "Oats & vegetable upma", "Dhokla with sprouts salad", "Thepla with lauki sabji and curd", "Methi thepla with curd", "Rava idli with sambar", "Vegetable poha with peanuts"],
+    "lunch": ["Bajra roti, ringan bharta, moong dal, kachumber", "Jowar roti, bhindi sabji, dal, salad", "Vegetable khichdi with kadhi and steamed veg", "Mix veg pulao with raita and papad", "Rotli, tuvar dal, bhaat, sambharo", "Undhiyu with bajra rotla (light)", "Dudhi-chana sabji, roti, dal, salad", "Sev tameta nu shaak with roti and dal"],
+    "dinner": ["Vegetable khichdi with kadhi", "Methi thepla with curd and veg", "Handvo with green salad", "Moong dal dhokla with vegetable soup", "Ringan-bataka nu shaak with rotli", "Vegetable muthia with chutney", "Dudhi thepla with sabji", "Sabudana khichdi (light) with curd"]
   },
   "North Indian": {
-    breakfast: ["Stuffed paneer paratha with curd", "Besan cheela with paneer", "Vegetable poha with peanuts", "Sprouted moong salad with multigrain toast"],
-    lunch: ["Roti, rajma, brown rice, salad", "Roti, chana masala, jeera rice, raita", "Palak paneer, roti, cucumber salad", "Baingan bharta, roti, dal, salad"],
-    dinner: ["Dal tadka, roti, sauteed veg", "Paneer bhurji with multigrain roti", "Vegetable pulao with raita", "Mixed dal khichdi with veg"]
+    "breakfast": ["Stuffed paneer paratha with curd", "Besan cheela with paneer", "Vegetable poha with peanuts", "Sprouted moong salad with multigrain toast", "Aloo-methi paratha (light) with curd", "Vegetable daliya", "Chana dal cheela", "Paneer bhurji with multigrain roti"],
+    "lunch": ["Roti, rajma, brown rice, salad", "Roti, chana masala, jeera rice, raita", "Palak paneer, roti, cucumber salad", "Baingan bharta, roti, dal, salad", "Lauki kofta (light), roti, salad", "Aloo-gobi, roti, dal, kachumber", "Kadhi with rice and sauteed veg", "Mixed veg, roti, moong dal, salad"],
+    "dinner": ["Dal tadka, roti, sauteed veg", "Paneer bhurji with multigrain roti", "Vegetable pulao with raita", "Mixed dal khichdi with veg", "Matar-mushroom (light) with roti", "Bhindi masala, roti, dal", "Palak-corn sabji with roti", "Vegetable seekh (baked) with salad and roti"]
   },
   "Punjabi": {
-    breakfast: ["Stuffed gobhi paratha with curd", "Chana dal cheela with chutney", "Vegetable dalia", "Paneer bhurji with roti"],
-    lunch: ["Rajma chawal with onion salad", "Chole with roti and salad", "Sarson ka saag with makki roti", "Light dal makhani with roti and salad"],
-    dinner: ["Kadhi with rice and veg", "Matar paneer with roti", "Vegetable pulao with raita", "Dal fry with jeera rice"]
+    "breakfast": ["Stuffed gobhi paratha with curd", "Chana dal cheela with chutney", "Vegetable dalia", "Paneer bhurji with roti", "Aloo paratha (light) with curd", "Missi roti with curd and pickle", "Sprouts and paneer salad", "Besan cheela with mint chutney"],
+    "lunch": ["Rajma chawal with onion salad", "Chole with roti and salad", "Sarson ka saag with makki roti", "Light dal makhani with roti and salad", "Kadhi pakora (light) with rice", "Baingan bharta with roti and dal", "Chana-palak with roti and salad", "Vegetable pulao with raita and salad"],
+    "dinner": ["Kadhi with rice and veg", "Matar paneer with roti", "Vegetable pulao with raita", "Dal fry with jeera rice", "Palak paneer (light) with roti", "Aloo-baingan with roti and dal", "Mixed veg sabji with roti", "Rajma with brown rice and salad"]
   },
   "South Indian": {
-    breakfast: ["Idli with sambar and coconut chutney", "Vegetable rava upma", "Pesarattu (moong dosa) with chutney", "Ragi dosa with tomato chutney"],
-    lunch: ["Sambar rice with beans poriyal", "Curd rice with vegetable kootu", "Lemon rice with sprouts salad", "Vegetable bisi bele bath with salad"],
-    dinner: ["Plain dosa with sambar", "Vegetable uttapam with chutney", "Rava idli with sambar", "Adai with avial"]
+    "breakfast": ["Idli with sambar and coconut chutney", "Vegetable rava upma", "Pesarattu (moong dosa) with chutney", "Ragi dosa with tomato chutney", "Ven pongal with sambar", "Rava idli with sambar", "Oats dosa with chutney", "Adai with avial"],
+    "lunch": ["Sambar rice with beans poriyal", "Curd rice with vegetable kootu", "Lemon rice with sprouts salad", "Vegetable bisi bele bath with salad", "Tomato rice with cabbage poriyal", "Vegetable sambar, rice, beetroot poriyal", "Rasam rice with veg thoran", "Millet pongal with sambar and veg"],
+    "dinner": ["Plain dosa with sambar", "Vegetable uttapam with chutney", "Rava idli with sambar", "Adai with avial", "Set dosa with veg kurma (light)", "Ragi mudde with sambar", "Vegetable pesarattu with chutney", "Appam with vegetable stew"]
   },
   "Maharashtrian": {
-    breakfast: ["Poha with peanuts and veg", "Thalipeeth with curd", "Moong dal thalipeeth", "Vegetable sabudana khichdi (light)"],
-    lunch: ["Varan bhaat with sauteed veg", "Bhakri with pithla and salad", "Vegetable masale bhaat with raita", "Amti with rice and bhaji"],
-    dinner: ["Matki usal with bhakri", "Vegetable handvo", "Bhakri with bharli vangi", "Sabudana thalipeeth with curd"]
+    "breakfast": ["Poha with peanuts and veg", "Thalipeeth with curd", "Moong dal thalipeeth", "Vegetable sabudana khichdi (light)", "Kanda poha with sprouts", "Rava upma with vegetables", "Moong dal dhokla", "Ragi ambil with fruit"],
+    "lunch": ["Varan bhaat with sauteed veg", "Bhakri with pithla and salad", "Vegetable masale bhaat with raita", "Amti with rice and bhaji", "Matki usal with bhakri and salad", "Vangi bhaat with kachumber", "Kombdi-vade veg version with salad", "Zunka bhakar with onion salad"],
+    "dinner": ["Matki usal with bhakri", "Vegetable handvo", "Bhakri with bharli vangi", "Sabudana thalipeeth with curd", "Vegetable pulao with raita", "Pithla bhakri with salad", "Aluchi bhaji with jowar bhakri", "Masale bhaat (light) with raita"]
   },
   "Bengali": {
-    breakfast: ["Vegetable cholar dal with luchi (baked)", "Chana dal with radhaballavi (light)", "Vegetable poha", "Moong dal cheela"],
-    lunch: ["Rice with cholar dal and aloo posto", "Khichuri with labra veg", "Rice with shukto and dal", "Rice with mochar ghonto and dal"],
-    dinner: ["Vegetable khichuri with begun bhaja (air-fried)", "Rice with dhokar dalna", "Rice with vegetable dalna", "Luchi (baked) with chholar dal"]
+    "breakfast": ["Vegetable cholar dal with luchi (baked)", "Chana dal with radhaballavi (light)", "Vegetable poha", "Moong dal cheela", "Vegetable ghugni with toast", "Sooji upma with veg", "Aloo-cheera (poha) with peanuts", "Vegetable chop (baked) with salad"],
+    "lunch": ["Rice with cholar dal and aloo posto", "Khichuri with labra veg", "Rice with shukto and dal", "Rice with mochar ghonto and dal", "Rice with begun basanti (light) and dal", "Rice with dhokar dalna", "Rice with echorer dalna and dal", "Rice with lau ghonto and moong dal"],
+    "dinner": ["Vegetable khichuri with begun bhaja (air-fried)", "Rice with dhokar dalna", "Rice with vegetable dalna", "Luchi (baked) with chholar dal", "Rice with chochchori and dal", "Vegetable ghugni with roti", "Rice with potoler dolma (light)", "Bhapa vegetable with rice"]
   },
   "Rajasthani": {
-    breakfast: ["Moong dal chilla with chutney", "Besan cheela", "Bajra rotla with curd", "Vegetable poha"],
-    lunch: ["Bajra roti with gatte ki sabji and salad", "Dal baati (baked) with churma (light)", "Ker sangri with bajra roti and curd", "Panchmel dal with rice and salad"],
-    dinner: ["Bajra khichdi with kadhi", "Gatte ki khichdi", "Vegetable pulao with raita", "Missi roti with dal and veg"]
+    "breakfast": ["Moong dal chilla with chutney", "Besan cheela", "Bajra rotla with curd", "Vegetable poha", "Missi roti with curd", "Dal-dhokli (light) small bowl", "Besan gatta (light) with roti", "Sprouts salad with bajra rotla"],
+    "lunch": ["Bajra roti with gatte ki sabji and salad", "Dal baati (baked) with churma (light)", "Ker sangri with bajra roti and curd", "Panchmel dal with rice and salad", "Govind gatta (light) with roti", "Besan chakki sabji with roti and dal", "Rajasthani kadhi with rice", "Mixed dal with bajra roti and salad"],
+    "dinner": ["Bajra khichdi with kadhi", "Gatte ki khichdi", "Vegetable pulao with raita", "Missi roti with dal and veg", "Ker sangri with roti and dal", "Bajra rotla with lasan chutney and sabji", "Moong dal khichdi with kadhi", "Papad ki sabji (light) with roti"]
   },
   "Hyderabadi": {
-    breakfast: ["Vegetable upma with peanuts", "Moong dal pesarattu", "Sprouts chaat with toast", "Vegetable poha"],
-    lunch: ["Vegetable dum biryani with raita", "Bagara rice with veg curry and salad", "Tomato dal with rice and veg", "Vegetable pulao with mirchi ka salan (light)"],
-    dinner: ["Vegetable tehri with raita", "Khichdi with veg curry", "Roti with veg korma (light)", "Vegetable biryani (light) with salad"]
-  },
-  "Continental": {
-    breakfast: ["Vegetable oats porridge with fruit", "Multigrain toast with avocado and sprouts", "Greek yogurt with fruit and seeds", "Vegetable omelette (besan/egg) with toast"],
-    lunch: ["Chickpea and veg quinoa salad bowl", "Grilled veg and hummus wrap", "Vegetable and bean minestrone with bread", "Rajma or bean bowl with brown rice and salad"],
-    dinner: ["Vegetable stir-fry with brown rice", "Stuffed bell peppers with quinoa", "Vegetable and lentil soup with toast", "Grilled paneer/tofu with roasted veg"]
-  },
-  "Mediterranean": {
-    breakfast: ["Greek yogurt with berries, nuts and honey", "Whole-grain toast with hummus and tomato", "Vegetable and feta omelette", "Overnight oats with fruit and seeds"],
-    lunch: ["Falafel bowl with salad and tahini", "Chickpea and vegetable couscous", "Greek salad with pita and hummus", "Lentil and vegetable soup with bread"],
-    dinner: ["Grilled vegetable and halloumi plate", "Stuffed peppers with rice and herbs", "Vegetable and white-bean stew", "Whole-wheat pita with baba ganoush and salad"]
-  },
-  "Italian": {
-    breakfast: ["Whole-grain toast with ricotta and tomato", "Vegetable frittata", "Yogurt with fruit and granola", "Multigrain toast with olive oil and greens"],
-    lunch: ["Whole-wheat pasta primavera with salad", "Minestrone soup with bread", "Caprese salad with whole-grain bread", "Vegetable risotto (light) with green salad"],
-    dinner: ["Whole-wheat penne with vegetables and beans", "Vegetable soup with garlic toast", "Grilled vegetable panini with salad", "Baked vegetable lasagna (light)"]
-  },
-  "Mexican": {
-    breakfast: ["Vegetable and bean breakfast burrito", "Corn and vegetable scramble with tortilla", "Avocado toast with black beans", "Fruit bowl with yogurt and seeds"],
-    lunch: ["Rajma/black-bean burrito bowl with brown rice and salad", "Vegetable and bean quesadilla with salad", "Corn and bean salad with tortilla", "Vegetable fajita wrap"],
-    dinner: ["Bean and vegetable tacos with salad", "Vegetable enchiladas (light)", "Mexican rice with beans and salad", "Vegetable and bean chilli with corn"]
-  },
-  "Chinese": {
-    breakfast: ["Vegetable congee", "Stir-fried tofu and veg with steamed rice", "Vegetable dumplings (steamed)", "Vegetable spring rolls (baked) with soup"],
-    lunch: ["Brown-rice vegetable fried rice with tofu stir-fry", "Hakka noodles with stir-fried vegetables", "Vegetable manchurian (light) with fried rice", "Steamed veg and tofu with rice"],
-    dinner: ["Clear vegetable soup with steamed momos", "Stir-fried tofu and veg with noodles", "Vegetable hot-and-sour soup with rice", "Chilli paneer/tofu (light) with fried rice"]
-  },
-  "Thai": {
-    breakfast: ["Vegetable rice soup (jok)", "Tofu and vegetable stir-fry with rice", "Fresh vegetable spring rolls", "Fruit bowl with coconut yogurt"],
-    lunch: ["Thai green curry with vegetables and rice", "Pad thai with tofu and vegetables", "Tom yum vegetable soup with rice", "Vegetable and tofu basil stir-fry with rice"],
-    dinner: ["Thai red curry with tofu and rice", "Vegetable clear soup with rice", "Stir-fried vegetables with brown rice", "Tofu satay with peanut sauce and salad"]
-  },
-  "Middle Eastern": {
-    breakfast: ["Ful medames with whole-grain bread", "Hummus with pita and vegetables", "Shakshuka (egg or tofu) with bread", "Labneh with olive oil and toast"],
-    lunch: ["Falafel wrap with salad and tahini", "Mujadara (lentils and rice) with salad", "Chickpea tagine with couscous", "Tabbouleh with hummus and pita"],
-    dinner: ["Vegetable and chickpea stew with rice", "Stuffed vine leaves with salad", "Grilled vegetable and halloumi plate", "Lentil soup with whole-grain bread"]
-  },
-  "Korean": {
-    breakfast: ["Vegetable rice porridge (juk)", "Kimchi and tofu rice bowl", "Steamed vegetable mandu (dumplings)", "Seaweed soup with rice"],
-    lunch: ["Bibimbap with vegetables and tofu", "Tofu and vegetable bulgogi with rice", "Japchae (glass noodles) with vegetables", "Doenjang vegetable stew with rice"],
-    dinner: ["Kimchi tofu stew (sundubu) with rice", "Vegetable and tofu bibimbap", "Stir-fried vegetables with rice", "Vegetable japchae with salad"]
-  },
-  "Japanese": {
-    breakfast: ["Miso soup with rice and vegetables", "Tofu and vegetable rice bowl", "Vegetable okonomiyaki (light)", "Steamed rice with greens and sesame"],
-    lunch: ["Vegetable sushi rolls with miso soup", "Soba noodles with vegetables", "Tofu teriyaki with rice and salad", "Vegetable donburi rice bowl"],
-    dinner: ["Vegetable and tofu hot pot (nabe)", "Udon noodle soup with vegetables", "Grilled tofu with steamed vegetables and rice", "Vegetable tempura (baked) with rice"]
-  },
-  "American": {
-    breakfast: ["Oatmeal with fruit and nuts", "Whole-grain pancakes with fruit", "Vegetable omelette with toast", "Greek yogurt parfait with granola"],
-    lunch: ["Grilled veggie burger with salad", "Quinoa and black-bean bowl", "Vegetable and hummus wrap", "Garden salad with beans and whole-grain roll"],
-    dinner: ["Bean chili with brown rice", "Grilled vegetable and tofu skewers with salad", "Vegetable pasta primavera", "Baked sweet potato with beans and greens"]
+    "breakfast": ["Vegetable upma with peanuts", "Moong dal pesarattu", "Sprouts chaat with toast", "Vegetable poha", "Rava kichadi with veg", "Egg-free vegetable dosa with chutney", "Millet upma with veg", "Vegetable seviyan (light)"],
+    "lunch": ["Vegetable dum biryani with raita", "Bagara rice with veg curry and salad", "Tomato dal with rice and veg", "Vegetable pulao with mirchi ka salan (light)", "Khatti dal with rice and bhindi", "Vegetable tahari with raita", "Dalcha (veg) with rice", "Bagara baingan with rice and salad"],
+    "dinner": ["Vegetable tehri with raita", "Khichdi with veg curry", "Roti with veg korma (light)", "Vegetable biryani (light) with salad", "Tomato-dal with roti and veg", "Vegetable haleem (light) with salad", "Bagara rice with dal and veg", "Mixed veg curry with roti"]
   },
   "Mughlai": {
-    breakfast: ["Paneer paratha with curd", "Besan cheela with mint chutney", "Vegetable seviyan (light)", "Vegetable poha"],
-    lunch: ["Vegetable biryani (light) with raita", "Paneer korma (light) with roti", "Dum aloo with jeera rice and salad", "Navratan korma with roti"],
-    dinner: ["Paneer pasanda (light) with roti", "Vegetable pulao with raita", "Dal with roti and salad", "Shahi paneer (light) with roti"]
+    "breakfast": ["Paneer paratha with curd", "Besan cheela with mint chutney", "Vegetable seviyan (light)", "Vegetable poha", "Sprouts salad with roti", "Vegetable daliya", "Paneer bhurji with roti", "Vegetable cutlet (baked) with chutney"],
+    "lunch": ["Vegetable biryani (light) with raita", "Paneer korma (light) with roti", "Dum aloo with jeera rice and salad", "Navratan korma with roti", "Subz miloni (light) with roti", "Vegetable pulao with dal and salad", "Paneer pasanda (light) with roti", "Kofta curry (baked, light) with rice"],
+    "dinner": ["Paneer pasanda (light) with roti", "Vegetable pulao with raita", "Dal with roti and salad", "Shahi paneer (light) with roti", "Subz korma (light) with roti", "Vegetable biryani (light) with raita", "Methi-matar-malai (light) with roti", "Mixed veg curry with jeera rice"]
   },
   "Goan": {
-    breakfast: ["Vegetable poha", "Besan cheela with chutney", "Rice and vegetable sanna (light)", "Fruit bowl with yogurt"],
-    lunch: ["Goan vegetable curry with rice", "Mushroom xacuti (light) with rice", "Vegetable pulao with salad", "Chana tonak with pav (light)"],
-    dinner: ["Vegetable caldine with rice", "Mixed vegetable curry with rice", "Dal with rice and salad", "Vegetable stir-fry with rice"]
+    "breakfast": ["Vegetable poha", "Besan cheela with chutney", "Rice and vegetable sanna (light)", "Fruit bowl with yogurt", "Vegetable upma", "Ragi dosa with chutney", "Sprouts salad with toast", "Vegetable pancake (light)"],
+    "lunch": ["Goan vegetable curry with rice", "Mushroom xacuti (light) with rice", "Vegetable pulao with salad", "Chana tonak with pav (light)", "Mixed veg caldine with rice", "Tondak (beans curry) with rice", "Vegetable ross with rice", "Alsande (black-eyed bean) tonak with rice"],
+    "dinner": ["Vegetable caldine with rice", "Mixed vegetable curry with rice", "Dal with rice and salad", "Vegetable stir-fry with rice", "Bhaji-pav (light) with salad", "Vegetable xacuti (light) with rice", "Chana tonak with brown rice", "Vegetable pulao with salad"]
   },
   "Kashmiri": {
-    breakfast: ["Vegetable dalia", "Besan cheela", "Kashmiri vegetable rice (light)", "Fruit and nut bowl with yogurt"],
-    lunch: ["Nadru (lotus stem) curry with rice", "Rajma with rice and salad", "Dum aloo Kashmiri (light) with rice", "Vegetable pulao with raita"],
-    dinner: ["Haak saag with rice", "Chaman (paneer) curry (light) with roti", "Vegetable yakhni (light) with rice", "Dal with rice and greens"]
+    "breakfast": ["Vegetable dalia", "Besan cheela", "Kashmiri vegetable rice (light)", "Fruit and nut bowl with yogurt", "Vegetable upma", "Sprouts salad with toast", "Girda (whole wheat) with vegetable", "Vegetable poha"],
+    "lunch": ["Nadru (lotus stem) curry with rice", "Rajma with rice and salad", "Dum aloo Kashmiri (light) with rice", "Vegetable pulao with raita", "Haak saag with rice and dal", "Chaman (paneer) curry (light) with rice", "Nadru yakhni (light) with rice", "Rajma-gogji (turnip) with rice"],
+    "dinner": ["Haak saag with rice", "Chaman (paneer) curry (light) with roti", "Vegetable yakhni (light) with rice", "Dal with rice and greens", "Nadru curry with rice", "Rajma with brown rice and salad", "Vegetable pulao with raita", "Dum aloo (light) with roti"]
   },
   "Sindhi": {
-    breakfast: ["Sindhi koki (light) with curd", "Moong dal chilla", "Besan cheela", "Vegetable poha"],
-    lunch: ["Sindhi kadhi with rice and vegetables", "Sai bhaji with rice", "Vegetable pulao with salad", "Dal with roti and salad"],
-    dinner: ["Sai bhaji with brown rice", "Vegetable curry with roti", "Moong dal khichdi with vegetables", "Dal with rice and salad"]
+    "breakfast": ["Sindhi koki (light) with curd", "Moong dal chilla", "Besan cheela", "Vegetable poha", "Dal pakwan (baked, light)", "Sprouts salad with toast", "Vegetable seviyan (light)", "Vegetable upma"],
+    "lunch": ["Sindhi kadhi with rice and vegetables", "Sai bhaji with rice", "Vegetable pulao with salad", "Dal with roti and salad", "Bhee-aloo (lotus stem) sabji with rice", "Vegetable curry with phulka", "Kadhi-chawal with sabji", "Tidali dal with rice and veg"],
+    "dinner": ["Sai bhaji with brown rice", "Vegetable curry with roti", "Moong dal khichdi with vegetables", "Dal with rice and salad", "Sindhi kadhi with rice", "Vegetable pulao with raita", "Bhaji with phulka and dal", "Mixed veg with roti and salad"]
+  },
+  "Continental": {
+    "breakfast": ["Vegetable oats porridge with fruit", "Multigrain toast with avocado and sprouts", "Greek yogurt with fruit and seeds", "Vegetable omelette (besan/egg) with toast", "Overnight oats with berries", "Whole-grain toast with peanut butter and banana", "Vegetable and cheese sandwich (light)", "Fruit and nut muesli with milk"],
+    "lunch": ["Chickpea and veg quinoa salad bowl", "Grilled veg and hummus wrap", "Vegetable and bean minestrone with bread", "Rajma or bean bowl with brown rice and salad", "Roasted veg and feta salad with bread", "Lentil soup with whole-grain roll", "Vegetable pasta salad (light)", "Baked potato with beans and salad"],
+    "dinner": ["Vegetable stir-fry with brown rice", "Stuffed bell peppers with quinoa", "Vegetable and lentil soup with toast", "Grilled paneer/tofu with roasted veg", "Vegetable shepherd's pie (lentil, light)", "Whole-wheat pasta with vegetables and beans", "Grilled veg skewers with couscous", "Mixed bean chilli with brown rice"]
+  },
+  "Mediterranean": {
+    "breakfast": ["Greek yogurt with berries, nuts and honey", "Whole-grain toast with hummus and tomato", "Vegetable and feta omelette", "Overnight oats with fruit and seeds", "Labneh with olive oil and whole-grain bread", "Fruit, walnut and yogurt bowl", "Shakshuka (egg/tofu) with bread", "Whole-grain toast with avocado and olives"],
+    "lunch": ["Falafel bowl with salad and tahini", "Chickpea and vegetable couscous", "Greek salad with pita and hummus", "Lentil and vegetable soup with bread", "Tabbouleh with hummus and pita", "Roasted vegetable and bulgur bowl", "White-bean and vegetable stew with bread", "Stuffed vine leaves with salad"],
+    "dinner": ["Grilled vegetable and halloumi plate", "Stuffed peppers with rice and herbs", "Vegetable and white-bean stew", "Whole-wheat pita with baba ganoush and salad", "Vegetable moussaka (light)", "Chickpea and spinach stew with bread", "Grilled veg and quinoa tabbouleh", "Lentil-stuffed eggplant with salad"]
+  },
+  "Italian": {
+    "breakfast": ["Whole-grain toast with ricotta and tomato", "Vegetable frittata", "Yogurt with fruit and granola", "Multigrain toast with olive oil and greens", "Cappuccino with whole-grain toast and jam", "Fruit, nut and yogurt bowl", "Vegetable and cheese panini (light)", "Bruschetta with tomato and basil"],
+    "lunch": ["Whole-wheat pasta primavera with salad", "Minestrone soup with bread", "Caprese salad with whole-grain bread", "Vegetable risotto (light) with green salad", "Whole-wheat penne arrabbiata with salad", "Bean and vegetable soup with bread", "Roasted vegetable panini with salad", "Farro salad with vegetables and feta"],
+    "dinner": ["Whole-wheat penne with vegetables and beans", "Vegetable soup with garlic toast", "Grilled vegetable panini with salad", "Baked vegetable lasagna (light)", "Whole-wheat spaghetti with tomato-basil and salad", "Vegetable risotto with peas (light)", "Margherita pizza (thin, light) with salad", "Gnocchi with tomato-vegetable sauce (light)"]
+  },
+  "Mexican": {
+    "breakfast": ["Vegetable and bean breakfast burrito", "Corn and vegetable scramble with tortilla", "Avocado toast with black beans", "Fruit bowl with yogurt and seeds", "Egg and bean tacos (light)", "Chilaquiles (baked, light) with beans", "Black-bean and veg quesadilla (light)", "Tofu scramble with tortilla"],
+    "lunch": ["Rajma/black-bean burrito bowl with brown rice and salad", "Vegetable and bean quesadilla with salad", "Corn and bean salad with tortilla", "Vegetable fajita wrap", "Bean tostada with salad", "Vegetable and bean taco salad", "Stuffed poblano with rice and beans (light)", "Sopa de verduras with tortilla"],
+    "dinner": ["Bean and vegetable tacos with salad", "Vegetable enchiladas (light)", "Mexican rice with beans and salad", "Vegetable and bean chilli with corn", "Stuffed bell peppers with beans and rice", "Vegetable and bean burrito with salad", "Tortilla soup with beans (light)", "Grilled vegetable fajitas with tortilla"]
+  },
+  "American": {
+    "breakfast": ["Oatmeal with fruit and nuts", "Whole-grain pancakes with fruit", "Vegetable omelette with toast", "Greek yogurt parfait with granola", "Avocado toast with egg", "Whole-grain cereal with milk and berries", "Breakfast burrito with beans and veg", "Smoothie bowl with oats and fruit"],
+    "lunch": ["Grilled veggie burger with salad", "Quinoa and black-bean bowl", "Vegetable and hummus wrap", "Garden salad with beans and whole-grain roll", "Vegetable and bean soup with bread", "Grilled cheese (light) with tomato soup", "Cobb-style veg salad with egg", "Baked sweet potato with beans and greens"],
+    "dinner": ["Bean chili with brown rice", "Grilled vegetable and tofu skewers with salad", "Vegetable pasta primavera", "Baked sweet potato with beans and greens", "Veggie burger with sweet-potato wedges (baked)", "Vegetable and bean casserole (light)", "Grilled paneer/tofu with roasted veg", "Stuffed bell peppers with quinoa and beans"]
+  },
+  "Chinese": {
+    "breakfast": ["Vegetable congee", "Stir-fried tofu and veg with steamed rice", "Vegetable dumplings (steamed)", "Vegetable spring rolls (baked) with soup", "Tofu and vegetable noodle soup", "Steamed veg bun (bao) with soy milk", "Vegetable and egg fried rice (light)", "Scallion pancake (light) with veg"],
+    "lunch": ["Brown-rice vegetable fried rice with tofu stir-fry", "Hakka noodles with stir-fried vegetables", "Vegetable manchurian (light) with fried rice", "Steamed veg and tofu with rice", "Tofu and broccoli stir-fry with rice", "Vegetable chow mein (light)", "Mapo tofu (light) with rice", "Hot-and-sour vegetable soup with rice"],
+    "dinner": ["Clear vegetable soup with steamed momos", "Stir-fried tofu and veg with noodles", "Vegetable hot-and-sour soup with rice", "Chilli paneer/tofu (light) with fried rice", "Kung pao tofu (light) with rice", "Vegetable and tofu stir-fry with noodles", "Steamed dumplings with vegetable soup", "Garlic bok choy and tofu with rice"]
+  },
+  "Thai": {
+    "breakfast": ["Vegetable rice soup (jok)", "Tofu and vegetable stir-fry with rice", "Fresh vegetable spring rolls", "Fruit bowl with coconut yogurt", "Vegetable omelette (Thai-style) with rice", "Tofu and veg noodle soup", "Sticky rice with mango (light)", "Vegetable congee with tofu"],
+    "lunch": ["Thai green curry with vegetables and rice", "Pad thai with tofu and vegetables", "Tom yum vegetable soup with rice", "Vegetable and tofu basil stir-fry with rice", "Pad see ew with tofu and veg", "Papaya salad (som tam) with sticky rice", "Massaman vegetable curry (light) with rice", "Pineapple fried rice (light) with tofu"],
+    "dinner": ["Thai red curry with tofu and rice", "Vegetable clear soup with rice", "Stir-fried vegetables with brown rice", "Tofu satay with peanut sauce and salad", "Panang tofu curry (light) with rice", "Drunken noodles (veg, light) with tofu", "Tom kha vegetable soup with rice", "Stir-fried morning glory with tofu and rice"]
+  },
+  "Japanese": {
+    "breakfast": ["Miso soup with rice and vegetables", "Tofu and vegetable rice bowl", "Vegetable okonomiyaki (light)", "Steamed rice with greens and sesame", "Natto with rice and miso soup", "Tamago (egg) with rice and pickles", "Vegetable and tofu miso ramen (light)", "Onigiri with vegetable and miso soup"],
+    "lunch": ["Vegetable sushi rolls with miso soup", "Soba noodles with vegetables", "Tofu teriyaki with rice and salad", "Vegetable donburi rice bowl", "Vegetable and tofu udon soup", "Edamame and vegetable rice bowl", "Vegetable curry rice (light)", "Tofu katsu (baked) with rice and salad"],
+    "dinner": ["Vegetable and tofu hot pot (nabe)", "Udon noodle soup with vegetables", "Grilled tofu with steamed vegetables and rice", "Vegetable tempura (baked) with rice", "Miso-glazed tofu with rice and greens", "Vegetable gyoza (steamed) with soup and rice", "Soba with vegetable tempura (baked)", "Tofu and vegetable stir-fry (yasai itame) with rice"]
+  },
+  "Korean": {
+    "breakfast": ["Vegetable rice porridge (juk)", "Kimchi and tofu rice bowl", "Steamed vegetable mandu (dumplings)", "Seaweed soup with rice", "Gyeran-jjim (steamed egg) with rice", "Tofu and vegetable soup with rice", "Vegetable jeon (pancake, light) with rice", "Kimchi fried rice (light)"],
+    "lunch": ["Bibimbap with vegetables and tofu", "Tofu and vegetable bulgogi with rice", "Japchae (glass noodles) with vegetables", "Doenjang vegetable stew with rice", "Kimchi jjigae (veg, light) with rice", "Vegetable bibim-guksu (cold noodles)", "Tofu kimbap with vegetables", "Sundubu (soft tofu) stew with rice"],
+    "dinner": ["Kimchi tofu stew (sundubu) with rice", "Vegetable and tofu bibimbap", "Stir-fried vegetables with rice", "Vegetable japchae with salad", "Doenjang jjigae with rice and veg", "Tofu bulgogi with lettuce wraps and rice", "Vegetable mandu-guk (dumpling soup)", "Gochujang tofu and vegetable bowl (light)"]
+  },
+  "Middle Eastern": {
+    "breakfast": ["Ful medames with whole-grain bread", "Hummus with pita and vegetables", "Shakshuka (egg or tofu) with bread", "Labneh with olive oil and toast", "Foul and salad with pita", "Za'atar manakish (light) with vegetables", "Fruit, date and yogurt bowl", "Vegetable and cheese fatayer (baked)"],
+    "lunch": ["Falafel wrap with salad and tahini", "Mujadara (lentils and rice) with salad", "Chickpea tagine with couscous", "Tabbouleh with hummus and pita", "Fattoush salad with falafel", "Vegetable and chickpea soup with bread", "Stuffed vine leaves with salad", "Freekeh with roasted vegetables"],
+    "dinner": ["Vegetable and chickpea stew with rice", "Stuffed vine leaves with salad", "Grilled vegetable and halloumi plate", "Lentil soup with whole-grain bread", "Maqluba (vegetable, light) with salad", "Baba ganoush with pita and salad", "Vegetable tagine with couscous", "Falafel plate with hummus and salad"]
   }
 };
 // Non-vegetarian additions per cuisine — mixed in only for people whose diet pattern allows it.
 // Dishes are keyworded (chicken/fish/prawn/egg) so we include just what a person eats (a
 // pescatarian gets fish+egg, an eggetarian only egg, full non-veg gets all). Leaner than restaurant.
 const CUISINE_MEALS_NV = {
+  "Gujarati": {
+    "breakfast": ["Egg bhurji with thepla", "Boiled egg with vegetable poha"],
+    "lunch": ["Fish curry (light) with rice and salad", "Chicken curry (light) with bajra roti"],
+    "dinner": ["Egg curry with rice", "Grilled fish with sauteed vegetables"]
+  },
   "North Indian": {
-    breakfast: ["Egg bhurji with multigrain toast", "Boiled egg with vegetable poha"],
-    lunch: ["Grilled chicken with roti and salad", "Chicken curry with brown rice and salad", "Fish curry with rice and greens"],
-    dinner: ["Chicken tikka with sauteed veg", "Egg curry with roti", "Grilled fish with vegetables"]
+    "breakfast": ["Egg bhurji with multigrain roti", "Boiled egg with vegetable poha"],
+    "lunch": ["Chicken curry (light) with roti and salad", "Fish curry with jeera rice", "Egg curry with roti and salad"],
+    "dinner": ["Grilled chicken tikka with salad and roti", "Fish tikka (baked) with vegetables", "Egg curry with rice"]
   },
   "Punjabi": {
-    breakfast: ["Egg bhurji with paratha", "Boiled eggs with vegetable dalia"],
-    lunch: ["Chicken curry with roti and salad", "Tandoori chicken with salad", "Fish tikka with roti and salad"],
-    dinner: ["Chicken (murgh) curry with rice", "Egg curry with roti", "Grilled chicken with veg"]
+    "breakfast": ["Egg paratha (light) with curd", "Egg bhurji with roti"],
+    "lunch": ["Chicken curry (light) with roti and salad", "Fish amritsari (baked) with salad", "Egg curry with rice"],
+    "dinner": ["Chicken tikka (grilled) with salad", "Fish curry with rice", "Egg bhurji with roti"]
   },
   "South Indian": {
-    breakfast: ["Egg dosa with chutney", "Boiled egg with idli and sambar"],
-    lunch: ["Fish curry (meen) with rice", "Chicken chettinad with rice and salad", "Prawn masala with rice"],
-    dinner: ["Egg roast with appam", "Grilled fish with veg", "Chicken stew with idiyappam"]
-  },
-  "Bengali": {
-    breakfast: ["Egg toast with vegetables", "Boiled egg with vegetable poha"],
-    lunch: ["Macher jhol (fish curry) with rice", "Chicken jhol with rice and salad", "Prawn curry (light) with rice"],
-    dinner: ["Fish curry with rice", "Egg curry with rice", "Chicken curry with rice"]
-  },
-  "Hyderabadi": {
-    breakfast: ["Egg bhurji with toast", "Boiled egg with upma"],
-    lunch: ["Chicken dum biryani (light) with raita", "Fish fry with rice and salad", "Chicken curry with rice"],
-    dinner: ["Egg biryani (light) with raita", "Grilled chicken with veg", "Chicken curry with roti"]
-  },
-  "Mughlai": {
-    breakfast: ["Egg bhurji with roti", "Boiled eggs with paratha"],
-    lunch: ["Chicken korma (light) with roti and salad", "Grilled chicken with salad", "Fish curry with rice"],
-    dinner: ["Chicken tikka with veg", "Egg curry with roti", "Chicken curry with rice"]
-  },
-  "Goan": {
-    breakfast: ["Egg bhurji with pao", "Boiled egg with poha"],
-    lunch: ["Goan fish curry with rice", "Prawn curry with rice and salad", "Chicken xacuti (light) with rice"],
-    dinner: ["Grilled fish with veg", "Chicken cafreal (light) with salad", "Egg curry with rice"]
-  },
-  "Continental": {
-    breakfast: ["Scrambled eggs with multigrain toast", "Boiled eggs with fruit and toast", "Vegetable & egg omelette"],
-    lunch: ["Grilled chicken salad bowl", "Grilled fish with quinoa and salad", "Chicken and vegetable wrap"],
-    dinner: ["Grilled chicken breast with roasted veg", "Baked fish with vegetables", "Chicken and vegetable stir-fry with rice"]
-  },
-  "Chinese": {
-    breakfast: ["Egg congee", "Boiled egg with vegetable soup"],
-    lunch: ["Chicken fried rice (brown) with stir-fried veg", "Fish in garlic sauce with rice", "Egg fried rice with vegetables"],
-    dinner: ["Chilli chicken (light) with rice", "Steamed fish with veg and rice", "Chicken and vegetable noodle soup"]
-  },
-  "Mediterranean": {
-    breakfast: ["Egg & vegetable shakshuka with bread", "Boiled eggs with hummus and toast"],
-    lunch: ["Grilled fish with couscous and salad", "Grilled chicken with tabbouleh", "Tuna and chickpea salad"],
-    dinner: ["Grilled fish with vegetables", "Chicken souvlaki with salad", "Baked fish with herbs and veg"]
-  },
-  "Thai": {
-    breakfast: ["Egg rice soup (jok with egg)", "Boiled egg with fruit bowl"],
-    lunch: ["Thai green curry with chicken and rice", "Fish with Thai basil and rice", "Prawn pad thai (light)"],
-    dinner: ["Thai red curry with fish and rice", "Grilled chicken with salad", "Chicken clear soup with rice"]
-  },
-  "Gujarati": {
-    breakfast: ["Egg bhurji with thepla", "Boiled egg with poha"],
-    lunch: ["Chicken curry with rotli and salad", "Fish curry with rice", "Egg curry with rice"],
-    dinner: ["Egg bhurji with rotli", "Grilled fish with veg", "Chicken curry with rice"]
+    "breakfast": ["Egg dosa with chutney", "Boiled egg with idli and sambar"],
+    "lunch": ["Fish curry with rice and poriyal", "Chicken chettinad (light) with rice", "Egg curry with rice and rasam"],
+    "dinner": ["Fish fry (shallow) with rice and rasam", "Chicken kurma (light) with appam", "Egg roast with dosa"]
   },
   "Maharashtrian": {
-    breakfast: ["Egg bhurji with bhakri", "Boiled egg with poha"],
-    lunch: ["Chicken rassa with bhakri and salad", "Fish curry (kalvan) with rice", "Egg curry with rice"],
-    dinner: ["Chicken sukka (light) with bhakri", "Grilled fish with veg", "Egg curry with rice"]
+    "breakfast": ["Egg bhurji with bhakri", "Boiled egg with poha"],
+    "lunch": ["Fish curry (light) with rice and salad", "Chicken rassa (light) with bhakri", "Egg curry with rice"],
+    "dinner": ["Fish thali (light) with rice", "Chicken sukka (light) with bhakri", "Egg curry with rice"]
+  },
+  "Bengali": {
+    "breakfast": ["Egg-vegetable toast", "Boiled egg with poha"],
+    "lunch": ["Macher jhol (fish curry, light) with rice", "Chicken jhol (light) with rice", "Dim (egg) curry with rice"],
+    "dinner": ["Fish curry with rice and vegetables", "Chicken stew (light) with rice", "Egg curry with rice"]
   },
   "Rajasthani": {
-    breakfast: ["Egg bhurji with bajra rotla", "Boiled egg with poha"],
-    lunch: ["Laal maas (light) with rice and salad", "Chicken curry with bajra roti", "Egg curry with rice"],
-    dinner: ["Chicken curry with roti", "Egg curry with rice", "Grilled chicken with veg"]
+    "breakfast": ["Egg bhurji with bajra rotla", "Boiled egg with poha"],
+    "lunch": ["Chicken curry (light) with bajra roti", "Egg curry with rice and salad"],
+    "dinner": ["Chicken sula (grilled) with salad", "Egg curry with roti"]
+  },
+  "Hyderabadi": {
+    "breakfast": ["Egg bhurji with roti", "Boiled egg with upma"],
+    "lunch": ["Chicken dum biryani (light) with raita", "Fish curry with rice", "Egg biryani (light) with raita"],
+    "dinner": ["Chicken haleem (light) with salad", "Fish fry (shallow) with rice", "Egg curry with roti"]
   },
   "Mughlai": {
-    breakfast: ["Egg bhurji with roti", "Boiled eggs with paratha"],
-    lunch: ["Chicken korma (light) with roti and salad", "Grilled chicken with salad", "Fish curry with rice"],
-    dinner: ["Chicken tikka with veg", "Egg curry with roti", "Chicken curry with rice"]
+    "breakfast": ["Egg bhurji with roti", "Boiled egg with poha"],
+    "lunch": ["Chicken korma (light) with roti", "Fish curry with rice", "Egg curry with rice"],
+    "dinner": ["Chicken tikka (grilled) with salad", "Fish tikka (baked) with roti", "Egg curry with pulao"]
   },
   "Goan": {
-    breakfast: ["Egg bhurji with pao", "Boiled egg with poha"],
-    lunch: ["Goan fish curry with rice", "Prawn curry with rice and salad", "Chicken xacuti (light) with rice"],
-    dinner: ["Grilled fish with veg", "Chicken cafreal (light) with salad", "Egg curry with rice"]
+    "breakfast": ["Egg-vegetable bhurji with pav (light)", "Boiled egg with poha"],
+    "lunch": ["Goan fish curry with rice", "Chicken xacuti (light) with rice", "Egg curry (light) with rice"],
+    "dinner": ["Fish recheado (baked) with rice", "Chicken cafreal (light) with salad", "Prawn curry (light) with rice"]
   },
   "Kashmiri": {
-    breakfast: ["Egg curry with rice (light)", "Boiled egg with dalia"],
-    lunch: ["Rogan josh (light) with rice", "Chicken yakhni with rice", "Fish curry with rice"],
-    dinner: ["Chicken curry with rice", "Grilled fish with veg", "Egg curry with rice"]
+    "breakfast": ["Egg bhurji with girda", "Boiled egg with dalia"],
+    "lunch": ["Fish curry (light) with rice", "Chicken yakhni (light) with rice", "Egg curry with rice"],
+    "dinner": ["Chicken rista (light) with rice", "Fish curry with rice and greens", "Egg curry with roti"]
   },
   "Sindhi": {
-    breakfast: ["Egg bhurji with koki", "Boiled egg with poha"],
-    lunch: ["Sindhi chicken curry with rice", "Fish curry with rice", "Egg curry with rice"],
-    dinner: ["Chicken curry with roti", "Grilled fish with veg", "Egg curry with rice"]
+    "breakfast": ["Egg bhurji with koki (light)", "Boiled egg with poha"],
+    "lunch": ["Sindhi fish curry (light) with rice", "Chicken curry (light) with phulka"],
+    "dinner": ["Fish fry (shallow) with rice", "Egg curry with roti"]
+  },
+  "Continental": {
+    "breakfast": ["Vegetable and egg omelette with toast", "Poached egg with whole-grain toast and greens"],
+    "lunch": ["Grilled chicken and salad bowl", "Tuna and bean salad with bread", "Egg salad wrap (light)"],
+    "dinner": ["Grilled chicken with roasted vegetables", "Baked fish with vegetables and quinoa", "Vegetable and egg frittata with salad"]
+  },
+  "Mediterranean": {
+    "breakfast": ["Shakshuka (egg) with whole-grain bread", "Boiled egg with olives and toast"],
+    "lunch": ["Grilled fish with Greek salad", "Chicken souvlaki (light) with salad and pita", "Egg and chickpea salad with bread"],
+    "dinner": ["Grilled fish with vegetables and rice", "Chicken and vegetable skewers with couscous", "Baked fish with tomato and herbs"]
   },
   "Italian": {
-    breakfast: ["Vegetable and egg frittata", "Poached egg with whole-grain toast"],
-    lunch: ["Grilled chicken with salad and whole-grain bread", "Whole-wheat pasta with fish and vegetables", "Tuna and white-bean salad"],
-    dinner: ["Grilled fish with vegetables", "Chicken cacciatore (light) with salad", "Baked fish with herbs and vegetables"]
+    "breakfast": ["Vegetable frittata with egg", "Boiled egg with whole-grain toast"],
+    "lunch": ["Grilled chicken with whole-wheat pasta and salad", "Tuna and white-bean salad with bread", "Chicken minestrone with bread"],
+    "dinner": ["Baked fish with vegetables and polenta", "Chicken cacciatore (light) with vegetables", "Whole-wheat pasta with chicken and greens"]
   },
   "Mexican": {
-    breakfast: ["Egg and bean breakfast burrito", "Vegetable and egg scramble with tortilla"],
-    lunch: ["Grilled chicken burrito bowl with brown rice", "Fish tacos with salad", "Chicken and bean fajita wrap"],
-    dinner: ["Grilled fish tacos with salad", "Chicken and vegetable enchiladas (light)", "Chicken and bean chilli with corn"]
-  },
-  "Middle Eastern": {
-    breakfast: ["Egg and vegetable shakshuka with bread", "Boiled eggs with hummus and toast"],
-    lunch: ["Grilled chicken shawarma bowl with salad", "Grilled fish with tabbouleh", "Chicken and chickpea stew with rice"],
-    dinner: ["Grilled fish with vegetables", "Chicken kebab with salad", "Baked fish with herbs and rice"]
-  },
-  "Korean": {
-    breakfast: ["Steamed egg (gyeran-jjim) with rice", "Egg and vegetable rice bowl"],
-    lunch: ["Chicken bulgogi with rice and vegetables", "Grilled fish with rice and kimchi", "Egg bibimbap with vegetables"],
-    dinner: ["Chicken and vegetable stew with rice", "Grilled fish with steamed vegetables", "Egg and tofu stew with rice"]
-  },
-  "Japanese": {
-    breakfast: ["Tamagoyaki (rolled egg) with rice", "Egg and rice bowl with miso soup"],
-    lunch: ["Chicken teriyaki with rice and salad", "Salmon with rice and vegetables", "Fish sushi rolls with miso soup"],
-    dinner: ["Grilled fish with steamed vegetables and rice", "Chicken and vegetable donburi", "Salmon teriyaki with vegetables"]
+    "breakfast": ["Egg and bean breakfast tacos", "Huevos rancheros (light) with beans"],
+    "lunch": ["Grilled chicken burrito bowl with rice and beans", "Fish tacos (grilled) with salad", "Egg and bean quesadilla (light)"],
+    "dinner": ["Grilled chicken fajitas with tortilla", "Fish tacos with salad and beans", "Chicken and bean enchiladas (light)"]
   },
   "American": {
-    breakfast: ["Scrambled eggs with whole-grain toast", "Egg and vegetable omelette"],
-    lunch: ["Grilled chicken salad bowl", "Grilled fish with quinoa and salad", "Turkey and vegetable wrap"],
-    dinner: ["Grilled chicken with roasted vegetables", "Baked fish with vegetables", "Grilled chicken and bean bowl"]
+    "breakfast": ["Scrambled eggs with whole-grain toast", "Egg and vegetable breakfast burrito"],
+    "lunch": ["Grilled chicken salad with whole-grain roll", "Tuna sandwich (light) with salad", "Turkey and vegetable wrap"],
+    "dinner": ["Grilled chicken with sweet potato and greens", "Baked fish with vegetables", "Chicken and vegetable skewers with salad"]
+  },
+  "Chinese": {
+    "breakfast": ["Egg and vegetable fried rice (light)", "Steamed egg with rice"],
+    "lunch": ["Chicken and vegetable stir-fry with rice", "Steamed fish with ginger and rice", "Egg drop soup with vegetable rice"],
+    "dinner": ["Kung pao chicken (light) with rice", "Steamed fish with vegetables and rice", "Chicken chow mein (light)"]
+  },
+  "Thai": {
+    "breakfast": ["Thai egg omelette with rice", "Egg and vegetable rice soup"],
+    "lunch": ["Chicken green curry with rice", "Grilled fish with salad and rice", "Chicken pad thai (light)"],
+    "dinner": ["Chicken basil stir-fry with rice", "Steamed fish with lime and rice", "Prawn tom yum with rice"]
+  },
+  "Japanese": {
+    "breakfast": ["Tamagoyaki (rolled egg) with rice", "Egg and rice bowl with miso soup"],
+    "lunch": ["Chicken teriyaki with rice and salad", "Salmon with rice and vegetables", "Fish sushi rolls with miso soup"],
+    "dinner": ["Grilled fish with steamed vegetables and rice", "Chicken and vegetable donburi", "Salmon teriyaki with vegetables"]
+  },
+  "Korean": {
+    "breakfast": ["Steamed egg (gyeran-jjim) with rice", "Egg and vegetable rice bowl"],
+    "lunch": ["Chicken bulgogi with rice and vegetables", "Grilled fish with rice and kimchi", "Egg bibimbap with vegetables"],
+    "dinner": ["Chicken and vegetable stew with rice", "Grilled fish with steamed vegetables", "Egg and tofu stew with rice"]
+  },
+  "Middle Eastern": {
+    "breakfast": ["Shakshuka (egg) with bread", "Boiled egg with foul and pita"],
+    "lunch": ["Grilled chicken shawarma (light) with salad", "Grilled fish with rice and salad", "Chicken and rice (light) with salad"],
+    "dinner": ["Chicken kebab (grilled) with salad and rice", "Baked fish with vegetables and rice", "Chicken and chickpea stew with rice"]
   }
 };
 // Merge the balanced library down to the cuisines the person likes; fall back to a rounded
@@ -4664,7 +4869,7 @@ function suppHeadline(thisKeys, lastKeys, weekSupplements, total, criticalSuppNa
 const KV_MEM = {}; // key -> parsed value; synchronous source of truth for the session
 let KV_IDB = null; // IDBDatabase, or null when IndexedDB is unavailable (falls back to localStorage)
 let KV_WRITE_ERROR = false; // flips true if a persist ever fails; surfaced as a banner in the app
-const APP_KEY_PREFIXES = ["week:", "activities:", "profile:", "profiles:", "goals:", "reports:", "supplements:", "dishes:", "plan:", "seed:", "ui:"];
+const APP_KEY_PREFIXES = ["week:", "activities:", "profile:", "profiles:", "goals:", "reports:", "supplements:", "dishes:", "plan:", "seed:", "ui:", "cycle:"];
 const isAppKey = k => typeof k === "string" && (k === "profiles:list" || k === "profiles:active" || k.startsWith("p:") || APP_KEY_PREFIXES.some(p => k.startsWith(p)));
 function markKvWriteError() {
   KV_WRITE_ERROR = true;
@@ -10152,9 +10357,20 @@ function PlanTab({
   targets,
   weeklyPlan,
   onRegeneratePlan,
-  onSwapMeal
+  onSwapMeal,
+  cycleLog,
+  onLogPeriod
 }) {
   const [checkedGro, setCheckedGro] = useState(() => new Set());
+  const [logDate, setLogDate] = useState(() => ymd(new Date()));
+  const female = isFemale(profile) && !profile.pregnant;
+  const pred = female ? cyclePrediction(cycleLog, profile) : null;
+  const periodTips = female ? (profile.periodSymptoms || []).map(s => ({
+    s,
+    ...(PERIOD_TIP_MAP[s] || {})
+  })).filter(t => t.before || t.during) : [];
+  const lifeGuide = lifestyleGuidance(profile);
+  const cycleHistory = female ? [...(cycleLog || [])].filter(e => e && e.start).sort((a, b) => a.start < b.start ? 1 : -1) : [];
   const grocery = groceryFromPlan(weeklyPlan);
   const toggleGro = g => setCheckedGro(s => {
     const n = new Set(s);
@@ -10405,7 +10621,213 @@ function PlanTab({
       color: T.inkSoft,
       margin: "2px 2px 10px"
     }
-  }, "Tap a section to open it."), weeklyPlan && weeklyPlan.days && /*#__PURE__*/React.createElement(Collapsible, {
+  }, "Tap a section to open it."), female && /*#__PURE__*/React.createElement(Collapsible, {
+    title: "\uD83C\uDF38 Your cycle",
+    subtitle: pred ? pred.daysUntil > 1 ? `Next period in about ${pred.daysUntil} days` : pred.daysUntil >= 0 ? "Period expected around now" : `Period is ~${Math.abs(pred.daysUntil)} days late` : "Add your last period date to start"
+  }, pred ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: pred.daysUntil < 0 ? T.alertPale : T.tealPale,
+      borderRadius: 12,
+      padding: "12px 14px",
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "Manrope",
+      fontWeight: 800,
+      fontSize: 15,
+      color: pred.daysUntil < 0 ? T.alert : T.teal
+    }
+  }, "Next period \u2248 ", formatDateLabel(pred.next)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "Inter",
+      fontSize: 12.5,
+      color: T.ink,
+      marginTop: 3,
+      lineHeight: 1.45
+    }
+  }, pred.daysUntil > 1 ? `in about ${pred.daysUntil} days` : pred.daysUntil >= 0 ? "expected around now" : `${Math.abs(pred.daysUntil)} days late — log it below when it comes`, " \xB7 cycle ~", pred.cycle, " days ", pred.learned ? "(learned from your logs)" : "(from your stated cycle)"), pred.daysUntil <= 1 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "Inter",
+      fontSize: 12,
+      color: T.ink,
+      marginTop: 8,
+      background: T.white,
+      borderRadius: 8,
+      padding: "7px 9px"
+    }
+  }, "Did it start? Log the date below \u2014 that confirms the prediction and teaches it your real pattern.")) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "Inter",
+      fontSize: 13,
+      color: T.inkSoft,
+      marginBottom: 12,
+      lineHeight: 1.5
+    }
+  }, "Add your last period's first day in \u2699\uFE0F \u2192 Profile \u2192 Health & Diet, and your next date will be predicted here."), periodTips.length > 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 12
+    }
+  }, periodTips.some(t => t.before) && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "Manrope",
+      fontWeight: 700,
+      fontSize: 12,
+      color: T.saffron,
+      marginBottom: 6
+    }
+  }, "Prepare in the days before"), periodTips.filter(t => t.before).map((t, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      fontFamily: "Inter",
+      fontSize: 12.5,
+      color: T.ink,
+      lineHeight: 1.4,
+      marginBottom: 4
+    }
+  }, "\u2022 ", /*#__PURE__*/React.createElement("b", null, t.s, ":"), " ", t.before))), periodTips.some(t => t.during) && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "Manrope",
+      fontWeight: 700,
+      fontSize: 12,
+      color: T.teal,
+      margin: "10px 0 6px"
+    }
+  }, "During your period"), periodTips.filter(t => t.during).map((t, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      fontFamily: "Inter",
+      fontSize: 12.5,
+      color: T.ink,
+      lineHeight: 1.4,
+      marginBottom: 4
+    }
+  }, "\u2022 ", /*#__PURE__*/React.createElement("b", null, t.s, ":"), " ", t.during)))) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "Inter",
+      fontSize: 12,
+      color: T.inkSoft,
+      marginBottom: 12,
+      lineHeight: 1.5
+    }
+  }, "Add the symptoms you usually get (\u2699\uFE0F Profile) to see tailored eating & lifestyle tips before and during your period."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderTop: `1px solid ${T.creamDeep}`,
+      paddingTop: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "Manrope",
+      fontWeight: 700,
+      fontSize: 11.5,
+      color: T.inkSoft,
+      marginBottom: 6
+    }
+  }, "LOG A PERIOD"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      alignItems: "center",
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: logDate,
+    onChange: e => setLogDate(e.target.value),
+    style: {
+      flex: 1,
+      minWidth: 0,
+      border: `1px solid ${T.border}`,
+      borderRadius: 10,
+      padding: "8px 10px",
+      fontFamily: "Inter",
+      fontSize: 13,
+      background: T.white,
+      color: T.ink
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: () => onLogPeriod && onLogPeriod(logDate),
+    style: {
+      background: T.tealSolid,
+      border: "none",
+      borderRadius: 10,
+      padding: "9px 13px",
+      color: "#fff",
+      fontFamily: "Manrope",
+      fontWeight: 700,
+      fontSize: 12.5,
+      cursor: "pointer",
+      whiteSpace: "nowrap"
+    }
+  }, "Save date")), cycleHistory.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "Manrope",
+      fontWeight: 700,
+      fontSize: 11.5,
+      color: T.inkSoft,
+      marginBottom: 6
+    }
+  }, "HISTORY (", cycleHistory.length, ")"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      maxHeight: 156,
+      overflowY: "auto",
+      display: "flex",
+      flexDirection: "column",
+      gap: 6
+    }
+  }, cycleHistory.map((e, i) => {
+    const nx = cycleHistory[i + 1];
+    const gap = nx ? cycleDaysBetween(nx.start, e.start) : null;
+    return /*#__PURE__*/React.createElement("div", {
+      key: e.start + i,
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        background: T.creamDeep,
+        borderRadius: 8,
+        padding: "7px 10px",
+        fontFamily: "Inter",
+        fontSize: 12.5,
+        color: T.ink
+      }
+    }, /*#__PURE__*/React.createElement("span", null, formatDateLabel(e.start)), /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: T.inkSoft,
+        fontSize: 11.5
+      }
+    }, gap ? `${gap}-day cycle` : "most recent"));
+  }))))), lifeGuide.length > 0 && /*#__PURE__*/React.createElement(Collapsible, {
+    title: "Lifestyle notes",
+    subtitle: "How alcohol, smoking & sleep affect your goals"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    }
+  }, lifeGuide.map((g, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      borderLeft: `3px solid ${TONE_COLOR[g.tone] || T.teal}`,
+      paddingLeft: 11
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "Manrope",
+      fontWeight: 800,
+      fontSize: 12.5,
+      color: TONE_COLOR[g.tone] || T.teal
+    }
+  }, g.tag), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "Inter",
+      fontSize: 12.5,
+      color: T.ink,
+      lineHeight: 1.5,
+      marginTop: 2
+    }
+  }, g.body))))), weeklyPlan && weeklyPlan.days && /*#__PURE__*/React.createElement(Collapsible, {
     title: "This week's meal plan",
     subtitle: "Built to hit your calorie & nutrient targets \xB7 tap \u21BB to swap"
   }, /*#__PURE__*/React.createElement("div", {
@@ -10946,6 +11368,7 @@ function SettingsPanel({
     if (open) setSection(initialSection || "profile");
   }, [open, initialSection]);
   if (!open) return null;
+  const [profileSaved, setProfileSaved] = useState(false);
   function saveProfileForm() {
     saveProfile({
       ...form,
@@ -10953,6 +11376,8 @@ function SettingsPanel({
       age: Number(form.age) || profile.age,
       height: Number(form.height) || profile.height
     });
+    setProfileSaved(true);
+    setTimeout(() => setProfileSaved(false), 1800);
   }
   function toggleGoal(id) {
     saveGoalToggles(goalToggles.map(g => g.id === id ? {
@@ -11360,7 +11785,7 @@ function SettingsPanel({
   })(), /*#__PURE__*/React.createElement("button", {
     onClick: saveProfileForm,
     style: {
-      background: T.saffron,
+      background: profileSaved ? T.forest : T.saffron,
       border: "none",
       borderRadius: 10,
       padding: "10px 0",
@@ -11368,9 +11793,10 @@ function SettingsPanel({
       fontFamily: "Manrope",
       fontWeight: 700,
       fontSize: 13.5,
-      marginTop: 6
+      marginTop: 6,
+      transition: "background 0.2s"
     }
-  }, "Save profile"), onOpenWizard && /*#__PURE__*/React.createElement("button", {
+  }, profileSaved ? "✓ Saved" : "Save profile"), onOpenWizard && /*#__PURE__*/React.createElement("button", {
     onClick: onOpenWizard,
     style: {
       background: T.tealPale,
@@ -11676,7 +12102,214 @@ function SettingsPanel({
     label: a.l,
     on: profile.activityLevel === a.k,
     onClick: () => pset("activityLevel", a.k)
-  }))))), section === "reports" && /*#__PURE__*/React.createElement("div", null, markerChanges.length > 0 && /*#__PURE__*/React.createElement("div", {
+  })))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      height: 1,
+      background: T.border,
+      margin: "4px 0"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "Manrope",
+      fontWeight: 800,
+      fontSize: 13,
+      color: T.teal
+    }
+  }, "Lifestyle"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: subLbl
+  }, "Do you smoke?"), /*#__PURE__*/React.createElement("div", {
+    style: chipWrap
+  }, ONB_FREQ.map(f => /*#__PURE__*/React.createElement(OnbChip, {
+    key: f.k,
+    label: f.l,
+    on: (profile.smoking || "none") === f.k,
+    onClick: () => pset("smoking", f.k)
+  })))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: subLbl
+  }, "Do you vape?"), /*#__PURE__*/React.createElement("div", {
+    style: chipWrap
+  }, ONB_FREQ.map(f => /*#__PURE__*/React.createElement(OnbChip, {
+    key: f.k,
+    label: f.l,
+    on: (profile.vaping || "none") === f.k,
+    onClick: () => pset("vaping", f.k)
+  })))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: subLbl
+  }, "Do you drink alcohol?"), /*#__PURE__*/React.createElement("div", {
+    style: chipWrap
+  }, ONB_FREQ.map(f => /*#__PURE__*/React.createElement(OnbChip, {
+    key: f.k,
+    label: f.l,
+    on: (profile.alcohol || "none") === f.k,
+    onClick: () => pset("alcohol", f.k)
+  })))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      height: 1,
+      background: T.border,
+      margin: "4px 0"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "Manrope",
+      fontWeight: 800,
+      fontSize: 13,
+      color: T.teal
+    }
+  }, "Sleep"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: subLbl
+  }, "Hours of sleep a night"), /*#__PURE__*/React.createElement("div", {
+    style: chipWrap
+  }, ONB_SLEEP_HOURS.map(s => /*#__PURE__*/React.createElement(OnbChip, {
+    key: s.k,
+    label: s.l,
+    on: profile.sleepHours === s.k,
+    onClick: () => pset("sleepHours", s.k)
+  })))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: subLbl
+  }, "Usual bedtime"), /*#__PURE__*/React.createElement("div", {
+    style: chipWrap
+  }, ONB_BEDTIME.map(s => /*#__PURE__*/React.createElement(OnbChip, {
+    key: s.k,
+    label: s.l,
+    on: profile.bedtime === s.k,
+    onClick: () => pset("bedtime", s.k)
+  })))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: subLbl
+  }, "Sleep rhythm"), /*#__PURE__*/React.createElement("div", {
+    style: chipWrap
+  }, ONB_CHRONO.map(s => /*#__PURE__*/React.createElement(OnbChip, {
+    key: s.k,
+    label: s.l,
+    on: profile.chronotype === s.k,
+    onClick: () => pset("chronotype", s.k)
+  })), /*#__PURE__*/React.createElement(OnbChip, {
+    label: "I nap in the day too",
+    on: !!profile.dayNaps,
+    onClick: () => pset("dayNaps", !profile.dayNaps)
+  }))), isFemale(profile) && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      height: 1,
+      background: T.border,
+      margin: "4px 0"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "Manrope",
+      fontWeight: 800,
+      fontSize: 13,
+      color: T.teal
+    }
+  }, "Women's health"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: subLbl
+  }, "Are you pregnant?"), /*#__PURE__*/React.createElement("div", {
+    style: chipWrap
+  }, /*#__PURE__*/React.createElement(OnbChip, {
+    label: "No",
+    on: !profile.pregnant,
+    onClick: () => pset("pregnant", false)
+  }), /*#__PURE__*/React.createElement(OnbChip, {
+    label: "Yes",
+    on: !!profile.pregnant,
+    onClick: () => pset("pregnant", true)
+  })), profile.pregnant && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: T.alertPale,
+      border: `1px solid ${T.alert}`,
+      borderRadius: 10,
+      padding: "9px 11px",
+      marginTop: 6,
+      fontFamily: "Inter",
+      fontSize: 12,
+      color: T.alert,
+      lineHeight: 1.5
+    }
+  }, "This app isn't designed for use during pregnancy. Please don't rely on its meal or calorie targets \u2014 follow your doctor's guidance instead.")), !profile.pregnant && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: subLbl
+  }, "Last period \u2014 first day"), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: profile.periodLastStart || "",
+    onChange: e => pset("periodLastStart", e.target.value),
+    style: {
+      width: "100%",
+      boxSizing: "border-box",
+      border: `1px solid ${T.border}`,
+      borderRadius: 10,
+      padding: "9px 12px",
+      fontFamily: "Inter",
+      fontSize: 13.5,
+      background: T.white,
+      color: T.ink
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: subLbl
+  }, "Lasts (days)"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    min: "1",
+    max: "14",
+    value: profile.periodDuration ?? 5,
+    onChange: e => pset("periodDuration", Number(e.target.value) || 5),
+    style: {
+      width: "100%",
+      boxSizing: "border-box",
+      border: `1px solid ${T.border}`,
+      borderRadius: 10,
+      padding: "9px 12px",
+      fontFamily: "Inter",
+      fontSize: 13.5
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: subLbl
+  }, "Cycle gap (days)"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    min: "15",
+    max: "60",
+    value: profile.periodCycle ?? 28,
+    onChange: e => pset("periodCycle", Number(e.target.value) || 28),
+    style: {
+      width: "100%",
+      boxSizing: "border-box",
+      border: `1px solid ${T.border}`,
+      borderRadius: 10,
+      padding: "9px 12px",
+      fontFamily: "Inter",
+      fontSize: 13.5
+    }
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "Inter",
+      fontSize: 11,
+      color: T.inkSoft
+    }
+  }, "Roughly how many days from the start of one period to the next (average is ~28)."), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: subLbl
+  }, "Symptoms you usually get"), /*#__PURE__*/React.createElement("div", {
+    style: chipWrap
+  }, ONB_PERIOD_SYMPTOMS.map(s => /*#__PURE__*/React.createElement(OnbChip, {
+    key: s,
+    label: s,
+    on: (profile.periodSymptoms || []).includes(s),
+    onClick: () => ptoggle("periodSymptoms", s)
+  })))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "Inter",
+      fontSize: 11,
+      color: T.inkSoft,
+      lineHeight: 1.5
+    }
+  }, "Your cycle, a prediction of the next date, and symptom-based tips appear in the ", /*#__PURE__*/React.createElement("b", null, "Plan"), " tab. Log each new period there so the prediction learns your real pattern.")))), section === "reports" && /*#__PURE__*/React.createElement("div", null, markerChanges.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       background: T.white,
       border: `1px solid ${T.border}`,
@@ -13003,7 +13636,19 @@ function OnboardingWizard({
     dietRules: profile.dietRules || [],
     cuisines: profile.cuisines || [],
     activityLevel: profile.activityLevel || "light",
-    wantsMealPlan: profile.wantsMealPlan || "Open to trying"
+    wantsMealPlan: profile.wantsMealPlan || "Open to trying",
+    smoking: profile.smoking || "none",
+    vaping: profile.vaping || "none",
+    alcohol: profile.alcohol || "none",
+    sleepHours: profile.sleepHours || "",
+    bedtime: profile.bedtime || "",
+    chronotype: profile.chronotype || "",
+    dayNaps: !!profile.dayNaps,
+    pregnant: !!profile.pregnant,
+    periodLastStart: profile.periodLastStart || "",
+    periodDuration: profile.periodDuration ?? 5,
+    periodCycle: profile.periodCycle ?? 28,
+    periodSymptoms: profile.periodSymptoms || []
   });
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(build);
@@ -13025,7 +13670,7 @@ function OnboardingWizard({
       [k]: a.includes(v) ? a.filter(x => x !== v) : [...a, v]
     };
   });
-  const STEPS = ["About you", "Health conditions", "Your goals", "Diet", "Cuisines you like", "Activity & plans", "You're all set"];
+  const STEPS = ["About you", "Health conditions", "Your goals", "Diet", "Cuisines you like", "Activity & plans", "Lifestyle & sleep", "You're all set"];
   const last = STEPS.length - 1;
   const inS = {
     width: "100%",
@@ -13071,7 +13716,19 @@ function OnboardingWizard({
       dietRules: form.dietRules,
       cuisines: form.cuisines,
       activityLevel: form.activityLevel,
-      wantsMealPlan: form.wantsMealPlan
+      wantsMealPlan: form.wantsMealPlan,
+      smoking: form.smoking,
+      vaping: form.vaping,
+      alcohol: form.alcohol,
+      sleepHours: form.sleepHours,
+      bedtime: form.bedtime,
+      chronotype: form.chronotype,
+      dayNaps: form.dayNaps,
+      pregnant: form.pregnant,
+      periodLastStart: form.periodLastStart,
+      periodDuration: form.periodDuration,
+      periodCycle: form.periodCycle,
+      periodSymptoms: form.periodSymptoms
     };
     saveProfile(built);
     saveGoalToggles(goalToggles.map(g => g.id === "weightloss" ? {
@@ -13389,6 +14046,195 @@ function OnboardingWizard({
     style: {
       display: "flex",
       flexDirection: "column",
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: hint
+  }, "A fuller picture makes your plan and guidance more accurate. Skip anything you'd rather not answer."), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: subL
+  }, "Do you smoke?"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 8
+    }
+  }, ONB_FREQ.map(f => /*#__PURE__*/React.createElement(OnbChip, {
+    key: f.k,
+    label: f.l,
+    on: (form.smoking || "none") === f.k,
+    onClick: () => set("smoking", f.k)
+  })))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: subL
+  }, "Do you vape?"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 8
+    }
+  }, ONB_FREQ.map(f => /*#__PURE__*/React.createElement(OnbChip, {
+    key: f.k,
+    label: f.l,
+    on: (form.vaping || "none") === f.k,
+    onClick: () => set("vaping", f.k)
+  })))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: subL
+  }, "Do you drink alcohol?"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 8
+    }
+  }, ONB_FREQ.map(f => /*#__PURE__*/React.createElement(OnbChip, {
+    key: f.k,
+    label: f.l,
+    on: (form.alcohol || "none") === f.k,
+    onClick: () => set("alcohol", f.k)
+  })))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: subL
+  }, "How many hours do you sleep a night?"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 8
+    }
+  }, ONB_SLEEP_HOURS.map(s => /*#__PURE__*/React.createElement(OnbChip, {
+    key: s.k,
+    label: s.l,
+    on: form.sleepHours === s.k,
+    onClick: () => set("sleepHours", s.k)
+  })))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: subL
+  }, "What time do you usually go to bed?"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 8
+    }
+  }, ONB_BEDTIME.map(s => /*#__PURE__*/React.createElement(OnbChip, {
+    key: s.k,
+    label: s.l,
+    on: form.bedtime === s.k,
+    onClick: () => set("bedtime", s.k)
+  })))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: subL
+  }, "Which sounds most like you?"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 8
+    }
+  }, ONB_CHRONO.map(s => /*#__PURE__*/React.createElement(OnbChip, {
+    key: s.k,
+    label: s.l,
+    on: form.chronotype === s.k,
+    onClick: () => set("chronotype", s.k)
+  })), /*#__PURE__*/React.createElement(OnbChip, {
+    label: "I nap in the day too",
+    on: !!form.dayNaps,
+    onClick: () => set("dayNaps", !form.dayNaps)
+  }))), isFemale(form) && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      height: 1,
+      background: T.border
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "Manrope",
+      fontWeight: 800,
+      fontSize: 15,
+      color: T.teal
+    }
+  }, "Women's health"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: subL
+  }, "Are you pregnant?"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement(OnbChip, {
+    label: "No",
+    on: !form.pregnant,
+    onClick: () => set("pregnant", false)
+  }), /*#__PURE__*/React.createElement(OnbChip, {
+    label: "Yes",
+    on: !!form.pregnant,
+    onClick: () => set("pregnant", true)
+  })), form.pregnant && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: T.alertPale,
+      border: `1px solid ${T.alert}`,
+      borderRadius: 10,
+      padding: "10px 12px",
+      marginTop: 8,
+      fontFamily: "Inter",
+      fontSize: 12.5,
+      color: T.alert,
+      lineHeight: 1.5
+    }
+  }, "\u26A0 This app isn't designed for pregnancy. Please don't use its meal or calorie targets \u2014 follow your doctor's guidance. You can still finish setup, but we'll keep this warning visible.")), !form.pregnant && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: subL
+  }, "When did your last period start? (first day)"), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: form.periodLastStart || "",
+    onChange: e => set("periodLastStart", e.target.value),
+    style: {
+      ...inS
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: subL
+  }, "Lasts (days)"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    min: "1",
+    max: "14",
+    value: form.periodDuration,
+    onChange: e => set("periodDuration", Number(e.target.value) || 5),
+    style: inS
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: subL
+  }, "Cycle gap (days)"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    min: "15",
+    max: "60",
+    value: form.periodCycle,
+    onChange: e => set("periodCycle", Number(e.target.value) || 28),
+    style: inS
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "Inter",
+      fontSize: 11.5,
+      color: T.inkSoft
+    }
+  }, "\u201CCycle gap\u201D = days from the start of one period to the next (average \u2248 28). We'll predict your next date and refine it as you log."), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: subL
+  }, "Which symptoms do you usually get?"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 8
+    }
+  }, ONB_PERIOD_SYMPTOMS.map(s => /*#__PURE__*/React.createElement(OnbChip, {
+    key: s,
+    label: s,
+    on: (form.periodSymptoms || []).includes(s),
+    onClick: () => toggleIn("periodSymptoms", s)
+  }))))))), step === 7 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
       gap: 14
     }
   }, /*#__PURE__*/React.createElement("div", {
@@ -13547,6 +14393,7 @@ function App() {
   TOTAL_SUPPLEMENTS = supplements.length;
   const [customDishes, setCustomDishes] = useKV(pk("dishes:custom"), {});
   const [weeklyPlan, setWeeklyPlan] = useKV(pk("plan:weekly"), null);
+  const [cycleLog, setCycleLog] = useKV(pk("cycle:log"), []); // menstrual-cycle history (female): [{start, duration, symptoms, note}]
   const [corpusLoaded, setCorpusLoaded] = useState(false);
   useEffect(() => {
     loadDishCorpus().then(() => setCorpusLoaded(true));
@@ -13661,6 +14508,19 @@ function App() {
     sig: planSig
   });
   const swapPlanMeal = (dayIdx, slot) => setWeeklyPlan(p => p ? swapMeal(p, dayIdx, slot, mealPreferences) : p);
+  const logPeriod = start => {
+    if (!start) return;
+    setCycleLog(prev => [...(prev || []).filter(e => e && e.start !== start), {
+      start,
+      duration: profile.periodDuration || 5,
+      symptoms: profile.periodSymptoms || [],
+      loggedAt: Date.now()
+    }].sort((a, b) => a.start < b.start ? -1 : 1));
+    setProfile(p => ({
+      ...p,
+      periodLastStart: start
+    })); // keep Settings + prediction in agreement
+  };
   const foodToday = weekFood[tk] || [];
   const supplementsToday = weekSupplements[tk] || {};
   const habitToday = weekHabits[tk] || {};
@@ -13777,6 +14637,18 @@ function App() {
         text: "Your day's wrapping up and nothing's logged — add today's food, activity or supplements before midnight.",
         tab: "food",
         mandatory: true
+      });
+    }
+    if (isFemale(profile) && !profile.pregnant) {
+      const pr = cyclePrediction(cycleLog, profile);
+      if (pr && pr.daysUntil <= 0) list.push({
+        icon: "bell",
+        text: "Your next period is due (or late) — log the date in Plan → Your cycle so predictions stay accurate.",
+        tab: "plan"
+      });else if (pr && pr.daysUntil <= 2) list.push({
+        icon: "bell",
+        text: `Your period is expected in about ${pr.daysUntil} day${pr.daysUntil === 1 ? "" : "s"} — open Plan → Your cycle for tips to prepare.`,
+        tab: "plan"
       });
     }
     return list;
@@ -14050,7 +14922,22 @@ function App() {
       position: "relative",
       boxShadow: "0 0 40px rgba(0,0,0,0.06)"
     }
-  }, kvErr && /*#__PURE__*/React.createElement("div", {
+  }, profile.pregnant && /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "sticky",
+      top: 0,
+      zIndex: 12,
+      background: T.alert,
+      color: "#fff",
+      padding: "10px 14px 10px 14px",
+      fontFamily: "Manrope",
+      fontWeight: 700,
+      fontSize: 12.5,
+      lineHeight: 1.45,
+      textAlign: "center",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.2)"
+    }
+  }, "\u26A0 This app is not for use during pregnancy. Please don't follow its meal or calorie targets \u2014 see your doctor for pregnancy-safe guidance."), kvErr && /*#__PURE__*/React.createElement("div", {
     onClick: () => openSettings("data"),
     style: {
       position: "absolute",
@@ -14331,7 +15218,9 @@ function App() {
     targets: targets,
     weeklyPlan: weeklyPlan,
     onRegeneratePlan: regeneratePlan,
-    onSwapMeal: swapPlanMeal
+    onSwapMeal: swapPlanMeal,
+    cycleLog: cycleLog,
+    onLogPeriod: logPeriod
   }), /*#__PURE__*/React.createElement("div", {
     style: {
       position: "fixed",
