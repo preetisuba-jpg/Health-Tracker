@@ -1,6 +1,6 @@
-# Jignesh Health Companion — Standalone App
+# Health Companion — Standalone App
 
-This is a real, independent website — not a Claude artifact. Installed on Jignesh's
+This is a real, independent website — not a Claude artifact. Installed on a
 phone, it opens as its own app icon with its own screen, no browser chrome, and no
 connection to your Claude account. It still calls Claude for the smart features (food
 check on unlisted dishes, the Ask panel), but through your own backend, not through
@@ -25,15 +25,15 @@ claude.ai.
 ## Deploy steps (one-time setup, ~15 minutes)
 
 1. **Create a GitHub repo**
-   - Go to github.com → New repository → name it e.g. `jignesh-health-app` → Create.
+   - Go to github.com → New repository → name it e.g. `health-app` → Create.
    - On the repo page, click "uploading an existing file" and drag in every file from
      this folder (keep the `api/` and `icons/` folders — GitHub preserves folder
      structure when you drag a folder in). Commit.
 
 2. **Import into Vercel**
-   - Go to vercel.com → Add New → Project → pick the `jignesh-health-app` repo →
+   - Go to vercel.com → Add New → Project → pick the `health-app` repo →
      Import. Leave all settings as default → Deploy.
-   - You'll get a URL like `jignesh-health-app.vercel.app` — this works immediately
+   - You'll get a URL like `health-app.vercel.app` — this works immediately
      for the app shell, but the "smart" features (Food Check on new dishes, Ask panel)
      will show an error until step 3 is done.
 
@@ -43,7 +43,7 @@ claude.ai.
    - Go to Deployments → click the "..." on the latest deployment → Redeploy (env
      vars only take effect after a redeploy).
 
-4. **Install it on Jignesh's phone**
+4. **Install it on phone**
    - Open the `*.vercel.app` URL in Safari (iPhone) or Chrome (Android) — this is a
      regular website, not claude.ai, so there's no app-hijacking issue this time.
    - iPhone: Share icon → Add to Home Screen.
