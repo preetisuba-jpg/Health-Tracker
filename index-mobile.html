@@ -1425,6 +1425,41 @@ const CUISINE_MEALS = {
     breakfast: ["Ful medames with whole-grain bread", "Hummus with pita and vegetables", "Shakshuka (egg or tofu) with bread", "Labneh with olive oil and toast"],
     lunch: ["Falafel wrap with salad and tahini", "Mujadara (lentils and rice) with salad", "Chickpea tagine with couscous", "Tabbouleh with hummus and pita"],
     dinner: ["Vegetable and chickpea stew with rice", "Stuffed vine leaves with salad", "Grilled vegetable and halloumi plate", "Lentil soup with whole-grain bread"]
+  },
+  "Korean": {
+    breakfast: ["Vegetable rice porridge (juk)", "Kimchi and tofu rice bowl", "Steamed vegetable mandu (dumplings)", "Seaweed soup with rice"],
+    lunch: ["Bibimbap with vegetables and tofu", "Tofu and vegetable bulgogi with rice", "Japchae (glass noodles) with vegetables", "Doenjang vegetable stew with rice"],
+    dinner: ["Kimchi tofu stew (sundubu) with rice", "Vegetable and tofu bibimbap", "Stir-fried vegetables with rice", "Vegetable japchae with salad"]
+  },
+  "Japanese": {
+    breakfast: ["Miso soup with rice and vegetables", "Tofu and vegetable rice bowl", "Vegetable okonomiyaki (light)", "Steamed rice with greens and sesame"],
+    lunch: ["Vegetable sushi rolls with miso soup", "Soba noodles with vegetables", "Tofu teriyaki with rice and salad", "Vegetable donburi rice bowl"],
+    dinner: ["Vegetable and tofu hot pot (nabe)", "Udon noodle soup with vegetables", "Grilled tofu with steamed vegetables and rice", "Vegetable tempura (baked) with rice"]
+  },
+  "American": {
+    breakfast: ["Oatmeal with fruit and nuts", "Whole-grain pancakes with fruit", "Vegetable omelette with toast", "Greek yogurt parfait with granola"],
+    lunch: ["Grilled veggie burger with salad", "Quinoa and black-bean bowl", "Vegetable and hummus wrap", "Garden salad with beans and whole-grain roll"],
+    dinner: ["Bean chili with brown rice", "Grilled vegetable and tofu skewers with salad", "Vegetable pasta primavera", "Baked sweet potato with beans and greens"]
+  },
+  "Mughlai": {
+    breakfast: ["Paneer paratha with curd", "Besan cheela with mint chutney", "Vegetable seviyan (light)", "Vegetable poha"],
+    lunch: ["Vegetable biryani (light) with raita", "Paneer korma (light) with roti", "Dum aloo with jeera rice and salad", "Navratan korma with roti"],
+    dinner: ["Paneer pasanda (light) with roti", "Vegetable pulao with raita", "Dal with roti and salad", "Shahi paneer (light) with roti"]
+  },
+  "Goan": {
+    breakfast: ["Vegetable poha", "Besan cheela with chutney", "Rice and vegetable sanna (light)", "Fruit bowl with yogurt"],
+    lunch: ["Goan vegetable curry with rice", "Mushroom xacuti (light) with rice", "Vegetable pulao with salad", "Chana tonak with pav (light)"],
+    dinner: ["Vegetable caldine with rice", "Mixed vegetable curry with rice", "Dal with rice and salad", "Vegetable stir-fry with rice"]
+  },
+  "Kashmiri": {
+    breakfast: ["Vegetable dalia", "Besan cheela", "Kashmiri vegetable rice (light)", "Fruit and nut bowl with yogurt"],
+    lunch: ["Nadru (lotus stem) curry with rice", "Rajma with rice and salad", "Dum aloo Kashmiri (light) with rice", "Vegetable pulao with raita"],
+    dinner: ["Haak saag with rice", "Chaman (paneer) curry (light) with roti", "Vegetable yakhni (light) with rice", "Dal with rice and greens"]
+  },
+  "Sindhi": {
+    breakfast: ["Sindhi koki (light) with curd", "Moong dal chilla", "Besan cheela", "Vegetable poha"],
+    lunch: ["Sindhi kadhi with rice and vegetables", "Sai bhaji with rice", "Vegetable pulao with salad", "Dal with roti and salad"],
+    dinner: ["Sai bhaji with brown rice", "Vegetable curry with roti", "Moong dal khichdi with vegetables", "Dal with rice and salad"]
   }
 };
 // Non-vegetarian additions per cuisine — mixed in only for people whose diet pattern allows it.
@@ -1485,6 +1520,71 @@ const CUISINE_MEALS_NV = {
     breakfast: ["Egg rice soup (jok with egg)", "Boiled egg with fruit bowl"],
     lunch: ["Thai green curry with chicken and rice", "Fish with Thai basil and rice", "Prawn pad thai (light)"],
     dinner: ["Thai red curry with fish and rice", "Grilled chicken with salad", "Chicken clear soup with rice"]
+  },
+  "Gujarati": {
+    breakfast: ["Egg bhurji with thepla", "Boiled egg with poha"],
+    lunch: ["Chicken curry with rotli and salad", "Fish curry with rice", "Egg curry with rice"],
+    dinner: ["Egg bhurji with rotli", "Grilled fish with veg", "Chicken curry with rice"]
+  },
+  "Maharashtrian": {
+    breakfast: ["Egg bhurji with bhakri", "Boiled egg with poha"],
+    lunch: ["Chicken rassa with bhakri and salad", "Fish curry (kalvan) with rice", "Egg curry with rice"],
+    dinner: ["Chicken sukka (light) with bhakri", "Grilled fish with veg", "Egg curry with rice"]
+  },
+  "Rajasthani": {
+    breakfast: ["Egg bhurji with bajra rotla", "Boiled egg with poha"],
+    lunch: ["Laal maas (light) with rice and salad", "Chicken curry with bajra roti", "Egg curry with rice"],
+    dinner: ["Chicken curry with roti", "Egg curry with rice", "Grilled chicken with veg"]
+  },
+  "Mughlai": {
+    breakfast: ["Egg bhurji with roti", "Boiled eggs with paratha"],
+    lunch: ["Chicken korma (light) with roti and salad", "Grilled chicken with salad", "Fish curry with rice"],
+    dinner: ["Chicken tikka with veg", "Egg curry with roti", "Chicken curry with rice"]
+  },
+  "Goan": {
+    breakfast: ["Egg bhurji with pao", "Boiled egg with poha"],
+    lunch: ["Goan fish curry with rice", "Prawn curry with rice and salad", "Chicken xacuti (light) with rice"],
+    dinner: ["Grilled fish with veg", "Chicken cafreal (light) with salad", "Egg curry with rice"]
+  },
+  "Kashmiri": {
+    breakfast: ["Egg curry with rice (light)", "Boiled egg with dalia"],
+    lunch: ["Rogan josh (light) with rice", "Chicken yakhni with rice", "Fish curry with rice"],
+    dinner: ["Chicken curry with rice", "Grilled fish with veg", "Egg curry with rice"]
+  },
+  "Sindhi": {
+    breakfast: ["Egg bhurji with koki", "Boiled egg with poha"],
+    lunch: ["Sindhi chicken curry with rice", "Fish curry with rice", "Egg curry with rice"],
+    dinner: ["Chicken curry with roti", "Grilled fish with veg", "Egg curry with rice"]
+  },
+  "Italian": {
+    breakfast: ["Vegetable and egg frittata", "Poached egg with whole-grain toast"],
+    lunch: ["Grilled chicken with salad and whole-grain bread", "Whole-wheat pasta with fish and vegetables", "Tuna and white-bean salad"],
+    dinner: ["Grilled fish with vegetables", "Chicken cacciatore (light) with salad", "Baked fish with herbs and vegetables"]
+  },
+  "Mexican": {
+    breakfast: ["Egg and bean breakfast burrito", "Vegetable and egg scramble with tortilla"],
+    lunch: ["Grilled chicken burrito bowl with brown rice", "Fish tacos with salad", "Chicken and bean fajita wrap"],
+    dinner: ["Grilled fish tacos with salad", "Chicken and vegetable enchiladas (light)", "Chicken and bean chilli with corn"]
+  },
+  "Middle Eastern": {
+    breakfast: ["Egg and vegetable shakshuka with bread", "Boiled eggs with hummus and toast"],
+    lunch: ["Grilled chicken shawarma bowl with salad", "Grilled fish with tabbouleh", "Chicken and chickpea stew with rice"],
+    dinner: ["Grilled fish with vegetables", "Chicken kebab with salad", "Baked fish with herbs and rice"]
+  },
+  "Korean": {
+    breakfast: ["Steamed egg (gyeran-jjim) with rice", "Egg and vegetable rice bowl"],
+    lunch: ["Chicken bulgogi with rice and vegetables", "Grilled fish with rice and kimchi", "Egg bibimbap with vegetables"],
+    dinner: ["Chicken and vegetable stew with rice", "Grilled fish with steamed vegetables", "Egg and tofu stew with rice"]
+  },
+  "Japanese": {
+    breakfast: ["Tamagoyaki (rolled egg) with rice", "Egg and rice bowl with miso soup"],
+    lunch: ["Chicken teriyaki with rice and salad", "Salmon with rice and vegetables", "Fish sushi rolls with miso soup"],
+    dinner: ["Grilled fish with steamed vegetables and rice", "Chicken and vegetable donburi", "Salmon teriyaki with vegetables"]
+  },
+  "American": {
+    breakfast: ["Scrambled eggs with whole-grain toast", "Egg and vegetable omelette"],
+    lunch: ["Grilled chicken salad bowl", "Grilled fish with quinoa and salad", "Turkey and vegetable wrap"],
+    dinner: ["Grilled chicken with roasted vegetables", "Baked fish with vegetables", "Grilled chicken and bean bowl"]
   }
 };
 // Merge the balanced library down to the cuisines the person likes; fall back to a rounded
@@ -1594,56 +1694,102 @@ function weekNumber(dateKey) {
   const t = dateKey ? new Date(dateKey + "T00:00:00") : new Date();
   return Math.floor(t.getTime() / (7 * 86400000));
 }
-function pickWeek(pool, seed, prefs) {
-  let items = (pool || []).filter(d => d && mealAllowed(d, prefs));
-  if (items.length < 7) items = (pool || []).filter(Boolean);
-  const scored = items.map((d, i) => ({
-    d,
-    s: mealScore(d),
-    r: seededRand(seed * 37 + i * 3.1)
-  })).sort((a, b) => b.s - a.s || a.r - b.r);
-  const top = scored.slice(0, Math.min(scored.length, Math.max(7, 16))).map(x => x.d);
-  const start = top.length ? (seed % top.length + top.length) % top.length : 0;
+// The cuisines to actually plan from: the person's picks that we have dishes for, else a rounded default.
+function resolveCuisines(prefs) {
+  const veg = (prefs.cuisines || []).filter(c => CUISINE_MEALS[c]);
+  return veg.length ? veg : ["North Indian", "South Indian", "Gujarati", "Continental"];
+}
+// All allowed dishes for a slot, each tagged with its cuisine and veg/non-veg, so the builder can
+// spread across cuisines and hit a non-veg target (rather than globally ranking by health score,
+// which collapsed the whole week onto a handful of "safe" Indian dishes).
+function slotDishes(slot, prefs) {
+  const cuisines = resolveCuisines(prefs);
+  const wantNV = prefs.nonveg || prefs.pescatarian || prefs.eggOk;
+  const okNV = nonVegPredicate(prefs);
   const out = [];
-  for (let i = 0; i < 7 && top.length; i++) out.push(top[(start + i) % top.length]);
-  while (out.length < 7) out.push(top[out.length % (top.length || 1)] || "—");
+  cuisines.forEach(c => {
+    ((CUISINE_MEALS[c] || {})[slot] || []).forEach(d => {
+      if (mealAllowed(d, prefs)) out.push({
+        d,
+        c,
+        nv: false
+      });
+    });
+    if (wantNV) ((CUISINE_MEALS_NV[c] || {})[slot] || []).forEach(d => {
+      if (okNV(d) && mealAllowed(d, prefs)) out.push({
+        d,
+        c,
+        nv: true
+      });
+    });
+  });
   return out;
 }
-// Force at least `count` distinct non-veg dishes into a 7-day slot line-up (spread across the week),
-// replacing veg picks — so a non-veg user actually SEES non-veg food, not an all-veg plan.
-function ensureNonVeg(week7, nvPool, prefs, seed, count) {
-  const cleanNV = (nvPool || []).filter(x => x && mealAllowed(x, prefs));
-  if (!cleanNV.length || count <= 0) return week7;
-  const have = week7.filter(x => cleanNV.includes(x)).length;
-  let need = Math.min(count, cleanNV.length) - have;
-  if (need <= 0) return week7;
-  const usedNV = new Set(week7.filter(x => cleanNV.includes(x)));
-  const picks = cleanNV.map((x, i) => ({
+// Build one slot's 7 days: rotate through the chosen cuisines for variety, avoid repeats, and place
+// `nvTarget` non-veg days spread across the week.
+function buildSlot(slot, prefs, seed, nvTarget) {
+  const items = slotDishes(slot, prefs);
+  if (!items.length) return ["—", "—", "—", "—", "—", "—", "—"];
+  const shuffle = arr => arr.map((x, i) => ({
     x,
-    s: mealScore(x),
-    r: seededRand(seed + i * 2.7)
-  })).sort((a, b) => b.s - a.s || a.r - b.r).map(o => o.x).filter(x => !usedNV.has(x));
-  const out = week7.slice();
-  const positions = [3, 6, 1, 4, 0, 5, 2]; // deterministic spread, not clustered
-  for (const idx of positions) {
-    if (need <= 0 || !picks.length) break;
-    if (cleanNV.includes(out[idx])) continue; // already non-veg here
-    out[idx] = picks.shift();
-    need--;
+    r: seededRand(seed * 17.3 + i * 2.11 + (x.nv ? 91 : 3))
+  })).sort((a, b) => a.r - b.r).map(o => o.x);
+  const nv = shuffle(items.filter(x => x.nv));
+  const veg = shuffle(items.filter(x => !x.nv));
+  const nvCount = Math.max(0, Math.min(nvTarget, nv.length));
+  const spread = [0, 3, 6, 1, 4, 2, 5];
+  const nvDays = new Set(spread.slice(0, nvCount));
+  const used = new Set();
+  let lastC = null;
+  const take = list => {
+    let i = list.findIndex(x => !used.has(x.d) && x.c !== lastC);
+    if (i < 0) i = list.findIndex(x => !used.has(x.d));
+    if (i < 0) {
+      used.clear();
+      lastC = null;
+      i = list.findIndex(x => x.c !== lastC);
+      if (i < 0) i = 0;
+    } // pool exhausted -> allow repeats
+    const ch = list[i];
+    if (!ch) return "—";
+    used.add(ch.d);
+    lastC = ch.c;
+    return ch.d;
+  };
+  const week = [];
+  for (let day = 0; day < 7; day++) {
+    if (nvDays.has(day) && nv.length) week.push(take(nv));else if (veg.length) week.push(take(veg));else if (nv.length) week.push(take(nv));else week.push("—");
   }
-  return out;
+  return week;
+}
+// How many non-veg days to aim for per slot, by diet pattern.
+function nvTargets(prefs) {
+  if (!(prefs.nonveg || prefs.pescatarian || prefs.eggOk)) return {
+    breakfast: 0,
+    lunch: 0,
+    dinner: 0
+  };
+  if (prefs.nonveg) return {
+    breakfast: 2,
+    lunch: 3,
+    dinner: 4
+  }; // full non-veg ≈ half the week
+  if (prefs.pescatarian) return {
+    breakfast: 2,
+    lunch: 2,
+    dinner: 3
+  };
+  return {
+    breakfast: 2,
+    lunch: 1,
+    dinner: 2
+  }; // eggetarian: eggs mostly
 }
 function generateWeeklyPlan(week, seed, prefs) {
-  const pools = mealPoolsFor(prefs);
-  let b = pickWeek(pools.breakfast, seed, prefs),
-    l = pickWeek(pools.lunch, seed + 1, prefs),
-    d = pickWeek(pools.dinner, seed + 2, prefs);
-  if (prefs.nonveg || prefs.pescatarian || prefs.eggOk) {
-    const nv = nvOnlyPools(prefs);
-    d = ensureNonVeg(d, nv.dinner, prefs, seed + 5, 3); // ≥3 non-veg dinners
-    l = ensureNonVeg(l, nv.lunch, prefs, seed + 6, 2); // ≥2 non-veg lunches
-    b = ensureNonVeg(b, nv.breakfast, prefs, seed + 7, prefs.eggOk ? 2 : 0); // eggs at breakfast when eggs are OK
-  }
+  const t = nvTargets(prefs);
+  const b = buildSlot("breakfast", prefs, seed + 0.1, t.breakfast);
+  const l = buildSlot("lunch", prefs, seed + 1.2, t.lunch);
+  const d = buildSlot("dinner", prefs, seed + 2.3, t.dinner);
   return {
     week,
     seed,
@@ -5035,17 +5181,20 @@ async function startAccountSync(uid) {
   };
   const snap = await ref.get();
   const remote = snap.exists && snap.data() && snap.data().data ? snap.data().data : null;
-  // Adopt the cloud copy ONLY if it's richer than what's on this device (second device pulling your
-  // data) — otherwise keep local and push it up (creating an account from a device that already has
-  // your profile/reports must never wipe them with an empty cloud doc).
-  if (remote && !deviceHasData()) applyRemote(remote); // only a blank device pulls; a device with data keeps it and pushes up
+  // RICHER SIDE WINS. Compare how much real data each side holds and adopt whichever is fuller, so
+  // neither direction can wipe the other: a second device (or an empty link) pulls your cloud data;
+  // a device that holds your real profile/history keeps it and pushes it up. Crucially this also
+  // stops the demo SEED from ever overwriting a real cloud account (the old deviceHasData() check
+  // treated a seed-only device as "has data" and let it push the demo over your real data).
+  const localData = gatherAppData();
+  if (remote && dataScore(remote) >= dataScore(localData)) applyRemote(remote);
   await ref.set({
     data: gatherAppData(),
     updatedAt: Date.now(),
     origin: SYNC_CLIENT
   }, {
     merge: true
-  }); // push local up
+  }); // push the winner up
   FB.unsub = ref.onSnapshot(s => {
     const d = s.data();
     if (d && d.data && d.origin !== SYNC_CLIENT) applyRemote(d.data);
@@ -9529,7 +9678,8 @@ function SupplementsTab({
   weekSupplements,
   supplements,
   advice,
-  suggestedSupps
+  suggestedSupps,
+  onAddSupplement
 }) {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const groups = [{
@@ -9626,33 +9776,64 @@ function SupplementsTab({
       flexDirection: "column",
       gap: 9
     }
-  }, suggestedSupps.map(s => /*#__PURE__*/React.createElement("div", {
-    key: s.name,
-    style: {
-      display: "flex",
-      gap: 9,
-      alignItems: "flex-start"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: T.teal,
-      fontSize: 15,
-      lineHeight: "20px"
-    }
-  }, "\u2022"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: "Manrope",
-      fontWeight: 700,
-      fontSize: 13.5,
-      color: T.ink
-    }
-  }, s.name), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: "Inter",
-      fontSize: 12,
-      color: T.inkSoft
-    }
-  }, s.why))))), /*#__PURE__*/React.createElement("div", {
+  }, suggestedSupps.map(s => {
+    const added = supplements.some(x => (x.name || "").toLowerCase() === s.name.toLowerCase());
+    return /*#__PURE__*/React.createElement("div", {
+      key: s.name,
+      style: {
+        display: "flex",
+        gap: 9,
+        alignItems: "flex-start"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: T.teal,
+        fontSize: 15,
+        lineHeight: "20px"
+      }
+    }, "\u2022"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "Manrope",
+        fontWeight: 700,
+        fontSize: 13.5,
+        color: T.ink
+      }
+    }, s.name), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "Inter",
+        fontSize: 12,
+        color: T.inkSoft
+      }
+    }, s.why)), added ? /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: "Manrope",
+        fontWeight: 700,
+        fontSize: 12,
+        color: T.forest,
+        whiteSpace: "nowrap",
+        alignSelf: "center"
+      }
+    }, "Added \u2713") : /*#__PURE__*/React.createElement("button", {
+      onClick: () => onAddSupplement && onAddSupplement(s),
+      style: {
+        background: T.tealSolid,
+        border: "none",
+        borderRadius: 8,
+        padding: "7px 12px",
+        color: T.white,
+        fontFamily: "Manrope",
+        fontWeight: 700,
+        fontSize: 12,
+        cursor: "pointer",
+        whiteSpace: "nowrap",
+        alignSelf: "center"
+      }
+    }, "+ Add"));
+  })), /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: "Inter",
       fontSize: 11.5,
@@ -11296,7 +11477,11 @@ function SettingsPanel({
       color: T.inkSoft,
       lineHeight: 1.5
     }
-  }, "These are the same questions from guided setup. Change anything here and it updates your plan, targets and recommendations right away."), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, "These are the same questions from guided setup. ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: T.forest
+    }
+  }, "No Save button needed \u2014 every choice here saves as you tap"), " and updates your plan, targets and recommendations right away."), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: subLbl
   }, "Health conditions"), ONB_CONDITION_GROUPS.map(g => /*#__PURE__*/React.createElement("div", {
     key: g.cat,
@@ -13292,6 +13477,7 @@ function App() {
   useEffect(() => {
     try {
       if (activeId !== "self" || FRESH_MODE) return; // only the primary profile gets the demo history
+      if (kvGet("account:on", false)) return; // signed into an account -> data comes from the cloud, never the demo seed
       if (kvGet("seed:history", null) === SEED_VERSION) return;
       const {
         foodByDate,
@@ -13379,6 +13565,20 @@ function App() {
   const habitsForDate = weekHabits[selectedDate] || {};
   const targets = computeTargets(profile.weight, goalToggles, profile);
   const suggestedSupps = suggestSupplements(profile);
+  // One-tap add of a suggested supplement to the person's own list (no manual retyping in Settings).
+  const addSuggestedSupplement = s => {
+    if (!s || !s.name) return;
+    if (supplements.some(x => (x.name || "").toLowerCase() === s.name.toLowerCase())) return; // already added
+    setSupplements([...supplements, {
+      id: `supp-${Date.now()}`,
+      name: s.name,
+      dose: "",
+      time: "morning",
+      timeLabel: "",
+      why: s.why || "",
+      critical: false
+    }]);
+  };
   const advice = computeAdvice(metrics, periods, supplements, goalToggles, profile);
   // Notification engine — live nudges derived from today's data, gated by the user's per-category
   // settings, plus a weekly win/warning, goal coaching, and a mandatory end-of-day catch-all.
@@ -13924,7 +14124,8 @@ function App() {
     weekSupplements: weekSupplements,
     supplements: supplements,
     advice: advice,
-    suggestedSupps: suggestedSupps
+    suggestedSupps: suggestedSupps,
+    onAddSupplement: addSuggestedSupplement
   }), tab === "plan" && /*#__PURE__*/React.createElement(PlanTab, {
     weekFood: weekFood,
     advice: advice,
