@@ -11367,8 +11367,8 @@ function SettingsPanel({
   useEffect(() => {
     if (open) setSection(initialSection || "profile");
   }, [open, initialSection]);
-  if (!open) return null;
   const [profileSaved, setProfileSaved] = useState(false);
+  if (!open) return null;
   function saveProfileForm() {
     saveProfile({
       ...form,
