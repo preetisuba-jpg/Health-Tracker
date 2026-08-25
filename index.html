@@ -614,24 +614,49 @@ function nvTargets(prefs) {
   if (prefs.pescatarian) return { breakfast: 2, lunch: 2, dinner: 3 };
   return { breakfast: 2, lunch: 1, dinner: 2 };                        // eggetarian: eggs mostly
 }
+// Curated healthy snacks + fruits, and a plate classifier that powers the balance tick-strip.
+const FRUIT_LIST = ["Apple", "Guava", "Papaya", "Pear", "Orange", "Mixed berries", "Pomegranate", "Banana", "Small mango", "Watermelon", "Musk melon", "Small bowl of grapes"];
+const SNACK_POOL = ["Seasonal fruit", "Fruit bowl", "Handful of almonds & walnuts", "Roasted makhana", "Sprouts chaat", "Chaas (buttermilk)", "Curd with seeds", "Roasted chana", "Steamed dhokla", "Vegetable soup", "Cucumber & carrot sticks", "Coconut water", "Fruit & nut mix"];
+const PLATE_RE = {
+  veg: /veg|sabji|sabzi|shaak|shak|salad|greens|palak|spinach|methi|bhindi|gobi|cauliflower|cabbage|carrot|beans|peas|matar|bharta|bhaji|kachumber|broc?colli|lauki|dudhi|ringan|baingan|tomato|cucumber|capsicum|mushroom|avial|poriyal|kootu|saag|tinda|tori/i,
+  protein: /dal|daal|paneer|tofu|\begg|chicken|fish|prawn|mutton|keema|rajma|chana|chh?ole|moong|masoor|toor|urad|lentil|sprout|curd|dahi|yogurt|raita|\bmilk\b|chaas|buttermilk|kadhi|hummus|chickpea|\bbean|almond|peanut|walnut|cashew|\bnut|seeds|kebab/i,
+  grain: /rice|roti|chapati|phulka|paratha|naan|bread|toast|thepla|bhakri|rotla|poori|\bpuri|bhatura|millet|bajra|jowar|ragi|oats|poha|upma|idli|dosa|uttapam|khichdi|pasta|noodle|quinoa|couscous|dalia|handvo|pulao|biryani|sama|rava|vermicelli|seviyan|appam|adai|khakhra|pongal/i,
+  fruit: /fruit|banana|apple|guava|papaya|orange|berr|pomegranate|mango|watermelon|melon|chikoo|grapes|pear|amla|\bdates\b|kiwi/i,
+};
+function plateTicks(items) {
+  const t = (items || []).join(" ").toLowerCase();
+  return { veg: PLATE_RE.veg.test(t), protein: PLATE_RE.protein.test(t), grain: PLATE_RE.grain.test(t), fruit: PLATE_RE.fruit.test(t) };
+}
+// Dishes offered in the "+ Add" picker for a slot — filterable by cuisine + veg/non-veg.
+function pickerDishes(slot, filters) {
+  filters = filters || {};
+  if (slot === "snack") return SNACK_POOL.concat(FRUIT_LIST).map(d => ({ name: d, cuisine: "Any", nv: /egg|chicken|fish/i.test(d) }));
+  const cuisines = (filters.cuisine && filters.cuisine !== "All") ? [filters.cuisine] : Object.keys(CUISINE_MEALS);
+  const out = [];
+  cuisines.forEach(c => {
+    ((CUISINE_MEALS[c] || {})[slot] || []).forEach(d => out.push({ name: d, cuisine: c, nv: false }));
+    ((CUISINE_MEALS_NV[c] || {})[slot] || []).forEach(d => out.push({ name: d, cuisine: c, nv: true }));
+  });
+  return out;
+}
+// A day's meals are now LISTS of items per slot (breakfast/lunch/snack/dinner) so you can add your own.
 function generateWeeklyPlan(week, seed, prefs) {
   const t = nvTargets(prefs);
   const b = buildSlot("breakfast", prefs, seed + 0.1, t.breakfast);
   const l = buildSlot("lunch", prefs, seed + 1.2, t.lunch);
   const d = buildSlot("dinner", prefs, seed + 2.3, t.dinner);
-  return { week, seed, days: [0, 1, 2, 3, 4, 5, 6].map(i => ({ breakfast: b[i], lunch: l[i], dinner: d[i] })) };
+  const snack = i => SNACK_POOL[Math.floor(seededRand(seed * 5.3 + i * 3.7) * SNACK_POOL.length) % SNACK_POOL.length];
+  return { week, seed, v: 2, days: [0, 1, 2, 3, 4, 5, 6].map(i => ({ breakfast: [b[i]], lunch: [l[i]], snack: [snack(i)], dinner: [d[i]] })) };
 }
 function swapMeal(plan, dayIdx, slot, prefs) {
-  const pools = mealPoolsFor(prefs);
-  let pool = (pools[slot] || []).filter(x => x && mealAllowed(x, prefs));
-  if (pool.length < 2) pool = (pools[slot] || []).filter(Boolean);
-  const used = plan.days.map(dy => dy[slot]);
-  const cur = plan.days[dayIdx][slot];
-  let cands = pool.filter(x => !used.includes(x));
-  if (!cands.length) cands = pool.filter(x => x !== cur);
-  if (!cands.length) return plan;
+  let pool = slot === "snack" ? SNACK_POOL.slice() : (mealPoolsFor(prefs)[slot] || []).filter(x => x && mealAllowed(x, prefs));
+  if (!pool.length) pool = slot === "snack" ? SNACK_POOL.slice() : (mealPoolsFor(prefs)[slot] || []).filter(Boolean);
+  if (!pool.length) return plan;
+  const used = new Set(plan.days.map(dy => (dy[slot] || [])[0]));
+  let cands = pool.filter(x => !used.has(x));
+  if (!cands.length) cands = pool;
   const chosen = cands[Math.floor(Math.random() * cands.length)];
-  return { ...plan, days: plan.days.map((dy, i) => i === dayIdx ? { ...dy, [slot]: chosen } : dy) };
+  return { ...plan, days: plan.days.map((dy, i) => i === dayIdx ? { ...dy, [slot]: [chosen] } : dy) };
 }
 
 const MEAL_SLOTS = ["Breakfast", "Lunch", "Snack", "Dinner", "After Dinner"];
@@ -3422,11 +3447,16 @@ const GROCERY_MAP = [
 ];
 function groceryFromPlan(plan) {
   if (!plan || !plan.days) return [];
-  const text = plan.days.map(d => [d.breakfast, d.lunch, d.dinner].join(" ")).join(" ");
+  const flat = v => Array.isArray(v) ? v.join(" ") : (v || "");
+  const text = plan.days.map(d => [flat(d.breakfast), flat(d.lunch), flat(d.snack), flat(d.dinner)].join(" ")).join(" ");
   const out = []; GROCERY_MAP.forEach(([re, item]) => { if (re.test(text) && !out.includes(item)) out.push(item); });
   return out;
 }
-function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegeneratePlan, onSwapMeal, cycleLog, onLogPeriod }) {
+function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegeneratePlan, onSwapMeal, onAddPlanItem, onRemovePlanItem, cycleLog, onLogPeriod }) {
+  const [picker, setPicker] = useState(null); // { dayIdx, slot }
+  const [pQuery, setPQuery] = useState("");
+  const [pCuisine, setPCuisine] = useState("All");
+  const [pNV, setPNV] = useState("all"); // all | veg | nonveg
   const [checkedGro, setCheckedGro] = useState(() => new Set());
   const [logDate, setLogDate] = useState(() => ymd(new Date()));
   const female = isFemale(profile) && !profile.pregnant;
@@ -3563,7 +3593,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
         </Collapsible>
       )}
       {weeklyPlan && weeklyPlan.days && (
-        <Collapsible title="This week's meal plan" subtitle="Built to hit your calorie & nutrient targets · tap ↻ to swap">
+        <Collapsible title="This week's meal plan" subtitle="Your editable plan — add, remove, shuffle any meal">
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
             <button onClick={onRegeneratePlan} style={{ background: T.tealPale, border: "none", borderRadius: 8, padding: "5px 10px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.teal, cursor: "pointer" }}>↻ Regenerate</button>
           </div>
@@ -3578,23 +3608,85 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
               </div>
             </div>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 10, lineHeight: 1.5 }}>Tap <b>+ Add</b> on any meal to search &amp; place your own dish; <b>×</b> removes one; <b>↻</b> shuffles. Ticks show what the plate has — 🥬 veg · 🍗 protein · 🌾 grain · 🍎 fruit.</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {weeklyPlan.days.map((d, i) => (
-              <div key={i} style={{ borderBottom: i < 6 ? `1px solid ${T.creamDeep}` : "none", paddingBottom: i < 6 ? 10 : 0 }}>
-                <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12.5, color: T.teal, marginBottom: 6 }}>{planDayLabels[i]}</div>
-                {["breakfast", "lunch", "dinner"].map(slot => (
-                  <div key={slot} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 4, background: vMeta(d[slot]).fg, flexShrink: 0 }} />
-                    <span style={{ flex: 1, fontFamily: "Inter", fontSize: 13, color: T.ink }}><span style={{ color: T.inkSoft, textTransform: "capitalize", fontSize: 11 }}>{slot} · </span>{d[slot]}</span>
-                    <button onClick={() => onSwapMeal(i, slot)} aria-label={"Swap " + slot} style={{ background: "none", border: "none", cursor: "pointer", color: T.saffron, fontSize: 15, padding: 2 }}>↻</button>
-                  </div>
-                ))}
+              <div key={i} style={{ borderBottom: i < 6 ? `1px solid ${T.creamDeep}` : "none", paddingBottom: i < 6 ? 12 : 0 }}>
+                <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 13, color: T.teal, marginBottom: 8 }}>{planDayLabels[i]}</div>
+                {["breakfast", "lunch", "snack", "dinner"].map(slot => {
+                  const items = d[slot] || [];
+                  const tk = plateTicks(items);
+                  return (
+                    <div key={slot} style={{ marginBottom: 10 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                        <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 10.5, letterSpacing: 0.4, color: T.inkSoft, textTransform: "uppercase" }}>{slot}</span>
+                        <span style={{ display: "flex", gap: 5, fontSize: 12 }}>
+                          {[["veg", "🥬"], ["protein", "🍗"], ["grain", "🌾"], ["fruit", "🍎"]].map(([k, emo]) => <span key={k} title={k} style={{ opacity: tk[k] ? 1 : 0.22, filter: tk[k] ? "none" : "grayscale(1)" }}>{emo}</span>)}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                        {items.length === 0 && <span style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, fontStyle: "italic" }}>nothing yet</span>}
+                        {items.map((it, j) => (
+                          <span key={j} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: T.creamDeep, borderRadius: 999, padding: "4px 5px 4px 10px", fontFamily: "Inter", fontSize: 12.5, color: T.ink }}>
+                            <span style={{ width: 7, height: 7, borderRadius: 4, background: vMeta(it).fg, flexShrink: 0 }} />
+                            {it}
+                            <button onClick={() => onRemovePlanItem(i, slot, j)} aria-label="Remove" style={{ background: "none", border: "none", cursor: "pointer", color: T.inkSoft, fontSize: 15, lineHeight: 1, padding: "0 3px" }}>×</button>
+                          </span>
+                        ))}
+                        <button onClick={() => { setPicker({ dayIdx: i, slot }); setPQuery(""); }} style={{ background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 999, padding: "4px 11px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.teal, cursor: "pointer" }}>+ Add</button>
+                        {items.length > 0 && slot !== "snack" && <button onClick={() => onSwapMeal(i, slot)} aria-label={"Shuffle " + slot} title="Shuffle" style={{ background: "none", border: "none", cursor: "pointer", color: T.saffron, fontSize: 15, padding: "0 2px" }}>↻</button>}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             ))}
           </div>
-          <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 10 }}>Filtered to your diet, leaning on safer choices for your markers. Regenerate for a fresh week — it also changes automatically each week.</div>
+          <div style={{ background: T.tealPale, borderRadius: 10, padding: "9px 11px", marginTop: 12, fontFamily: "Inter", fontSize: 11.5, color: T.ink, lineHeight: 1.5 }}>🍎 <b>Fruit:</b> 1–2 servings a day (one fruit or a cup cut), best mid-morning or as an evening snack. {(advice.flaggedKeys || []).some(k => /tg|chol|sugar|glucose|hba1c/i.test(k)) ? "As your sugar/triglycerides run high, prefer lower-sugar fruit (guava, apple, pear, papaya, berries), keep mango/banana/grapes small, and pair with a few nuts." : "Rotate seasonal fruit for variety."}</div>
         </Collapsible>
       )}
+      {picker && (() => {
+        const slot = picker.slot;
+        const q = pQuery.trim().toLowerCase();
+        let list = pickerDishes(slot, { cuisine: pCuisine });
+        if (pNV === "veg") list = list.filter(x => !x.nv);
+        else if (pNV === "nonveg") list = list.filter(x => x.nv);
+        if (q) list = list.filter(x => x.name.toLowerCase().includes(q));
+        const seen = new Set(); list = list.filter(x => { const k = x.name.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 60);
+        const cuisineOpts = ["All", ...Object.keys(CUISINE_MEALS)];
+        const add = (name) => onAddPlanItem(picker.dayIdx, slot, name);
+        return (
+          <div onClick={() => setPicker(null)} style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,0.45)", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: T.cream, borderTopLeftRadius: 18, borderTopRightRadius: 18, maxHeight: "82vh", display: "flex", flexDirection: "column", width: "100%", maxWidth: 420, margin: "0 auto" }}>
+              <div style={{ padding: "14px 16px 10px", borderBottom: `1px solid ${T.border}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, color: T.teal }}>Add to {planDayLabels[picker.dayIdx]} · <span style={{ textTransform: "capitalize" }}>{slot}</span></div>
+                  <button onClick={() => setPicker(null)} style={{ background: "none", border: "none", fontSize: 22, color: T.inkSoft, cursor: "pointer", lineHeight: 1 }}>×</button>
+                </div>
+                <input autoFocus value={pQuery} onChange={e => setPQuery(e.target.value)} placeholder="Search a dish…" style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", fontFamily: "Inter", fontSize: 14, background: T.white, color: T.ink }} onKeyDown={e => { if (e.key === "Enter" && pQuery.trim()) { add(pQuery.trim()); setPicker(null); } }} />
+                <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                  {[["all", "All"], ["veg", "Veg"], ["nonveg", "Non-veg"]].map(([k, l]) => <button key={k} onClick={() => setPNV(k)} style={{ background: pNV === k ? T.teal : T.white, color: pNV === k ? "#fff" : T.ink, border: `1px solid ${pNV === k ? T.teal : T.border}`, borderRadius: 999, padding: "4px 11px", fontFamily: "Inter", fontSize: 12, cursor: "pointer" }}>{l}</button>)}
+                </div>
+                {slot !== "snack" && (
+                  <div style={{ display: "flex", gap: 6, marginTop: 6, overflowX: "auto", paddingBottom: 2 }}>
+                    {cuisineOpts.map(c => <button key={c} onClick={() => setPCuisine(c)} style={{ whiteSpace: "nowrap", background: pCuisine === c ? T.saffron : T.white, color: pCuisine === c ? "#fff" : T.inkSoft, border: `1px solid ${pCuisine === c ? T.saffron : T.border}`, borderRadius: 999, padding: "4px 10px", fontFamily: "Inter", fontSize: 11.5, cursor: "pointer" }}>{c}</button>)}
+                  </div>
+                )}
+              </div>
+              <div style={{ overflowY: "auto", padding: "8px 12px 20px" }}>
+                {pQuery.trim() && <button onClick={() => { add(pQuery.trim()); setPicker(null); }} style={{ width: "100%", textAlign: "left", background: T.tealPale, border: `1px dashed ${T.teal}`, borderRadius: 10, padding: "10px 12px", marginBottom: 8, fontFamily: "Inter", fontSize: 13, color: T.teal, cursor: "pointer" }}>+ Add “{pQuery.trim()}” (my own)</button>}
+                {list.length === 0 && !pQuery.trim() && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, padding: 10 }}>No matches — type your own above.</div>}
+                {list.map((x, i) => (
+                  <button key={i} onClick={() => { add(x.name); setPicker(null); }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", textAlign: "left", background: "none", border: "none", borderBottom: `1px solid ${T.creamDeep}`, padding: "10px 4px", fontFamily: "Inter", fontSize: 13.5, color: T.ink, cursor: "pointer" }}>
+                    <span>{x.name}</span>
+                    <span style={{ fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft, marginLeft: 8, flexShrink: 0 }}>{x.cuisine !== "Any" ? x.cuisine : ""}{x.nv ? " · non-veg" : ""}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {grocery.length > 0 && (
         <Collapsible title="This week's shopping" emoji="🛒" subtitle={`${grocery.length} things, from your meal plan`}>
           {grocery.map((g, i) => {
@@ -4401,9 +4493,11 @@ function App() {
   // Signature of everything that shapes the plan — regenerate on week rollover OR whenever the
   // person edits their diet pattern, cuisines or restrictions so the plan always reflects setup.
   const planSig = (profile.dietPattern || "") + "|" + (profile.cuisines || []).join(",") + "|" + (profile.dietRules || []).join(",");
-  useEffect(() => { const wk = weekNumber(); if (!weeklyPlan || weeklyPlan.week !== wk || weeklyPlan.sig !== planSig) setWeeklyPlan({ ...generateWeeklyPlan(wk, wk, mealPreferences), sig: planSig }); }, [weeklyPlan, activeId, planSig]);
+  useEffect(() => { const wk = weekNumber(); if (!weeklyPlan || weeklyPlan.week !== wk || weeklyPlan.sig !== planSig || weeklyPlan.v !== 2) setWeeklyPlan({ ...generateWeeklyPlan(wk, wk, mealPreferences), sig: planSig }); }, [weeklyPlan, activeId, planSig]);
   const regeneratePlan = () => setWeeklyPlan({ ...generateWeeklyPlan(weekNumber(), Math.floor(Math.random() * 1e6), mealPreferences), sig: planSig });
   const swapPlanMeal = (dayIdx, slot) => setWeeklyPlan(p => (p ? swapMeal(p, dayIdx, slot, mealPreferences) : p));
+  const addPlanItem = (dayIdx, slot, dish) => setWeeklyPlan(p => (p && p.days) ? { ...p, days: p.days.map((d, i) => i === dayIdx ? { ...d, [slot]: [...(d[slot] || []), dish] } : d) } : p);
+  const removePlanItem = (dayIdx, slot, idx) => setWeeklyPlan(p => (p && p.days) ? { ...p, days: p.days.map((d, i) => i === dayIdx ? { ...d, [slot]: (d[slot] || []).filter((_, j) => j !== idx) } : d) } : p);
   const logPeriod = (start) => {
     if (!start) return;
     setCycleLog(prev => [...(prev || []).filter(e => e && e.start !== start), { start, duration: profile.periodDuration || 5, symptoms: profile.periodSymptoms || [], loggedAt: Date.now() }].sort((a, b) => a.start < b.start ? -1 : 1));
@@ -4610,7 +4704,7 @@ function App() {
         {tab === "health" && <MyHealthTab metrics={metrics} periods={periods} supplementsToday={supplementsToday} toggleSupplement={(id) => toggleSupplement(tk, id)} supplements={supplements} onAddReport={() => openSettings("reports")} advice={advice} selectedDate={selectedDate} setSelectedDate={setSelectedDate} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} activities={activities} targets={targets} demoCleared={demoCleared} clearDemo={clearDemo} />}
         {tab === "habits" && <HabitsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} habitsForDate={habitsForDate} toggleHabit={toggleHabit} weekHabits={weekHabits} weekFood={weekFood} weekSupplements={weekSupplements} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} advice={advice} />}
         {tab === "supplements" && <SupplementsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} supplementsForDate={supplementsForDate} toggleSupplement={toggleSupplement} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} supplements={supplements} advice={advice} suggestedSupps={suggestedSupps} onAddSupplement={addSuggestedSupplement} />}
-        {tab === "plan" && <PlanTab weekFood={weekFood} advice={advice} profile={profile} targets={targets} weeklyPlan={weeklyPlan} onRegeneratePlan={regeneratePlan} onSwapMeal={swapPlanMeal} cycleLog={cycleLog} onLogPeriod={logPeriod} />}
+        {tab === "plan" && <PlanTab weekFood={weekFood} advice={advice} profile={profile} targets={targets} weeklyPlan={weeklyPlan} onRegeneratePlan={regeneratePlan} onSwapMeal={swapPlanMeal} onAddPlanItem={addPlanItem} onRemovePlanItem={removePlanItem} cycleLog={cycleLog} onLogPeriod={logPeriod} />}
         <div style={{ position: "fixed", bottom: 0, width: "100%", maxWidth: 420, background: T.tealSolid, display: "flex", alignItems: "center", justifyContent: "space-around", padding: "8px 8px 10px", zIndex: 30 }}>
           {NAV.map((t, i) => {
             if (t.center) return (
