@@ -111,7 +111,7 @@ function Icon({ name, size = 18, color = T.ink, style }) {
 const PROFILE_SEED = { name: "Jignesh", fullName: "Jignesh Suba", age: 54, weight: 78, height: 165, gender: "Male", city: "Rajkot, India", diet: "Indian vegetarian (Gujarati)", latestReportDate: "Jul 12, 2026",
   conditions: ["High triglycerides", "High cholesterol", "Fatty liver", "Underactive thyroid"], goals: ["Lose weight", "Lower a specific marker"],
   dietPattern: "Vegetarian", dietRules: [], cuisines: ["Gujarati", "Punjabi", "South Indian", "Chinese", "Italian", "Mexican"], activityLevel: "light", wantsMealPlan: "open",
-  smoking: "none", vaping: "none", alcohol: "weekly", sleepHours: "6-7", bedtime: "late", chronotype: "late", dayNaps: false, pregnant: false, periodDuration: 5, periodCycle: 28, periodSymptoms: [] };
+  smoking: "none", vaping: "none", alcohol: "weekly", sleepHours: "6-7", bedtime: "late", chronotype: "late", dayNaps: false, pregnant: false, periodDuration: 5, periodCycle: 28, periodSymptoms: [], dietStyle: "balanced", fastingMethod: "off", eatStart: "12:00", eatEnd: "20:00" };
 // Onboarding / profile option lists (used by the setup wizard and, later, the meal-plan engine).
 const ONB_CONDITIONS = ["High triglycerides", "High LDL / cholesterol", "Low HDL", "Fatty liver / high GGT", "Thyroid (hypo/hyper)", "Diabetes / pre-diabetes", "High blood sugar / HbA1c", "Hypertension", "PCOS / PCOD", "High uric acid / gout", "Anaemia / low iron", "Vitamin D / B12 deficiency", "Kidney issues", "Acidity / GERD", "IBS / gut issues", "Obesity", "None"];
 // Common lifestyle-related conditions (curated from the WHO common-conditions list, using the
@@ -137,9 +137,73 @@ const ONB_SLEEP_HOURS = [{ k: "<5", l: "Under 5 hrs" }, { k: "5-6", l: "5–6 hr
 const ONB_BEDTIME = [{ k: "early", l: "Before 10 pm" }, { k: "mid", l: "10–11 pm" }, { k: "late", l: "11 pm–12 am" }, { k: "verylate", l: "After midnight" }];
 const ONB_CHRONO = [{ k: "early", l: "Early to bed & early riser" }, { k: "late", l: "Night owl" }, { k: "varies", l: "It varies a lot" }];
 const ONB_PERIOD_SYMPTOMS = ["Cramps / pain", "Nausea", "Low energy / stamina", "Bloating", "Headaches", "Mood swings", "Back pain", "Food cravings", "Breast tenderness", "Trouble sleeping"];
+// Popular healthy-eating styles. Filters dish SUGGESTIONS by real per-100g macros (where known).
+const DIET_STYLES = [
+  { k: "balanced", l: "Balanced", d: "No special restriction — a well-rounded plate" },
+  { k: "keto", l: "Keto", d: "Very low carb, higher fat" },
+  { k: "lowcarb", l: "Low-carb", d: "Reduced carbs, less strict than keto" },
+  { k: "highprotein", l: "High-protein", d: "Protein-dense dishes prioritised" },
+  { k: "mediterranean", l: "Mediterranean", d: "Veg, legumes, fish, olive oil, whole grains" },
+  { k: "dash", l: "DASH", d: "Low-sodium, for blood pressure" },
+  { k: "lowgi", l: "Low-GI / Diabetic", d: "Low sugar, higher fibre" },
+  { k: "paleo", l: "Paleo", d: "No grains, legumes, dairy or sugar" },
+];
+const DIET_STYLE_LABEL = Object.fromEntries(DIET_STYLES.map(s => [s.k, s.l]));
+// Does a dish (per-100g nutrients n + name) fit a diet style? Macro-based where possible, else permissive.
+function dietStyleAllows(n, name, style) {
+  if (!style || style === "balanced" || !n) return true;
+  const carb = n.carb_g || 0, prot = n.protein_g || 0, kcal = n.kcal || 1, fib = n.fibre_g || 0, sug = n.free_sugar_g || 0, sod = n.sodium_mg || 0;
+  const nm = (name || "").toLowerCase();
+  switch (style) {
+    case "keto": return carb <= 12;
+    case "lowcarb": return carb <= 25;
+    case "highprotein": return prot >= 8 || (prot * 4 / kcal) >= 0.25;
+    case "lowgi": return sug <= 5 && carb <= 45 && fib >= 2;
+    case "dash": return sod <= 350;
+    case "paleo": return !/\brice\b|wheat|\broti\b|bread|paratha|naan|\bdal\b|daal|lentil|\bbean|rajma|chana|chickpea|\bmilk\b|cheese|paneer|curd|dahi|\bsugar\b|oats|pasta|noodle|idli|dosa|poha/.test(nm);
+    default: return true; // mediterranean etc. — permissive (curated cuisines already lean this way)
+  }
+}
+// ---- Intermittent fasting. Guidance follows Johns Hopkins Medicine & the U.S. National Institute
+// on Aging (metabolic switching; who should not fast). "off" = not fasting. Window methods use eat
+// start/end times; 5:2 is two light days/week; OMAD is advanced. ----
+const FASTING_METHODS = [
+  { k: "off", l: "Not fasting", window: false, fast: 0, eat: 24, d: "" },
+  { k: "12:12", l: "12:12 · beginner", window: true, fast: 12, eat: 12, d: "The gentlest start — a 12-hour overnight fast (e.g. 8pm–8am)." },
+  { k: "14:10", l: "14:10", window: true, fast: 14, eat: 10, d: "A slightly longer fast that's still easy to sustain." },
+  { k: "16:8", l: "16:8 · most studied", window: true, fast: 16, eat: 8, d: "16-hour fast, 8-hour eating window — the most researched daily method." },
+  { k: "18:6", l: "18:6", window: true, fast: 18, eat: 6, d: "A longer daily fast for those already comfortable with 16:8." },
+  { k: "5:2", l: "5:2 · two light days", window: false, fast: 0, eat: 24, d: "Eat normally 5 days; on 2 non-consecutive days keep to ~500–600 kcal." },
+  { k: "omad", l: "OMAD · one meal", window: true, fast: 23, eat: 1, d: "Advanced — one meal a day. Please get medical advice before trying this." },
+];
+const FASTING_LABEL = Object.fromEntries(FASTING_METHODS.map(m => [m.k, m.l]));
+// Who should NOT fast (safety first — from Johns Hopkins / NIA guidance).
+function fastingSafety(profile) {
+  const p = profile || {}, c = (p.conditions || []).map(x => x.toLowerCase()), out = [];
+  const bmi = computeBMI(p.weight, p.height);
+  if (p.pregnant) out.push("You've marked yourself pregnant — do not fast during pregnancy or breastfeeding.");
+  if (c.some(x => /diabet|blood sugar|hba1c|prediab/.test(x))) out.push("With diabetes or any blood-sugar medication, fasting can trigger dangerous lows — only do this under your doctor's guidance.");
+  if (c.some(x => /underweight/.test(x)) || (bmi != null && bmi < 18.5)) out.push("You're on the lighter side — fasting isn't advised. Focus on regular, nourishing meals instead.");
+  if ((Number(p.age) || 30) < 18) out.push("Fasting isn't recommended for under-18s.");
+  return out;
+}
+function toMin(t) { const [h, m] = String(t || "12:00").split(":").map(Number); return (h || 0) * 60 + (m || 0); }
+function fmtTime(t) { const [h, m] = String(t || "12:00").split(":").map(Number); const ap = h < 12 ? "am" : "pm"; const hh = ((h + 11) % 12) + 1; return `${hh}:${String(m || 0).padStart(2, "0")}${ap}`; }
+// Current fast/eat status for a window method (16:8 etc.), given the eating window + now.
+function fastingStatus(profile, now) {
+  const m = FASTING_METHODS.find(x => x.k === (profile && profile.fastingMethod));
+  if (!m || !m.window) return null;
+  const start = toMin(profile.eatStart || "12:00"), end = toMin(profile.eatEnd || "20:00");
+  const cur = now.getHours() * 60 + now.getMinutes();
+  const inWin = start < end ? (cur >= start && cur < end) : (cur >= start || cur < end);
+  const mins = a => (a % 1440 + 1440) % 1440;
+  const toNext = inWin ? mins(end - cur) : mins(start - cur);
+  const hrs = Math.floor(toNext / 60), rem = toNext % 60;
+  return { inWin, eatStart: profile.eatStart || "12:00", eatEnd: profile.eatEnd || "20:00", nextLabel: `${hrs}h ${rem}m`, fast: m.fast, eat: m.eat };
+}
 // Defaults for a NEWLY added person (the "self" profile keeps Jignesh's seed data).
 const BLANK_PROFILE = { name: "", fullName: "", age: 30, weight: 70, height: 165, gender: "Male", city: "", diet: "Vegetarian", latestReportDate: "", conditions: [], goals: [], dietPattern: "Vegetarian", dietRules: [], cuisines: [], activityLevel: "light", wantsMealPlan: "Open to trying",
-  smoking: "none", vaping: "none", alcohol: "none", sleepHours: "", bedtime: "", chronotype: "", dayNaps: false, pregnant: false, periodDuration: 5, periodCycle: 28, periodSymptoms: [] };
+  smoking: "none", vaping: "none", alcohol: "none", sleepHours: "", bedtime: "", chronotype: "", dayNaps: false, pregnant: false, periodDuration: 5, periodCycle: 28, periodSymptoms: [], dietStyle: "balanced", fastingMethod: "off", eatStart: "12:00", eatEnd: "20:00" };
 const blankMetrics = () => METRICS_SEED.map(m => ({ ...m, points: [], note: "" }));
 function computeBMI(weightKg, heightCm) {
   if (!weightKg || !heightCm) return null;
@@ -677,14 +741,19 @@ function allCuratedDishes() {
 const NV_NAME_RE = /chicken|murgh|mutton|lamb|keema|tikka|tandoori|korma|xacuti|cafreal|chettinad|souvlaki|haleem|\bfish|prawn|shrimp|salmon|tuna|meen|macher|seafood|\begg|omelette|omelet|biryani|kebab|bulgogi|teriyaki|shawarma|turkey|bacon|sausage|\bham\b/i;
 // Free search across the WHOLE food library (curated + the 10k-dish health DB + dish corpus) so ANY
 // dish is findable regardless of the meal slot it's normally suggested for. Atomic names float to top.
-function searchDishPool(query) {
+function searchDishPool(query, style) {
   const q = (query || "").trim().toLowerCase();
   if (!q) return [];
+  const strict = style && style !== "balanced" && style !== "mediterranean"; // needs known macros to judge
   const seen = new Set(), out = [];
-  const push = (name, cuisine) => { if (!name) return; const k = name.toLowerCase(); if (seen.has(k)) return; seen.add(k); out.push({ name, cuisine: cuisine || "", nv: NV_NAME_RE.test(name) }); };
-  allCuratedDishes().forEach(d => { if (d.name.toLowerCase().includes(q)) push(d.name, d.cuisine); });
-  try { if (HEALTH_DB && HEALTH_DB.dishes) { for (const id in HEALTH_DB.dishes) { if (out.length > 150) break; const nm = HEALTH_DB.dishes[id].name; if (nm && nm.toLowerCase().includes(q)) push(nm, ""); } } } catch (e) {}
-  try { if (DISH_CORPUS && DISH_CORPUS.dishes) { const cz = DISH_CORPUS.cuisines || []; for (const row of DISH_CORPUS.dishes) { if (out.length > 220) break; const nm = Array.isArray(row) ? row[0] : row.name; const ci = Array.isArray(row) ? row[1] : row.c; if (nm && nm.toLowerCase().includes(q)) push(nm, (typeof ci === "number" ? cz[ci] : "") || ""); } } } catch (e) {}
+  const push = (name, cuisine, n) => {
+    if (!name) return;
+    if (style && style !== "balanced") { if (strict && !n) return; if (n && !dietStyleAllows(n, name, style)) return; }
+    const k = name.toLowerCase(); if (seen.has(k)) return; seen.add(k); out.push({ name, cuisine: cuisine || "", nv: NV_NAME_RE.test(name) });
+  };
+  if (!strict) allCuratedDishes().forEach(d => { if (d.name.toLowerCase().includes(q)) push(d.name, d.cuisine, null); }); // curated have no macros — only for non-strict styles
+  try { if (HEALTH_DB && HEALTH_DB.dishes) { for (const id in HEALTH_DB.dishes) { if (out.length > 150) break; const d = HEALTH_DB.dishes[id]; if (d.name && d.name.toLowerCase().includes(q)) push(d.name, "", d.n); } } } catch (e) {}
+  if (!strict) try { if (DISH_CORPUS && DISH_CORPUS.dishes) { const cz = DISH_CORPUS.cuisines || []; for (const row of DISH_CORPUS.dishes) { if (out.length > 220) break; const nm = Array.isArray(row) ? row[0] : row.name; const ci = Array.isArray(row) ? row[1] : row.c; if (nm && nm.toLowerCase().includes(q)) push(nm, (typeof ci === "number" ? cz[ci] : "") || "", null); } } } catch (e) {}
   out.sort((a, b) => a.name.length - b.name.length); // shorter = more "atomic" (plain Thepla before Thepla with…)
   return out;
 }
@@ -1305,6 +1374,30 @@ function healthLookup(dishText) {
   const kws = Object.keys(HEALTH_DB.aliases).sort((a, b) => b.length - a.length);
   for (const kw of kws) { if (nq.includes(" " + kw + " ")) return HEALTH_DB.dishes[HEALTH_DB.aliases[kw]] || null; }
   return null;
+}
+// Type-the-ingredients: when a query is clearly a LIST of foods (salad / bowl / with / + / , / and),
+// split it into recognised whole foods and AVERAGE their per-100g nutrition (equal parts assumed) —
+// so a fresh mix reads like its ingredients instead of mis-matching one of them (e.g. dried blueberries).
+const COMPOSITE_SIGNAL = /\bsalad\b|\bmixed\b|\bbowl\b|\bplatter\b|\bwith\b|\+|,|\band\b/i;
+const COMPOSITE_FILLER = new Set(["salad", "mixed", "bowl", "platter", "plate", "with", "and", "of", "fresh", "raw", "a", "an", "the", "some", "plus", "saute", "sauteed", "sauted", "grilled", "boiled", "steamed", "chopped", "sliced", "diced", "cut", "mix", "topped", "served", "little", "light", "in", "on"]);
+function parseComposite(query) {
+  try {
+    const q = (query || "").toLowerCase().trim();
+    if (!COMPOSITE_SIGNAL.test(q) || !HEALTH_DB || !HEALTH_DB.aliases) return null;
+    const words = q.replace(/[+,&/]/g, " ").split(/\s+/).filter(w => w && !COMPOSITE_FILLER.has(w));
+    const found = [], seen = new Set();
+    for (let i = 0; i < words.length; i++) {
+      let did = null;
+      if (i + 1 < words.length) { const bg = words[i] + " " + words[i + 1]; if (HEALTH_DB.aliases[bg]) { did = HEALTH_DB.aliases[bg]; i++; } }
+      if (!did && HEALTH_DB.aliases[words[i]]) did = HEALTH_DB.aliases[words[i]];
+      if (did) { const d = HEALTH_DB.dishes[did]; if (d && d.n && !seen.has(d.name)) { seen.add(d.name); found.push(d); } }
+    }
+    if (found.length < 2) return null;
+    const keys = ["kcal", "protein_g", "carb_g", "fat_g", "sat_fat_g", "free_sugar_g", "fibre_g", "sodium_mg", "potassium_mg", "calcium_mg", "phosphorus_mg", "magnesium_mg", "iron_mg", "zinc_mg", "selenium_ug", "pufa_mg", "vit_c_mg", "folate_ug", "vit_k_ug"];
+    const n = {};
+    keys.forEach(k => { const vals = found.map(d => (d.n && typeof d.n[k] === "number") ? d.n[k] : null).filter(v => v != null); n[k] = vals.length ? +(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2) : 0; });
+    return { name: found.map(d => d.name.split(",")[0].trim()).join(" + "), components: found.map(d => d.name.split(",")[0].trim()), n };
+  } catch (e) { return null; }
 }
 // Variety picker: all dishes whose NAME contains every word typed (e.g. "cutlet" -> the 11
 // cutlets; "paneer curry" -> the paneer curries). Lets the user pick instead of missing them.
@@ -2663,6 +2756,13 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
     // strip ALL healthier-modifier words so the base dish matches the same as the plain query
     const hCore = healthCore(coreDish) || coreDish;
 
+    // 0a. Ingredient list (salad / bowl / A + B + C): combine the parts instead of matching one.
+    const comp = parseComposite(raw);
+    if (comp) {
+      setResult({ dish: comp.name, composite: comp, lookedUp: true, verdict: demoVerdictFor(comp.name), portion: "per 100 g", perUnit: "100 g", reason: "Combined estimate — equal parts of each ingredient, averaged per 100 g.", marker: null, weeklyLimit: null });
+      return;
+    }
+
     // 0. Variety picker — if several named dishes match (e.g. "cutlet" -> 11 kinds,
     //    "paneer curry" -> several), let the user choose rather than silently pick one.
     const cands = healthCandidates(hCore, 8);
@@ -2851,17 +2951,24 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
   const yKey = (() => { const y = new Date(selectedDate + "T00:00:00"); y.setDate(y.getDate() - 1); return ymd(y); })();
   const yesterdayMeals = weekFood[yKey] || [];
   const copyYesterday = () => yesterdayMeals.forEach(e => addFoodEntry(selectedDate, { ...e, time: Date.now() }));
-  const health = result ? (result.healthId && HEALTH_DB && HEALTH_DB.dishes ? HEALTH_DB.dishes[result.healthId] : healthLookup(result.dish)) : null;
+  const health = result ? (result.composite ? { n: result.composite.n, is_drink: false } : (result.healthId && HEALTH_DB && HEALTH_DB.dishes ? HEALTH_DB.dishes[result.healthId] : healthLookup(result.dish))) : null;
   const mod = health ? applyModifiers(health.n, result.modText || result.dish) : null;   // healthier keywords -> adjusted nutrients
   const scored = health ? scoreDish(mod.n, health.is_drink) : null;    // rescore from adjusted nutrients
   const pv = health ? personalVerdict(scored.levels, mod.n.kcal, advice.flaggedKeys, advice.weightGoal) : null;
   // SAFETY override: the base score only looks at calories, so alcohol wrongly reads "eat freely".
   // Alcohol must be flagged for anyone with liver / triglyceride / cholesterol / sugar risk.
-  const isAlcohol = result ? /\bwine\b|\bbeer\b|whisky|whiskey|vodka|\brum\b|brandy|liqueur|cocktail|champagne|tequila|\bgin\b|alcohol|\bsake\b|\bale\b|lager|mojito|sangria|cider/i.test(result.dish || "") : false;
-  const alcoholRisk = isAlcohol && (advice.flaggedKeys || []).some(k => /ggt|liver|\btg\b|trig|sgpt|sgot|chol|ldl|sugar|glucose|hba1c/i.test(k));
-  const pvShow = !pv ? null : (isAlcohol ? (alcoholRisk
-    ? { tone: "avoid", text: "Avoid — alcohol strains your liver and pushes triglycerides up" }
-    : { tone: "limit", text: "Limit — alcohol is empty calories; keep it occasional" }) : pv);
+  const dishText = result ? (result.dish || "") : "";
+  const isAlcohol = /\bwine\b|\bbeer\b|whisky|whiskey|vodka|\brum\b|brandy|liqueur|cocktail|champagne|tequila|\bgin\b|alcohol|\bsake\b|\bale\b|lager|mojito|sangria|cider/i.test(dishText);
+  // Sugary/juice drinks: even 100% fruit juice concentrates fructose without fibre — bad for liver/TG/sugar.
+  const isSugaryDrink = /\bjuice\b|\bsoda\b|\bcola\b|soft ?drink|sherbet|\bsquash\b|milkshake|thick ?shake|frappe|energy drink|\bcordial\b|mocktail|slush|sweetened/i.test(dishText) && !/vegetable juice|veg juice|amla|wheatgrass|karela|bitter ?gourd|lauki|tomato juice|lemon water/i.test(dishText);
+  const liverSugarRisk = (advice.flaggedKeys || []).some(k => /ggt|liver|\btg\b|trig|sgpt|sgot|chol|ldl|sugar|glucose|hba1c|diabet/i.test(k));
+  const alcoholRisk = isAlcohol && liverSugarRisk;
+  const pvShow = !pv ? null : (
+    isAlcohol ? (alcoholRisk
+      ? { tone: "avoid", text: "Avoid — alcohol strains your liver and pushes triglycerides up" }
+      : { tone: "limit", text: "Limit — alcohol is empty calories; keep it occasional" })
+    : (isSugaryDrink && liverSugarRisk) ? { tone: "limit", text: "Limit — liquid fruit sugar (fructose) hits the liver fast, without the fibre" }
+    : pv);
   // Notable micronutrients this dish carries (per 100 g), shown so the plate's value is visible.
   const microList = health ? [
     ["Magnesium", health.n.magnesium_mg, "mg"], ["Iron", health.n.iron_mg, "mg"], ["Calcium", health.n.calcium_mg, "mg"],
@@ -2967,11 +3074,13 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
           <Card style={{ borderColor: meta(result.verdict).fg }}>
             <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, textTransform: "capitalize", marginBottom: 4 }}>{result.dish} {result.lookedUp && <Badge bg={T.creamDeep} fg={T.inkSoft}>Estimated</Badge>}</div>
             {correctedFrom && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 8 }}>Matched "{query}" to "{correctedFrom}"</div>}
+            {result.composite && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 8, lineHeight: 1.45 }}>Combined <b>{result.composite.components.length}</b> ingredients (equal parts, averaged): {result.composite.components.join(" · ")}</div>}
             {result.ingredients && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>Likely: {result.ingredients}</div>}
             {health && pvShow ? (
               <div style={{ marginBottom: 10 }}>
                 <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: T[VERDICT_TONE[pvShow.tone].bg], color: T[VERDICT_TONE[pvShow.tone].fg], padding: "8px 13px", borderRadius: 10, fontFamily: "Manrope", fontWeight: 800, fontSize: 13.5, marginBottom: 8 }}>{VERDICT_TONE[pvShow.tone].emoji} {pvShow.text}</div>
                 {isAlcohol && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.alert, marginBottom: 8, lineHeight: 1.45 }}>Alcohol is processed by the liver and raises triglycerides — the two things your reports are watching. There's no liver-safe amount when GGT/TG are up.</div>}
+                {isSugaryDrink && liverSugarRisk && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.amber, marginBottom: 8, lineHeight: 1.45 }}>Even 100% juice concentrates fruit sugar without the fibre, so it spikes the liver like added sugar. A whole fruit is the better choice.</div>}
                 {mod.applied.length > 0 && (
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", background: T.tealPale, borderRadius: 8, padding: "6px 10px", marginBottom: 8 }}>
                     <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.teal }}>✓ ADJUSTED FOR</span>
@@ -3093,7 +3202,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
                 <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 11.5, letterSpacing: 0.3, color: T.teal, marginBottom: 8, textTransform: "uppercase" }}>{slot}</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {foodForDate.map((f, i) => ({ f, i })).filter(({ f }) => (f.mealSlot || "Snack") === slot).map(({ f, i }) => {
-                    const canSplit = String(f.dish || "").split(/\s*[+,&]\s*|\s+and\s+/i).map(s => s.trim()).filter(Boolean).length >= 2;
+                    const canSplit = String(f.dish || "").split(/\s*[+&]\s*|\s+and\s+/i).map(s => s.trim()).filter(Boolean).length >= 2;
                     return (
                     <div key={i} style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 10, padding: "8px 9px" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 6 }}>
@@ -3541,6 +3650,10 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
   const pred = female ? cyclePrediction(cycleLog, profile) : null;
   const periodTips = female ? (profile.periodSymptoms || []).map(s => ({ s, ...(PERIOD_TIP_MAP[s] || {}) })).filter(t => t.before || t.during) : [];
   const lifeGuide = lifestyleGuidance(profile);
+  const fastMethod = FASTING_METHODS.find(m => m.k === (profile.fastingMethod || "off"));
+  const fastingOn = fastMethod && fastMethod.k !== "off";
+  const fastStatus = fastingOn ? fastingStatus(profile, new Date()) : null;
+  const fastCautions = fastingOn ? fastingSafety(profile) : [];
   const cycleHistory = female ? [...(cycleLog || [])].filter(e => e && e.start).sort((a, b) => a.start < b.start ? 1 : -1) : [];
   const grocery = groceryFromPlan(weeklyPlan);
   const toggleGro = g => setCheckedGro(s => { const n = new Set(s); n.has(g) ? n.delete(g) : n.add(g); return n; });
@@ -3677,6 +3790,30 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
           </div>
         </Collapsible>
       )}
+      {fastingOn && (
+        <Collapsible title="🕐 Intermittent fasting" subtitle={fastStatus ? (fastStatus.inWin ? `Eating window — ${fastStatus.nextLabel} left` : `Fasting — ${fastStatus.nextLabel} to your window`) : FASTING_LABEL[profile.fastingMethod]}>
+          {fastCautions.length > 0 && (
+            <div style={{ background: T.alertPale, border: `1px solid ${T.alert}`, borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+              {fastCautions.map((c, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 12.5, color: T.alert, lineHeight: 1.5, marginBottom: i < fastCautions.length - 1 ? 5 : 0 }}>⚠ {c}</div>)}
+              <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginTop: 6 }}>Please don't rely on fasting here until you've cleared it with your doctor.</div>
+            </div>
+          )}
+          {fastStatus && (
+            <div style={{ background: fastStatus.inWin ? T.forestPale : T.tealPale, borderRadius: 12, padding: "12px 14px", marginBottom: 12 }}>
+              <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, color: fastStatus.inWin ? T.forest : T.teal }}>{fastStatus.inWin ? "🍽 Eating window open" : "🕐 Fasting now"}</div>
+              <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, marginTop: 3, lineHeight: 1.45 }}>Window {fmtTime(fastStatus.eatStart)}–{fmtTime(fastStatus.eatEnd)} · {fastStatus.fast}h fast / {fastStatus.eat}h eating. {fastStatus.inWin ? `About ${fastStatus.nextLabel} left to eat.` : `About ${fastStatus.nextLabel} until your window opens.`}</div>
+            </div>
+          )}
+          {profile.fastingMethod === "5:2" && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, marginBottom: 12, lineHeight: 1.5 }}>Pick <b>two non-consecutive days</b> a week (e.g. Tue &amp; Fri) and keep those to <b>~500–600 kcal</b> of protein + veg. Eat normally the other five days.</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ borderLeft: `3px solid ${T.teal}`, paddingLeft: 11 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12.5, color: T.teal }}>During the fast</div><div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.5, marginTop: 2 }}>Water, plain black coffee, or unsweetened tea only — nothing with calories (no milk, sugar or juice). Staying hydrated helps the hunger pass.</div></div>
+            <div style={{ borderLeft: `3px solid ${T.forest}`, paddingLeft: 11 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12.5, color: T.forest }}>Breaking the fast</div><div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.5, marginTop: 2 }}>Start gentle — don't binge. A balanced first meal with protein, fibre and vegetables settles blood sugar better than something sugary or fried.</div></div>
+            <div style={{ borderLeft: `3px solid ${T.saffron}`, paddingLeft: 11 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12.5, color: T.saffron }}>Easing in</div><div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.5, marginTop: 2 }}>Build up gradually (12:12 → 14:10 → 16:8) over a few weeks. Keep the meals inside your window balanced — fasting works with good food, not instead of it.</div></div>
+            {(advice.flaggedKeys || []).some(k => /liver|ggt|tg|trig|sugar|glucose|hba1c|ldl|chol/i.test(k)) && <div style={{ borderLeft: `3px solid ${T.forest}`, paddingLeft: 11 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12.5, color: T.forest }}>For your markers</div><div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.5, marginTop: 2 }}>Giving the body a long daily break from food is one of the better-studied levers for fatty liver, triglycerides and insulin sensitivity — alongside the food choices in your plan.</div></div>}
+          </div>
+          <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 12, borderTop: `1px solid ${T.border}`, paddingTop: 8, lineHeight: 1.5 }}>General guidance based on Johns Hopkins Medicine and the U.S. National Institute on Aging — not medical advice. Check with your doctor before starting, especially on any medication.</div>
+        </Collapsible>
+      )}
       {weeklyPlan && weeklyPlan.days && (
         <Collapsible title="This week's meal plan" subtitle="Your editable plan — add, remove, shuffle any meal">
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
@@ -3733,7 +3870,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
       {picker && (() => {
         const slot = picker.slot;
         const q = pQuery.trim().toLowerCase();
-        let list = q ? searchDishPool(q) : pickerDishes(slot, {}); // typing searches the WHOLE library (any slot); empty shows this-slot ideas
+        let list = q ? searchDishPool(q, profile.dietStyle) : pickerDishes(slot, {}); // typing searches the WHOLE library (any slot); empty shows this-slot ideas
         if (pNV === "veg") list = list.filter(x => !x.nv);
         else if (pNV === "nonveg") list = list.filter(x => x.nv);
         if (pCuisine !== "All") list = list.filter(x => !x.cuisine || x.cuisine === pCuisine); // dishes with no known cuisine always pass
@@ -3759,6 +3896,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
                 )}
               </div>
               <div style={{ overflowY: "auto", padding: "8px 12px 20px" }}>
+                {q && profile.dietStyle && profile.dietStyle !== "balanced" && <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.teal, marginBottom: 6 }}>Showing {DIET_STYLE_LABEL[profile.dietStyle] || profile.dietStyle}-friendly dishes only (change in ⚙️ Profile).</div>}
                 {pQuery.trim() && <button onClick={() => { add(pQuery.trim()); setPicker(null); }} style={{ width: "100%", textAlign: "left", background: T.tealPale, border: `1px dashed ${T.teal}`, borderRadius: 10, padding: "10px 12px", marginBottom: 8, fontFamily: "Inter", fontSize: 13, color: T.teal, cursor: "pointer" }}>+ Add “{pQuery.trim()}” (my own)</button>}
                 {list.length === 0 && !pQuery.trim() && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, padding: 10 }}>No matches — type your own above.</div>}
                 {list.map((x, i) => (
@@ -4047,6 +4185,17 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
                 </div>
               </div>
               <div><div style={subLbl}>Diet pattern</div><div style={chipWrap}>{ONB_DIET_PATTERNS.map(c => <OnbChip key={c} label={c} on={profile.dietPattern === c} onClick={() => pset("dietPattern", c)} />)}</div></div>
+              <div><div style={subLbl}>Diet style (filters meal suggestions)</div><div style={chipWrap}>{DIET_STYLES.map(s => <OnbChip key={s.k} label={s.l} on={(profile.dietStyle || "balanced") === s.k} onClick={() => pset("dietStyle", s.k)} />)}</div><div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 5 }}>{(DIET_STYLES.find(s => s.k === (profile.dietStyle || "balanced")) || {}).d}. When you search dishes to add in Plan, only ones fitting this style show.</div></div>
+              <div><div style={subLbl}>Intermittent fasting</div><div style={chipWrap}>{FASTING_METHODS.map(m => <OnbChip key={m.k} label={m.l} on={(profile.fastingMethod || "off") === m.k} onClick={() => pset("fastingMethod", m.k)} />)}</div>
+                {(FASTING_METHODS.find(m => m.k === (profile.fastingMethod || "off")) || {}).d && <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 5, lineHeight: 1.45 }}>{(FASTING_METHODS.find(m => m.k === profile.fastingMethod) || {}).d}</div>}
+                {(FASTING_METHODS.find(m => m.k === profile.fastingMethod) || {}).window && (
+                  <div style={{ display: "flex", gap: 10, marginTop: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                    <div><div style={{ ...subLbl, marginBottom: 3 }}>Eating window: from</div><input type="time" value={profile.eatStart || "12:00"} onChange={e => pset("eatStart", e.target.value)} style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "8px 10px", fontFamily: "Inter", fontSize: 13.5, background: T.white, color: T.ink }} /></div>
+                    <div><div style={{ ...subLbl, marginBottom: 3 }}>to</div><input type="time" value={profile.eatEnd || "20:00"} onChange={e => pset("eatEnd", e.target.value)} style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "8px 10px", fontFamily: "Inter", fontSize: 13.5, background: T.white, color: T.ink }} /></div>
+                  </div>
+                )}
+                {profile.fastingMethod && profile.fastingMethod !== "off" && fastingSafety(profile).length > 0 && <div style={{ background: T.alertPale, border: `1px solid ${T.alert}`, borderRadius: 10, padding: "9px 11px", marginTop: 8, fontFamily: "Inter", fontSize: 12, color: T.alert, lineHeight: 1.5 }}>⚠ {fastingSafety(profile)[0]}</div>}
+              </div>
               <div><div style={subLbl}>Restrictions & allergies</div><div style={chipWrap}>{ONB_DIET_RULES.map(c => <OnbChip key={c} label={c} on={(profile.dietRules || []).includes(c)} onClick={() => ptoggle("dietRules", c)} />)}</div><div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginTop: 6 }}>Allergy and “-free” tags remove matching dishes from your meal suggestions.</div></div>
               <div><div style={subLbl}>Cuisines you like</div><div style={chipWrap}>{ONB_CUISINES.map(c => <OnbChip key={c} label={c} on={(profile.cuisines || []).includes(c)} onClick={() => ptoggle("cuisines", c)} />)}</div></div>
               <div><div style={subLbl}>Activity level</div><div style={chipWrap}>{ONB_ACTIVITY.map(a => <OnbChip key={a.k} label={a.l} on={profile.activityLevel === a.k} onClick={() => pset("activityLevel", a.k)} />)}</div></div>
@@ -4656,7 +4805,7 @@ function App() {
   // moved to a different meal slot on its own. Macros are divided evenly across components.
   const splitFoodEntry = (dateKey, index) => setWeekFood(prev => {
     const list = prev[dateKey] || []; const e = list[index]; if (!e) return prev;
-    const parts = String(e.dish || "").split(/\s*[+,&]\s*|\s+and\s+/i).map(s => s.trim()).filter(Boolean);
+    const parts = String(e.dish || "").split(/\s*[+&]\s*|\s+and\s+/i).map(s => s.trim()).filter(Boolean);
     if (parts.length < 2) return prev;
     const n = parts.length; const div = v => (v == null ? null : Math.round(v / n));
     const pieces = parts.map((name, k) => ({ ...e, dish: name, calories: div(e.calories), protein: div(e.protein), fiber: div(e.fiber), carbs: div(e.carbs), sugar: div(e.sugar), time: (e.time || Date.now()) + k, split: true }));
