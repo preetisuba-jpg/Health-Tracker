@@ -3388,7 +3388,7 @@ function MyHealthTab({ metrics, periods, supplementsToday, toggleSupplement, sup
 }
 
 /* ============================== TAB 4: HABITS ============================== */
-function ActivityLog({ selectedDate, activities, addActivity, deleteActivity }) {
+function ActivityLog({ selectedDate, activities, addActivity, deleteActivity, weightKg }) {
   const [type, setType] = useState("Walk");
   const [duration, setDuration] = useState("");
   function add() { const mins = parseInt(duration, 10); if (!mins || mins <= 0) return; addActivity(selectedDate, { type, duration: mins, time: Date.now() }); setDuration(""); }
@@ -3425,7 +3425,7 @@ function ActivityLog({ selectedDate, activities, addActivity, deleteActivity }) 
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{allEntries.map((e, i) => (
           <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
             <span style={{ fontFamily: "Inter", fontSize: 13 }}>{e.type}</span>
-            <span style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, flex: 1, textAlign: "right" }}>{e.duration} min · ~{activityCalories(e.type, e.duration)} kcal · {e.dateKey === todayKey() ? "Today" : formatDateLabel(e.dateKey)}</span>
+            <span style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, flex: 1, textAlign: "right" }}>{e.duration} min · ~{activityCalories(e.type, e.duration, weightKg)} kcal · {e.dateKey === todayKey() ? "Today" : formatDateLabel(e.dateKey)}</span>
             <DeleteBtn onClick={() => deleteActivity(e.dateKey, e.idx)} />
           </div>
         ))}</div>
@@ -3457,7 +3457,7 @@ function ActivityLog({ selectedDate, activities, addActivity, deleteActivity }) 
   );
 }
 
-function HabitsTab({ selectedDate, setSelectedDate, habitsForDate, toggleHabit, weekHabits, weekFood, weekSupplements, activities, addActivity, deleteActivity, advice }) {
+function HabitsTab({ selectedDate, setSelectedDate, habitsForDate, toggleHabit, weekHabits, weekFood, weekSupplements, activities, addActivity, deleteActivity, advice, weightKg }) {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const { thisWeekKeys, lastWeekKeys } = weekWindowsForDate(selectedDate);
   const dates = thisWeekKeys.map(k => new Date(k + "T00:00:00"));
@@ -3491,7 +3491,7 @@ function HabitsTab({ selectedDate, setSelectedDate, habitsForDate, toggleHabit, 
         )}
       </Card>
       <div style={{ height: 18 }} />
-      <ActivityLog selectedDate={selectedDate} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} />
+      <ActivityLog selectedDate={selectedDate} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} weightKg={weightKg} />
       <SectionLabel>7-day overview ({dates[0].toLocaleDateString("en-IN", { day: "numeric", month: "short" })} – {dates[6].toLocaleDateString("en-IN", { day: "numeric", month: "short" })})</SectionLabel>
       <Card>
         <div style={{ overflowX: "auto" }}>
@@ -4993,7 +4993,7 @@ function App() {
         {tab === "today" && <TodayTab profile={profile} targets={targets} advice={advice} foodToday={foodForDate} habitToday={habitsForDate} supplementsToday={supplementsForDate} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} activities={activities} vitals={vitals} setVital={setVital} toggleHabit={toggleHabit} onToggleWalk={toggleWalk} supplements={supplements} onNavigate={setTab} demoCleared={demoCleared} clearDemo={clearDemo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />}
         {tab === "food" && <FoodCheckTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} foodForDate={foodForDate} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} addFoodEntry={addFoodEntry} deleteFoodEntry={deleteFoodEntry} updateFoodEntry={updateFoodEntry} splitFoodEntry={splitFoodEntry} customDishes={customDishes} saveCustomDish={saveCustomDish} metrics={metrics} periods={periods} targets={targets} advice={advice} otherProfilesMeals={otherProfilesMeals} onCopyFromProfile={copyFromProfile} />}
         {tab === "health" && <MyHealthTab metrics={metrics} periods={periods} supplementsToday={supplementsToday} toggleSupplement={(id) => toggleSupplement(tk, id)} supplements={supplements} onAddReport={() => openSettings("reports")} advice={advice} selectedDate={selectedDate} setSelectedDate={setSelectedDate} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} activities={activities} targets={targets} demoCleared={demoCleared} clearDemo={clearDemo} />}
-        {tab === "habits" && <HabitsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} habitsForDate={habitsForDate} toggleHabit={toggleHabit} weekHabits={weekHabits} weekFood={weekFood} weekSupplements={weekSupplements} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} advice={advice} />}
+        {tab === "habits" && <HabitsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} habitsForDate={habitsForDate} toggleHabit={toggleHabit} weekHabits={weekHabits} weekFood={weekFood} weekSupplements={weekSupplements} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} advice={advice} weightKg={profile.weight} />}
         {tab === "supplements" && <SupplementsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} supplementsForDate={supplementsForDate} toggleSupplement={toggleSupplement} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} supplements={supplements} advice={advice} suggestedSupps={suggestedSupps} onAddSupplement={addSuggestedSupplement} />}
         {tab === "plan" && <PlanTab weekFood={weekFood} advice={advice} profile={profile} targets={targets} weeklyPlan={weeklyPlan} onRegeneratePlan={regeneratePlan} onSwapMeal={swapPlanMeal} onAddPlanItem={addPlanItem} onRemovePlanItem={removePlanItem} cycleLog={cycleLog} onLogPeriod={logPeriod} />}
         <div style={{ position: "fixed", bottom: 0, width: "100%", maxWidth: 420, background: T.tealSolid, display: "flex", alignItems: "center", justifyContent: "space-around", padding: "8px 8px 10px", zIndex: 30 }}>

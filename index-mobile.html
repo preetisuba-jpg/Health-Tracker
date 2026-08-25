@@ -9965,7 +9965,8 @@ function ActivityLog({
   selectedDate,
   activities,
   addActivity,
-  deleteActivity
+  deleteActivity,
+  weightKg
 }) {
   const [type, setType] = useState("Walk");
   const [duration, setDuration] = useState("");
@@ -10090,7 +10091,7 @@ function ActivityLog({
       flex: 1,
       textAlign: "right"
     }
-  }, e.duration, " min \xB7 ~", activityCalories(e.type, e.duration), " kcal \xB7 ", e.dateKey === todayKey() ? "Today" : formatDateLabel(e.dateKey)), /*#__PURE__*/React.createElement(DeleteBtn, {
+  }, e.duration, " min \xB7 ~", activityCalories(e.type, e.duration, weightKg), " kcal \xB7 ", e.dateKey === todayKey() ? "Today" : formatDateLabel(e.dateKey)), /*#__PURE__*/React.createElement(DeleteBtn, {
     onClick: () => deleteActivity(e.dateKey, e.idx)
   }))))), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -10185,7 +10186,8 @@ function HabitsTab({
   activities,
   addActivity,
   deleteActivity,
-  advice
+  advice,
+  weightKg
 }) {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const {
@@ -10293,7 +10295,8 @@ function HabitsTab({
     selectedDate: selectedDate,
     activities: activities,
     addActivity: addActivity,
-    deleteActivity: deleteActivity
+    deleteActivity: deleteActivity,
+    weightKg: weightKg
   }), /*#__PURE__*/React.createElement(SectionLabel, null, "7-day overview (", dates[0].toLocaleDateString("en-IN", {
     day: "numeric",
     month: "short"
@@ -16377,7 +16380,8 @@ function App() {
     activities: activities,
     addActivity: addActivity,
     deleteActivity: deleteActivity,
-    advice: advice
+    advice: advice,
+    weightKg: profile.weight
   }), tab === "supplements" && /*#__PURE__*/React.createElement(SupplementsTab, {
     selectedDate: selectedDate,
     setSelectedDate: setSelectedDate,
