@@ -207,21 +207,45 @@ function lifestyleGuidance(profile) {
 const TONE_COLOR = { avoid: "#B8433A", limit: "#C4841F", info: "#3D6B4F" };
 const DEFAULT_GOAL_TOGGLES = [{ id: "weightloss", label: "Weight loss / Fat loss", active: false }, { id: "muscle", label: "Muscle building", active: false }];
 
+// Ideal weight (Devine formula, clinical standard) and the healthy weight band (BMI 18.5–24.9).
+function idealWeightKg(heightCm, gender) {
+  const inches = (heightCm || 165) / 2.54;
+  const base = /female|woman/i.test(gender || "") ? 45.5 : 50;
+  return Math.round(base + 2.3 * Math.max(0, inches - 60));
+}
+function healthyWeightRange(heightCm) {
+  const h = (heightCm || 165) / 100;
+  return { min: Math.round(18.5 * h * h), max: Math.round(24.9 * h * h) };
+}
 function computeTargets(weight, goalToggles, profile) {
   const weightLoss = goalToggles.find(g => g.id === "weightloss")?.active;
   const muscle = goalToggles.find(g => g.id === "muscle")?.active;
   const conds = (profile && profile.conditions) || [];
   const hasC = s => conds.some(c => c.toLowerCase().includes(s));
-  // Activity multiplier for maintenance (TDEE-style, kept simple).
-  const actMult = { not: 27, light: 29, active: 31, very: 33 }[(profile && profile.activityLevel) || "light"] || 29;
-  const maintenance = Math.round(weight * actMult);
-  const bmi = computeBMI(weight, profile && profile.height);
+  const height = (profile && profile.height) || 165;
+  const age = (profile && profile.age) || 40;
+  const female = /female|woman/i.test((profile && profile.gender) || "");
+  // Mifflin-St Jeor BMR × activity factor = maintenance (TDEE) — the same math calculator.net uses.
+  const bmr = Math.round(10 * weight + 6.25 * height - 5 * age + (female ? -161 : 5));
+  const actFactor = { not: 1.2, light: 1.375, active: 1.55, very: 1.725 }[(profile && profile.activityLevel) || "light"] || 1.375;
+  const maintenance = Math.round(bmr * actFactor);
+  const bmi = computeBMI(weight, height);
+  const { min: healthyMin, max: healthyMax } = healthyWeightRange(height);
+  const ideal = idealWeightKg(height, profile && profile.gender);
+  const targetWeight = Math.max(healthyMin, Math.min(ideal, healthyMax)); // clamp the ideal into the healthy band
+  const toLoseKg = Math.max(0, Math.round(weight - targetWeight));
   const underweight = conds.some(c => /underweight/i.test(c)) || (bmi != null && bmi < 18.5);
+  const floor = female ? 1200 : 1500; // never recommend eating below this
   let calories = maintenance, proteinPerKg = 0.9, note = "maintenance", deficit = 0;
   if (underweight) { calories = maintenance + 350; proteinPerKg = 1.2; note = "gentle surplus to reach a healthy weight"; } // safety: never diet an underweight person
-  else if (weightLoss && !muscle) { deficit = 400; calories = maintenance - deficit; proteinPerKg = 1.0; note = "mild deficit for fat loss"; }
-  else if (muscle && !weightLoss) { calories = maintenance + 200; proteinPerKg = 1.6; note = "surplus + higher protein for muscle gain"; }
-  else if (muscle && weightLoss) { calories = maintenance; proteinPerKg = 1.8; note = "recomposition — maintenance calories, high protein"; }
+  else if (weightLoss && !muscle) {
+    // 500 kcal/day below maintenance ≈ 0.5 kg/week — only when there's actually weight to lose, floored for safety.
+    calories = toLoseKg > 1 ? Math.max(floor, maintenance - 500) : maintenance;
+    deficit = maintenance - calories; proteinPerKg = 1.0;
+    note = deficit > 0 ? `${deficit} kcal/day below maintenance — steady fat loss` : "already at a healthy weight — maintenance";
+  }
+  else if (muscle && !weightLoss) { calories = maintenance + 250; proteinPerKg = 1.6; note = "surplus + higher protein for muscle gain"; }
+  else if (muscle && weightLoss) { calories = Math.max(floor, maintenance - 300); deficit = maintenance - calories; proteinPerKg = 1.8; note = "recomposition — slight deficit, high protein"; }
   // Condition-aware nutrient ceilings.
   let sugar = 25, sodiumMg = 2000, fiber = 30, carbs = weightLoss ? 180 : 220;
   if (hasC("triglyceride") || hasC("blood sugar") || hasC("diabet") || hasC("prediab") || hasC("fatty liver")) { sugar = 15; carbs = Math.min(carbs, 160); fiber = 35; }
@@ -233,7 +257,8 @@ function computeTargets(weight, goalToggles, profile) {
   // top of the eating deficit; underweight keeps it minimal; others get a general "stay active" goal.
   const burnTarget = underweight ? 0 : (weightLoss && !muscle) ? 250 : muscle ? 150 : 200;
   const burnMins = Math.round(burnTarget / 5); // ≈ minutes of brisk walking (~5 kcal/min, matches the app's walk calc)
-  return { calories, maintenance, deficit, weeklyLossKg, burnTarget, burnMins, protein: Math.round(weight * proteinPerKg), fiber, carbs, sugar, sodiumMg, note };
+  return { calories, maintenance, bmr, deficit, weeklyLossKg, burnTarget, burnMins, protein: Math.round(weight * proteinPerKg), fiber, carbs, sugar, sodiumMg, note,
+    bmi: bmi != null ? +bmi.toFixed(1) : null, idealWeight: ideal, targetWeight, healthyMin, healthyMax, toLoseKg, underweight };
 }
 
 // General, non-prescriptive supplement ideas mapped from the conditions a person selects.
@@ -2994,7 +3019,6 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
                     </div>
                   </div>
                 )}
-                <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginTop: 8 }}>Tap a tag to see the numbers.</div>
               </div>
             ) : (
               <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: meta(result.verdict).bg, color: meta(result.verdict).fg, padding: "6px 12px", borderRadius: 999, fontFamily: "Manrope", fontWeight: 800, fontSize: 13, marginBottom: 10 }}>{meta(result.verdict).emoji} {meta(result.verdict).label}</div>
@@ -3580,9 +3604,16 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
             {targets.burnTarget > 0 && <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19, color: T.forest }}>🔥{targets.burnTarget}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>to burn</div></div>}
           </div>
           <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 8 }}>Tuned to your goals ({targets.note}){advice.focusMarkerLabel ? ` and ${advice.focusMarkerLabel}` : ""}.</div>
+          {targets.bmi != null && (
+            <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", fontFamily: "Inter", fontSize: 12, color: T.ink }}>
+              <span>BMI <b>{targets.bmi}</b> · {bmiCategory(targets.bmi)}</span>
+              <span style={{ color: T.inkSoft }}>Healthy <b style={{ color: T.ink }}>{targets.healthyMin}–{targets.healthyMax} kg</b> · ideal ≈ <b style={{ color: T.ink }}>{targets.idealWeight} kg</b></span>
+            </div>
+          )}
           {targets.deficit > 0 ? (
             <div style={{ marginTop: 10, background: T.creamDeep, borderRadius: 10, padding: "9px 11px", fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.5 }}>
-              You're eating <b>{targets.deficit} kcal under</b> your maintenance of {targets.maintenance} kcal (≈ <b>{targets.weeklyLossKg} kg/week</b>). On top of that, aim to <b>burn ~{targets.burnTarget} kcal/day</b> through activity — about a <b>{targets.burnMins}-min brisk walk</b> — to lose a bit faster.
+              {targets.toLoseKg > 0 && <><b>Target {targets.targetWeight} kg</b> — about <b>{targets.toLoseKg} kg</b> to lose{targets.weeklyLossKg > 0 ? `, ≈ ${Math.ceil(targets.toLoseKg / targets.weeklyLossKg)} weeks at this pace` : ""}.<br /></>}
+              Eat <b>{targets.calories} kcal</b> — that's <b>{targets.deficit} kcal under</b> your maintenance of {targets.maintenance} ({targets.weeklyLossKg} kg/week). Also aim to <b>burn ~{targets.burnTarget} kcal/day</b> (~{targets.burnMins}-min brisk walk).
             </div>
           ) : targets.burnTarget > 0 ? (
             <div style={{ marginTop: 10, background: T.creamDeep, borderRadius: 10, padding: "9px 11px", fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.5 }}>
