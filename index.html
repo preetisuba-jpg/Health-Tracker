@@ -2710,7 +2710,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
         carbs: data.carbs != null ? Math.round(data.carbs) : null,
         sugar: data.sugar != null ? Math.round(data.sugar) : null,
         portion: (data.servingDesc && data.servingDesc.length <= 40) ? data.servingDesc : "1 standard serving",
-        reason: `Estimated from ${data.source || "a nutrition database"}${notes.length ? ` — improved because: ${notes.join(", ")}` : ""} — a rules-based estimate, not clinical advice.`,
+        reason: "A rule-based estimation, not clinical advice.",
         marker: null, weeklyLimit: null,
         healthierTip: notes.length ? null : suggestSwap(corrected || coreDish),
         lookedUp: true, source: data.source,
@@ -2829,6 +2829,19 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
   const mod = health ? applyModifiers(health.n, result.modText || result.dish) : null;   // healthier keywords -> adjusted nutrients
   const scored = health ? scoreDish(mod.n, health.is_drink) : null;    // rescore from adjusted nutrients
   const pv = health ? personalVerdict(scored.levels, mod.n.kcal, advice.flaggedKeys, advice.weightGoal) : null;
+  // SAFETY override: the base score only looks at calories, so alcohol wrongly reads "eat freely".
+  // Alcohol must be flagged for anyone with liver / triglyceride / cholesterol / sugar risk.
+  const isAlcohol = result ? /\bwine\b|\bbeer\b|whisky|whiskey|vodka|\brum\b|brandy|liqueur|cocktail|champagne|tequila|\bgin\b|alcohol|\bsake\b|\bale\b|lager|mojito|sangria|cider/i.test(result.dish || "") : false;
+  const alcoholRisk = isAlcohol && (advice.flaggedKeys || []).some(k => /ggt|liver|\btg\b|trig|sgpt|sgot|chol|ldl|sugar|glucose|hba1c/i.test(k));
+  const pvShow = !pv ? null : (isAlcohol ? (alcoholRisk
+    ? { tone: "avoid", text: "Avoid — alcohol strains your liver and pushes triglycerides up" }
+    : { tone: "limit", text: "Limit — alcohol is empty calories; keep it occasional" }) : pv);
+  // Notable micronutrients this dish carries (per 100 g), shown so the plate's value is visible.
+  const microList = health ? [
+    ["Magnesium", health.n.magnesium_mg, "mg"], ["Iron", health.n.iron_mg, "mg"], ["Calcium", health.n.calcium_mg, "mg"],
+    ["Potassium", health.n.potassium_mg, "mg"], ["Vitamin C", health.n.vit_c_mg, "mg"], ["Folate", health.n.folate_ug, "µg"],
+    ["Sodium", health.n.sodium_mg, "mg"],
+  ].filter(m => typeof m[1] === "number" && m[1] >= 1).map(m => `${m[0]} ${Math.round(m[1])}${m[2]}`) : [];
   // macros to display/log: adjusted per-100g when we have health data, else whatever the result carried
   const dm = health
     ? { cal: mod.n.kcal, protein: mod.n.protein_g, fiber: mod.n.fibre_g, sugar: mod.n.free_sugar_g }
@@ -2926,12 +2939,13 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
         <>
           <div style={{ height: 12 }} />
           <Card style={{ borderColor: meta(result.verdict).fg }}>
-            <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, textTransform: "capitalize", marginBottom: 4 }}>{result.dish} {result.lookedUp && <Badge bg={T.creamDeep} fg={T.inkSoft}>estimated{result.source ? ` · ${result.source}` : ""}</Badge>}</div>
+            <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, textTransform: "capitalize", marginBottom: 4 }}>{result.dish} {result.lookedUp && <Badge bg={T.creamDeep} fg={T.inkSoft}>Estimated</Badge>}</div>
             {correctedFrom && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 8 }}>Matched "{query}" to "{correctedFrom}"</div>}
             {result.ingredients && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>Likely: {result.ingredients}</div>}
-            {health && pv ? (
+            {health && pvShow ? (
               <div style={{ marginBottom: 10 }}>
-                <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: T[VERDICT_TONE[pv.tone].bg], color: T[VERDICT_TONE[pv.tone].fg], padding: "8px 13px", borderRadius: 10, fontFamily: "Manrope", fontWeight: 800, fontSize: 13.5, marginBottom: 8 }}>{VERDICT_TONE[pv.tone].emoji} {pv.text}</div>
+                <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: T[VERDICT_TONE[pvShow.tone].bg], color: T[VERDICT_TONE[pvShow.tone].fg], padding: "8px 13px", borderRadius: 10, fontFamily: "Manrope", fontWeight: 800, fontSize: 13.5, marginBottom: 8 }}>{VERDICT_TONE[pvShow.tone].emoji} {pvShow.text}</div>
+                {isAlcohol && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.alert, marginBottom: 8, lineHeight: 1.45 }}>Alcohol is processed by the liver and raises triglycerides — the two things your reports are watching. There's no liver-safe amount when GGT/TG are up.</div>}
                 {mod.applied.length > 0 && (
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", background: T.tealPale, borderRadius: 8, padding: "6px 10px", marginBottom: 8 }}>
                     <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.teal }}>✓ ADJUSTED FOR</span>
@@ -2944,9 +2958,14 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
                     <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, letterSpacing: 0.4, color: T.inkSoft, marginBottom: 4 }}>NOT GOOD FOR</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                       {scored.worse_for.map(([c, lvl, reason], i) => (
-                        <span key={i} title={reason} style={{ background: "transparent", border: `1px solid ${lvl === "red" ? T.alert : T.amber}`, color: lvl === "red" ? T.alert : T.amber, padding: "4px 10px", borderRadius: 999, fontFamily: "Inter", fontSize: 12 }}>{HEALTH_DB.labels[c] || c}</span>
+                        <span key={i} style={{ background: "transparent", border: `1px solid ${lvl === "red" ? T.alert : T.amber}`, color: lvl === "red" ? T.alert : T.amber, padding: "4px 10px", borderRadius: 999, fontFamily: "Inter", fontSize: 12 }}>{HEALTH_DB.labels[c] || c}</span>
                       ))}
                     </div>
+                    {scored.worse_for.some(w => w[2]) && (
+                      <div style={{ marginTop: 5, display: "flex", flexDirection: "column", gap: 2 }}>
+                        {scored.worse_for.filter(w => w[2]).map(([c, lvl, reason], i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, lineHeight: 1.4 }}>• <b style={{ color: lvl === "red" ? T.alert : T.amber }}>{HEALTH_DB.labels[c] || c}:</b> {reason}</div>)}
+                      </div>
+                    )}
                   </div>
                 )}
                 {scored.good_source_for.length > 0 && (
@@ -2967,7 +2986,15 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
                   </div>
                 )}
                 {health.estimated && <div style={{ fontFamily: "Inter", fontSize: 11, color: T.saffronDeep, marginTop: 6 }}>≈ Estimated nutrition (typical for this kind of dish) — not measured. Treat as a rough guide.</div>}
-                <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 8 }}>Personalised to your report &amp; goals · tap a tag to see the numbers.</div>
+                {microList.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, letterSpacing: 0.4, color: T.inkSoft, marginBottom: 4 }}>ALSO PROVIDES <span style={{ fontWeight: 400, textTransform: "none" }}>(per 100g)</span></div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {microList.map((m, i) => <span key={i} style={{ background: T.forestPale, color: T.forest, padding: "3px 9px", borderRadius: 999, fontFamily: "Inter", fontSize: 11.5 }}>{m}</span>)}
+                    </div>
+                  </div>
+                )}
+                <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginTop: 8 }}>Tap a tag to see the numbers.</div>
               </div>
             ) : (
               <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: meta(result.verdict).bg, color: meta(result.verdict).fg, padding: "6px 12px", borderRadius: 999, fontFamily: "Manrope", fontWeight: 800, fontSize: 13, marginBottom: 10 }}>{meta(result.verdict).emoji} {meta(result.verdict).label}</div>
@@ -3631,7 +3658,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
               </div>
             </div>
           </div>
-          <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 10, lineHeight: 1.5 }}>Tap <b>+ Add</b> on any meal to search &amp; place your own dish; <b>×</b> removes one; <b>↻</b> shuffles. Ticks show what the plate has — 🥬 veg · 🍗 protein · 🌾 grain · 🍎 fruit.</div>
+          <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 10, lineHeight: 1.5 }}>Tap <b>+ Add</b> on any meal to search &amp; place your own dish; <b>×</b> removes one; <b>↻</b> shuffles. Ticks show what the plate has — 🥬 veg · 🫘 protein · 🌾 grain · 🍎 fruit.</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {weeklyPlan.days.map((d, i) => (
               <div key={i} style={{ borderBottom: i < 6 ? `1px solid ${T.creamDeep}` : "none", paddingBottom: i < 6 ? 12 : 0 }}>
@@ -3644,7 +3671,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
                         <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 10.5, letterSpacing: 0.4, color: T.inkSoft, textTransform: "uppercase" }}>{slot}</span>
                         <span style={{ display: "flex", gap: 5, fontSize: 12 }}>
-                          {[["veg", "🥬"], ["protein", "🍗"], ["grain", "🌾"], ["fruit", "🍎"]].map(([k, emo]) => <span key={k} title={k} style={{ opacity: tk[k] ? 1 : 0.22, filter: tk[k] ? "none" : "grayscale(1)" }}>{emo}</span>)}
+                          {[["veg", "🥬"], ["protein", "🫘"], ["grain", "🌾"], ["fruit", "🍎"]].map(([k, emo]) => <span key={k} title={k} style={{ opacity: tk[k] ? 1 : 0.22, filter: tk[k] ? "none" : "grayscale(1)" }}>{emo}</span>)}
                         </span>
                       </div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
