@@ -640,6 +640,28 @@ function pickerDishes(slot, filters) {
   });
   return out;
 }
+// Every curated dish across all cuisines + slots (veg + non-veg) + snacks/fruit — the browse fallback.
+function allCuratedDishes() {
+  const out = [];
+  Object.keys(CUISINE_MEALS).forEach(c => ["breakfast", "lunch", "dinner"].forEach(s => (CUISINE_MEALS[c][s] || []).forEach(d => out.push({ name: d, cuisine: c, nv: false }))));
+  Object.keys(CUISINE_MEALS_NV).forEach(c => ["breakfast", "lunch", "dinner"].forEach(s => ((CUISINE_MEALS_NV[c] || {})[s] || []).forEach(d => out.push({ name: d, cuisine: c, nv: true }))));
+  SNACK_POOL.concat(FRUIT_LIST).forEach(d => out.push({ name: d, cuisine: "", nv: /egg|chicken|fish/i.test(d) }));
+  return out;
+}
+const NV_NAME_RE = /chicken|murgh|mutton|lamb|keema|tikka|tandoori|korma|xacuti|cafreal|chettinad|souvlaki|haleem|\bfish|prawn|shrimp|salmon|tuna|meen|macher|seafood|\begg|omelette|omelet|biryani|kebab|bulgogi|teriyaki|shawarma|turkey|bacon|sausage|\bham\b/i;
+// Free search across the WHOLE food library (curated + the 10k-dish health DB + dish corpus) so ANY
+// dish is findable regardless of the meal slot it's normally suggested for. Atomic names float to top.
+function searchDishPool(query) {
+  const q = (query || "").trim().toLowerCase();
+  if (!q) return [];
+  const seen = new Set(), out = [];
+  const push = (name, cuisine) => { if (!name) return; const k = name.toLowerCase(); if (seen.has(k)) return; seen.add(k); out.push({ name, cuisine: cuisine || "", nv: NV_NAME_RE.test(name) }); };
+  allCuratedDishes().forEach(d => { if (d.name.toLowerCase().includes(q)) push(d.name, d.cuisine); });
+  try { if (HEALTH_DB && HEALTH_DB.dishes) { for (const id in HEALTH_DB.dishes) { if (out.length > 150) break; const nm = HEALTH_DB.dishes[id].name; if (nm && nm.toLowerCase().includes(q)) push(nm, ""); } } } catch (e) {}
+  try { if (DISH_CORPUS && DISH_CORPUS.dishes) { const cz = DISH_CORPUS.cuisines || []; for (const row of DISH_CORPUS.dishes) { if (out.length > 220) break; const nm = Array.isArray(row) ? row[0] : row.name; const ci = Array.isArray(row) ? row[1] : row.c; if (nm && nm.toLowerCase().includes(q)) push(nm, (typeof ci === "number" ? cz[ci] : "") || ""); } } } catch (e) {}
+  out.sort((a, b) => a.name.length - b.name.length); // shorter = more "atomic" (plain Thepla before Thepla with…)
+  return out;
+}
 // A day's meals are now LISTS of items per slot (breakfast/lunch/snack/dinner) so you can add your own.
 function generateWeeklyPlan(week, seed, prefs) {
   const t = nvTargets(prefs);
@@ -3649,11 +3671,11 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
       {picker && (() => {
         const slot = picker.slot;
         const q = pQuery.trim().toLowerCase();
-        let list = pickerDishes(slot, { cuisine: pCuisine });
+        let list = q ? searchDishPool(q) : pickerDishes(slot, {}); // typing searches the WHOLE library (any slot); empty shows this-slot ideas
         if (pNV === "veg") list = list.filter(x => !x.nv);
         else if (pNV === "nonveg") list = list.filter(x => x.nv);
-        if (q) list = list.filter(x => x.name.toLowerCase().includes(q));
-        const seen = new Set(); list = list.filter(x => { const k = x.name.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 60);
+        if (pCuisine !== "All") list = list.filter(x => !x.cuisine || x.cuisine === pCuisine); // dishes with no known cuisine always pass
+        const seen = new Set(); list = list.filter(x => { const k = x.name.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 80);
         const cuisineOpts = ["All", ...Object.keys(CUISINE_MEALS)];
         const add = (name) => onAddPlanItem(picker.dayIdx, slot, name);
         return (
