@@ -624,7 +624,8 @@ const PLATE_RE = {
   fruit: /fruit|banana|apple|guava|papaya|orange|berr|pomegranate|mango|watermelon|melon|chikoo|grapes|pear|amla|\bdates\b|kiwi/i,
 };
 function plateTicks(items) {
-  const t = (items || []).join(" ").toLowerCase();
+  const arr = Array.isArray(items) ? items : (items ? [items] : []);
+  const t = arr.join(" ").toLowerCase();
   return { veg: PLATE_RE.veg.test(t), protein: PLATE_RE.protein.test(t), grain: PLATE_RE.grain.test(t), fruit: PLATE_RE.fruit.test(t) };
 }
 // Dishes offered in the "+ Add" picker for a slot — filterable by cuisine + veg/non-veg.
@@ -3614,7 +3615,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
               <div key={i} style={{ borderBottom: i < 6 ? `1px solid ${T.creamDeep}` : "none", paddingBottom: i < 6 ? 12 : 0 }}>
                 <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 13, color: T.teal, marginBottom: 8 }}>{planDayLabels[i]}</div>
                 {["breakfast", "lunch", "snack", "dinner"].map(slot => {
-                  const items = d[slot] || [];
+                  const items = Array.isArray(d[slot]) ? d[slot] : (d[slot] ? [d[slot]] : []); // tolerate old single-dish (string) plans
                   const tk = plateTicks(items);
                   return (
                     <div key={slot} style={{ marginBottom: 10 }}>
