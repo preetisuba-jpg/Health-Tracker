@@ -1410,6 +1410,26 @@ function parseComposite(query) {
 }
 // Variety picker: all dishes whose NAME contains every word typed (e.g. "cutlet" -> the 11
 // cutlets; "paneer curry" -> the paneer curries). Lets the user pick instead of missing them.
+// Typo-tolerant single-ingredient alias resolution. "brocolli" -> broccoli, "cauliflour"
+// -> cauliflower. Only fires for 1-2 word cores (real ingredients), never long compound
+// dish names, so it can't drag "paneer butter masala" onto a stray alias. Cheap prefilter
+// (same first letter + length window) keeps it fast over the ~11k alias table.
+function fuzzyAliasId(str) {
+  if (!HEALTH_DB || !HEALTH_DB.aliases) return null;
+  const nq = normalizeWithAliases(str);
+  if (!nq || nq.length < 4) return null;
+  if (HEALTH_DB.aliases[nq]) return HEALTH_DB.aliases[nq];
+  if (nq.split(" ").length > 2) return null;            // ingredients only, not compounds
+  let best = null, bestDist = Infinity;
+  for (const k in HEALTH_DB.aliases) {
+    if (k[0] !== nq[0]) continue;
+    if (Math.abs(k.length - nq.length) > 2) continue;
+    const d = levenshtein(nq, k);
+    const thr = Math.max(1, Math.floor(Math.min(nq.length, k.length) * 0.2));
+    if (d <= thr && d < bestDist) { best = HEALTH_DB.aliases[k]; bestDist = d; if (d === 0) break; }
+  }
+  return best;
+}
 function healthCandidates(query, limit) {
   if (!HEALTH_DB || !HEALTH_DB.dishes) return [];
   const toks = normalizeWithAliases(query).split(" ").filter(t => t.length >= 3);
@@ -2492,10 +2512,14 @@ function TodayTab({ profile, targets, advice, foodToday, habitToday, supplements
         <SectionLabel>Energy balance</SectionLabel>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, textAlign: "center", marginTop: 2 }}>
           <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22 }}>{sums.calories}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>eaten</div></div>
-          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22, color: (targets.burnTarget && burned >= targets.burnTarget) ? T.forest : T.ink }}>{burned}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>burned{targets.burnTarget ? ` / ${targets.burnTarget}` : ""}</div></div>
-          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22, color: netCals > targets.calories ? T.alert : T.teal }}>{netCals}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>net</div></div>
+          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22, color: (targets.burnTarget && burned >= targets.burnTarget) ? T.forest : T.ink }}>{burned}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>active burn</div></div>
+          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22, color: netCals > targets.calories ? T.alert : T.teal }}>{netCals}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>net intake</div></div>
         </div>
-        <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 8, lineHeight: 1.45 }}>Net = eaten − burned. {targets.burnTarget ? (burned >= targets.burnTarget ? `Burn goal ~${targets.burnTarget} kcal — hit it! 🎉` : `Burn goal ~${targets.burnTarget} kcal — ${targets.burnTarget - burned} to go (≈ a ${Math.max(1, Math.round((targets.burnTarget - burned) / 5))}-min walk).`) : (burned > 0 ? `Burned ~${burned} kcal today.` : "Log activity to see calories burned.")} Eat target ≈ {targets.calories} kcal.</div>
+        <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 8, lineHeight: 1.5 }}>
+          <b>Active burn</b> = extra calories from exercise you logged{targets.burnTarget ? ` — this is on top of the ~${targets.maintenance} kcal your body already burns just living + your normal day` : ""}.
+          {targets.burnTarget ? (burned >= targets.burnTarget ? ` Daily move goal is ~${targets.burnTarget} extra — hit it! 🎉` : ` Daily move goal is ~${targets.burnTarget} extra — ${targets.burnTarget - burned} more (≈ a ${Math.max(1, Math.round((targets.burnTarget - burned) / 5))}-min walk).`) : (burned > 0 ? ` You've burned ~${burned} kcal moving.` : " Log activity to see calories burned.")}
+          {" "}<b>Net intake</b> (eaten − active burn) = <b>{netCals}</b> — keep it near your <b>{targets.calories} kcal</b> eat target.
+        </div>
       </Card>
       <div style={{ height: 14 }} />
       <Card>
@@ -2773,7 +2797,10 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
     }
     // 0b. Exact ingredient match wins over fuzzy compound matches — "steamed broccoli" is broccoli,
     //     not a chicken dish that merely lists broccoli. (Cooking words are already stripped into hCore.)
-    const exactId = (HEALTH_DB && HEALTH_DB.aliases) ? (HEALTH_DB.aliases[normalizeWithAliases(hCore)] || HEALTH_DB.aliases[normalizeWithAliases(coreDish)]) : null;
+    const exactId = (HEALTH_DB && HEALTH_DB.aliases)
+      ? (HEALTH_DB.aliases[normalizeWithAliases(hCore)] || HEALTH_DB.aliases[normalizeWithAliases(coreDish)]
+         || fuzzyAliasId(hCore) || fuzzyAliasId(coreDish))
+      : null;
     if (exactId && HEALTH_DB.dishes[exactId]) {
       const e = HEALTH_DB.dishes[exactId];
       setResult({ dish: e.name, healthId: exactId, modText: raw, verdict: demoVerdictFor(e.name), calories: null, protein: null, fiber: null, carbs: null, sugar: null, portion: "per 100 g", perUnit: "100 g", reason: "", marker: null, weeklyLimit: null, lookedUp: true, source: "health database" });
@@ -3802,7 +3829,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
         </Collapsible>
       )}
       {lifeGuide.length > 0 && (
-        <Collapsible title="Lifestyle notes" subtitle="How alcohol, smoking &amp; sleep affect your goals">
+        <Collapsible title="Lifestyle notes" emoji="📝" subtitle="How alcohol, smoking &amp; sleep affect your goals">
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {lifeGuide.map((g, i) => (
               <div key={i} style={{ borderLeft: `3px solid ${TONE_COLOR[g.tone] || T.teal}`, paddingLeft: 11 }}>
@@ -3838,7 +3865,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
         </Collapsible>
       )}
       {weeklyPlan && weeklyPlan.days && (
-        <Collapsible title="This week's meal plan" subtitle="Your editable plan — add, remove, shuffle any meal">
+        <Collapsible title="This week's meal plan" emoji="🍽️" subtitle="Your editable plan — add, remove, shuffle any meal">
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
             <button onClick={onRegeneratePlan} style={{ background: T.tealPale, border: "none", borderRadius: 8, padding: "5px 10px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.teal, cursor: "pointer" }}>↻ Regenerate</button>
           </div>
@@ -3969,7 +3996,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
         ))}</div>}
       </Collapsible>
       {reco && (reco.eatMore.length + reco.careful.length + reco.avoid.length > 0) && (
-        <Collapsible title="Your combined food plan" subtitle={`Reconciled across your ${myConds.length} conditions`}>
+        <Collapsible title="Your combined food plan" emoji="🧩" subtitle={`Reconciled across your ${myConds.length} conditions`}>
           <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 8, lineHeight: 1.4 }}>
             Some foods help one condition but hurt another — these are reconciled so nothing clashes. <b>Safety first:</b> anything risky for even one of your conditions is moved to Avoid.
           </div>
@@ -3988,7 +4015,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
         </Collapsible>
       )}
       {guides.length > 0 && (
-        <Collapsible title="Daily habits by condition" subtitle="Simple routines for each of your conditions">
+        <Collapsible title="Daily habits by condition" emoji="🔁" subtitle="Simple routines for each of your conditions">
           {guides.map(g => (
             <div key={g.id} style={{ marginBottom: 12, paddingBottom: 12, borderBottom: `1px solid ${T.creamDeep}` }}>
               <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 14.5, marginBottom: 2 }}>{g.label}</div>
@@ -4011,7 +4038,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
         </Collapsible>
       )}
       {frequentlyEaten.length > 0 && (
-        <Collapsible title="What you've been eating this week">
+        <Collapsible title="What you've been eating this week" emoji="🍴">
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{frequentlyEaten.map(([dish, count]) => {
             const entry = FOOD_DB[dish];
             const isUnhealthy = entry && (entry.verdict === "avoid" || entry.verdict === "limit" || entry.verdict === "caution");
@@ -4027,7 +4054,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
         </Collapsible>
       )}
       {flaggedFrequent.length > 0 && (
-        <Collapsible title="How to make your choices healthier" subtitle="Based on what you actually logged last week">
+        <Collapsible title="How to make your choices healthier" emoji="✨" subtitle="Based on what you actually logged last week">
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{flaggedFrequent.map(([dish]) => {
             const entry = FOOD_DB[dish];
             const tip = entry.healthierTip || suggestSwap(dish);
