@@ -218,8 +218,9 @@ function healthyWeightRange(heightCm) {
   return { min: Math.round(18.5 * h * h), max: Math.round(24.9 * h * h) };
 }
 function computeTargets(weight, goalToggles, profile) {
-  const weightLoss = goalToggles.find(g => g.id === "weightloss")?.active;
-  const muscle = goalToggles.find(g => g.id === "muscle")?.active;
+  const goals = (profile && profile.goals) || [];
+  const weightLoss = goalToggles.find(g => g.id === "weightloss")?.active || goals.some(g => /lose weight|weight loss|fat loss|reduce belly/i.test(g));
+  const muscle = goalToggles.find(g => g.id === "muscle")?.active || goals.some(g => /build muscle|muscle/i.test(g));
   const conds = (profile && profile.conditions) || [];
   const hasC = s => conds.some(c => c.toLowerCase().includes(s));
   const height = (profile && profile.height) || 165;
@@ -3031,7 +3032,10 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
               </div>
             )}
             <div style={{ fontFamily: "Inter", fontSize: 13.5, color: T.ink, lineHeight: 1.5, marginBottom: 10 }}>{result.reason}</div>
-            <div style={{ display: "flex", gap: 14, marginBottom: 12, flexWrap: "wrap" }}><MiniStat v={dm.cal} l="cal" /><MiniStat v={dm.protein} l="protein g" /><MiniStat v={dm.fiber} l="fiber g" /><MiniStat v={dm.sugar} l="sugar g" /></div>
+            <div style={{ display: "flex", gap: 14, marginBottom: 8, flexWrap: "wrap" }}><MiniStat v={dm.cal} l="cal" /><MiniStat v={dm.protein} l="protein g" /><MiniStat v={dm.fiber} l="fiber g" /><MiniStat v={dm.sugar} l="free sugar g" /></div>
+            {health && (mod.n.free_sugar_g === 0 && mod.n.carb_g > 5 || PLATE_RE.fruit.test(result.dish || "")) && (
+              <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 10, lineHeight: 1.45 }}>“Free sugar” means added or juice sugar — the kind that raises triglycerides. Whole fruit's natural sugar isn't counted here (this has ~{Math.round((mod.n.carb_g || 0))}g total carbs).</div>
+            )}
             {result.weeklyLimit != null && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 10 }}>You've had this {weeklyCountFor(result.dish)}x this week · cap: {result.weeklyLimit}/week</div>}
             {result.healthierTip && (
               <div style={{ background: T.tealPale, borderRadius: 10, padding: 10, marginBottom: 12 }}>
@@ -3050,7 +3054,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
                 <button onClick={() => setQty(q => q + 1)} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${T.border}`, background: T.creamDeep, color: T.ink, fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>+</button>
                 <div style={{ display: "flex", gap: 6, marginLeft: 6 }}>{[1, 2, 3].map(x => <button key={x} onClick={() => setQty(x)} style={{ background: qty === x ? T.teal : T.creamDeep, color: qty === x ? T.white : T.ink, border: "none", borderRadius: 999, padding: "6px 12px", fontFamily: "Inter", fontSize: 12 }}>×{x}</button>)}</div>
               </div>
-              {dm.cal != null && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 7 }}>Will log <b>{Math.round(dm.cal * qty)} cal</b>{dm.sugar != null ? ` · ${Math.round(dm.sugar * qty)}g sugar` : ""}{health ? ` · ${qty * 100}g total` : ` · ${qty} serving${qty > 1 ? "s" : ""}`}</div>}
+              {dm.cal != null && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 7 }}>Will log <b>{Math.round(dm.cal * qty)} cal</b>{dm.sugar != null ? ` · ${Math.round(dm.sugar * qty)}g free sugar` : ""}{health ? ` · ${qty * 100}g total` : ` · ${qty} serving${qty > 1 ? "s" : ""}`}</div>}
             </div>
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 6 }}>When?</div>
