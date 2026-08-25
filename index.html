@@ -718,6 +718,15 @@ function plateTicks(items) {
   const t = arr.join(" ").toLowerCase();
   return { veg: PLATE_RE.veg.test(t), protein: PLATE_RE.protein.test(t), grain: PLATE_RE.grain.test(t), fruit: PLATE_RE.fruit.test(t) };
 }
+// The DB only stores FREE (added/juice) sugar, so whole fruits/juice/sugarcane read 0 — misleading.
+// For naturally-sweet foods, show the real sugar (≈ carbs − fibre); for others, free sugar is right.
+const SWEET_WHOLE_RE = /fruit|banana|apple|guava|papaya|orange|berr|pomegranate|mango|watermelon|melon|chikoo|sapota|grapes|\bpear\b|kiwi|peach|plum|cherr|apricot|\bfig\b|\bdate\b|raisin|pineapple|litchi|lychee|custard apple|mosambi|juice|nectar|sugarcane|sugar ?cane|smoothie|milkshake|\bshake\b|honey|jaggery|syrup|molasses|\bjam\b|marmalade|halwa|kheer|laddu|laddoo|barfi|jalebi/i;
+function displaySugarG(n, name) {
+  if (!n) return null;
+  const free = n.free_sugar_g || 0;
+  if (SWEET_WHOLE_RE.test(name || "")) return Math.round(Math.max(free, (n.carb_g || 0) - (n.fibre_g || 0)));
+  return Math.round(free);
+}
 // Dishes offered in the "+ Add" picker for a slot — filterable by cuisine + veg/non-veg.
 function pickerDishes(slot, filters) {
   filters = filters || {};
@@ -2707,7 +2716,7 @@ function TrendsSection({ selectedDate, weekFood, weekHabits, weekSupplements, ac
 /* ============================== TAB 2: FOOD CHECK ============================== */
 function MiniStat({ v, l }) { return <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15 }}>{v ?? "—"}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{l}</div></div>; }
 
-function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, activities, weekSupplements, addFoodEntry, deleteFoodEntry, updateFoodEntry, splitFoodEntry, customDishes, saveCustomDish, metrics, periods, targets, advice }) {
+function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, activities, weekSupplements, addFoodEntry, deleteFoodEntry, updateFoodEntry, splitFoodEntry, customDishes, saveCustomDish, metrics, periods, targets, advice, otherProfilesMeals, onCopyFromProfile }) {
   const priorities = computeTopPriorities(metrics, periods);
   const { thisWeekKeys, lastWeekKeys } = weekWindowsForDate(selectedDate);
   const { thisMonthKey, lastMonthKey } = monthWindowsForDate(selectedDate);
@@ -2760,6 +2769,14 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
     const comp = parseComposite(raw);
     if (comp) {
       setResult({ dish: comp.name, composite: comp, lookedUp: true, verdict: demoVerdictFor(comp.name), portion: "per 100 g", perUnit: "100 g", reason: "Combined estimate — equal parts of each ingredient, averaged per 100 g.", marker: null, weeklyLimit: null });
+      return;
+    }
+    // 0b. Exact ingredient match wins over fuzzy compound matches — "steamed broccoli" is broccoli,
+    //     not a chicken dish that merely lists broccoli. (Cooking words are already stripped into hCore.)
+    const exactId = (HEALTH_DB && HEALTH_DB.aliases) ? (HEALTH_DB.aliases[normalizeWithAliases(hCore)] || HEALTH_DB.aliases[normalizeWithAliases(coreDish)]) : null;
+    if (exactId && HEALTH_DB.dishes[exactId]) {
+      const e = HEALTH_DB.dishes[exactId];
+      setResult({ dish: e.name, healthId: exactId, modText: raw, verdict: demoVerdictFor(e.name), calories: null, protein: null, fiber: null, carbs: null, sugar: null, portion: "per 100 g", perUnit: "100 g", reason: "", marker: null, weeklyLimit: null, lookedUp: true, source: "health database" });
       return;
     }
 
@@ -2977,7 +2994,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
   ].filter(m => typeof m[1] === "number" && m[1] >= 1).map(m => `${m[0]} ${Math.round(m[1])}${m[2]}`) : [];
   // macros to display/log: adjusted per-100g when we have health data, else whatever the result carried
   const dm = health
-    ? { cal: mod.n.kcal, protein: mod.n.protein_g, fiber: mod.n.fibre_g, sugar: mod.n.free_sugar_g }
+    ? { cal: mod.n.kcal, protein: mod.n.protein_g, fiber: mod.n.fibre_g, sugar: displaySugarG(mod.n, result.dish), freeSugar: mod.n.free_sugar_g }
     : { cal: result && result.calories, protein: result && result.protein, fiber: result && result.fiber, sugar: result && result.sugar };
   const recipeUrl = (dish) => `https://www.google.com/search?q=${encodeURIComponent("healthy " + dish + " recipe low sugar low ghee")}`;
   const nutritionUrl = (dish) => `https://www.google.com/search?q=${encodeURIComponent(dish + " calories protein sugar nutrition per serving")}`;
@@ -3141,9 +3158,9 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
               </div>
             )}
             <div style={{ fontFamily: "Inter", fontSize: 13.5, color: T.ink, lineHeight: 1.5, marginBottom: 10 }}>{result.reason}</div>
-            <div style={{ display: "flex", gap: 14, marginBottom: 8, flexWrap: "wrap" }}><MiniStat v={dm.cal} l="cal" /><MiniStat v={dm.protein} l="protein g" /><MiniStat v={dm.fiber} l="fiber g" /><MiniStat v={dm.sugar} l="free sugar g" /></div>
-            {health && (mod.n.free_sugar_g === 0 && mod.n.carb_g > 5 || PLATE_RE.fruit.test(result.dish || "")) && (
-              <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 10, lineHeight: 1.45 }}>“Free sugar” means added or juice sugar — the kind that raises triglycerides. Whole fruit's natural sugar isn't counted here (this has ~{Math.round((mod.n.carb_g || 0))}g total carbs).</div>
+            <div style={{ display: "flex", gap: 14, marginBottom: 8, flexWrap: "wrap" }}><MiniStat v={dm.cal} l="cal" /><MiniStat v={dm.protein} l="protein g" /><MiniStat v={dm.fiber} l="fiber g" /><MiniStat v={dm.sugar} l="sugar g" /></div>
+            {health && dm.sugar > 2 && (SWEET_WHOLE_RE.test(result.dish || "") || (mod.n.free_sugar_g === 0 && mod.n.carb_g > 5)) && (
+              <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 10, lineHeight: 1.45 }}>{isSugaryDrink ? "This is juice/added sugar — it hits triglycerides fast because there's no fibre to slow it." : "This is natural fruit sugar (0g added) — it comes bundled with fibre, so it's gentler on triglycerides than added or juice sugar."}</div>
             )}
             {result.weeklyLimit != null && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 10 }}>You've had this {weeklyCountFor(result.dish)}x this week · cap: {result.weeklyLimit}/week</div>}
             {result.healthierTip && (
@@ -3163,7 +3180,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
                 <button onClick={() => setQty(q => q + 1)} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${T.border}`, background: T.creamDeep, color: T.ink, fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>+</button>
                 <div style={{ display: "flex", gap: 6, marginLeft: 6 }}>{[1, 2, 3].map(x => <button key={x} onClick={() => setQty(x)} style={{ background: qty === x ? T.teal : T.creamDeep, color: qty === x ? T.white : T.ink, border: "none", borderRadius: 999, padding: "6px 12px", fontFamily: "Inter", fontSize: 12 }}>×{x}</button>)}</div>
               </div>
-              {dm.cal != null && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 7 }}>Will log <b>{Math.round(dm.cal * qty)} cal</b>{dm.sugar != null ? ` · ${Math.round(dm.sugar * qty)}g free sugar` : ""}{health ? ` · ${qty * 100}g total` : ` · ${qty} serving${qty > 1 ? "s" : ""}`}</div>}
+              {dm.cal != null && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 7 }}>Will log <b>{Math.round(dm.cal * qty)} cal</b>{dm.sugar != null ? ` · ${Math.round(dm.sugar * qty)}g sugar` : ""}{health ? ` · ${qty * 100}g total` : ` · ${qty} serving${qty > 1 ? "s" : ""}`}</div>}
             </div>
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 6 }}>When?</div>
@@ -3192,8 +3209,14 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
         <div style={{ height: 8, borderRadius: 999, background: T.creamDeep, overflow: "hidden", display: "flex", marginBottom: 10 }}>{foodForDate.length === 0 ? <div style={{ flex: 1 }} /> : foodForDate.map((f, i) => <div key={i} style={{ flex: 1, background: meta(f.verdict).fg }} />)}</div>
         {foodForDate.length === 0 ? (
           <div>
-            <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: yesterdayMeals.length ? 10 : 0 }}>Nothing logged for this date.</div>
-            {yesterdayMeals.length > 0 && <button onClick={copyYesterday} style={{ width: "100%", background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 10, padding: "9px 0", color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>📋 Copy yesterday's {yesterdayMeals.length} meal{yesterdayMeals.length > 1 ? "s" : ""}</button>}
+            <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: (yesterdayMeals.length || (otherProfilesMeals || []).length) ? 10 : 0 }}>Nothing logged for this date.</div>
+            {(yesterdayMeals.length > 0 || (otherProfilesMeals || []).length > 0) && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11, letterSpacing: 0.3, color: T.inkSoft, textTransform: "uppercase" }}>Copy a whole day (you can edit after)</div>
+                {yesterdayMeals.length > 0 && <button onClick={copyYesterday} style={{ width: "100%", textAlign: "left", background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 10, padding: "10px 12px", color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>📋 Copy yesterday's {yesterdayMeals.length} meal{yesterdayMeals.length > 1 ? "s" : ""}</button>}
+                {(otherProfilesMeals || []).map(p => <button key={p.id} onClick={() => onCopyFromProfile(p.entries)} style={{ width: "100%", textAlign: "left", background: T.creamDeep, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", color: T.ink, fontFamily: "Manrope", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>👥 Copy {p.name}'s {p.entries.length} meal{p.entries.length > 1 ? "s" : ""} (same day)</button>)}
+              </div>
+            )}
           </div>
         ) : (
           <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 4 }}>
@@ -3718,7 +3741,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
             <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19 }}>{targets.protein}g</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>protein</div></div>
             <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19 }}>{targets.fiber}g</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>fiber</div></div>
             <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19, color: T.amber }}>&lt;{targets.sugar}g</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>sugar cap</div></div>
-            {targets.burnTarget > 0 && <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19, color: T.forest }}>🔥{targets.burnTarget}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>to burn</div></div>}
+            {targets.burnTarget > 0 && <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19, color: T.forest }}>🔥{targets.burnTarget}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>extra to burn</div></div>}
           </div>
           <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 8 }}>Tuned to your goals ({targets.note}){advice.focusMarkerLabel ? ` and ${advice.focusMarkerLabel}` : ""}.</div>
           {targets.bmi != null && (
@@ -3730,7 +3753,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
           {targets.deficit > 0 ? (
             <div style={{ marginTop: 10, background: T.creamDeep, borderRadius: 10, padding: "9px 11px", fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.5 }}>
               {targets.toLoseKg > 0 && <><b>Target {targets.targetWeight} kg</b> — about <b>{targets.toLoseKg} kg</b> to lose{targets.weeklyLossKg > 0 ? `, ≈ ${Math.ceil(targets.toLoseKg / targets.weeklyLossKg)} weeks at this pace` : ""}.<br /></>}
-              Eat <b>{targets.calories} kcal</b> — that's <b>{targets.deficit} kcal under</b> your maintenance of {targets.maintenance} ({targets.weeklyLossKg} kg/week). Also aim to <b>burn ~{targets.burnTarget} kcal/day</b> (~{targets.burnMins}-min brisk walk).
+              Your body already burns about <b>{targets.maintenance} kcal/day</b> just to keep you going (BMR {targets.bmr} × your activity). Eat <b>{targets.calories} kcal</b> and you're <b>{targets.deficit} under</b> that — a {targets.weeklyLossKg} kg/week loss without any exercise. The <b>{targets.burnTarget} kcal “extra to burn”</b> (~{targets.burnMins}-min brisk walk) is on <i>top</i> of that, to lose a little faster.
             </div>
           ) : targets.burnTarget > 0 ? (
             <div style={{ marginTop: 10, background: T.creamDeep, borderRadius: 10, padding: "9px 11px", fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.5 }}>
@@ -3830,7 +3853,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
               </div>
             </div>
           </div>
-          <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 10, lineHeight: 1.5 }}>Tap <b>+ Add</b> on any meal to search &amp; place your own dish; <b>×</b> removes one; <b>↻</b> shuffles. Ticks show what the plate has — 🥬 veg · 🫘 protein · 🌾 grain · 🍎 fruit.</div>
+          <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 10, lineHeight: 1.5 }}>Tap <b>+ Add</b> on any meal to search &amp; place your own dish; <b>×</b> removes one; <b>↻</b> shuffles. Ticks show what the plate has — 🥬 veg · 💪 protein · 🌾 grain · 🍎 fruit.</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {weeklyPlan.days.map((d, i) => (
               <div key={i} style={{ borderBottom: i < 6 ? `1px solid ${T.creamDeep}` : "none", paddingBottom: i < 6 ? 12 : 0 }}>
@@ -3843,7 +3866,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
                         <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 10.5, letterSpacing: 0.4, color: T.inkSoft, textTransform: "uppercase" }}>{slot}</span>
                         <span style={{ display: "flex", gap: 5, fontSize: 12 }}>
-                          {[["veg", "🥬"], ["protein", "🫘"], ["grain", "🌾"], ["fruit", "🍎"]].map(([k, emo]) => <span key={k} title={k} style={{ opacity: tk[k] ? 1 : 0.22, filter: tk[k] ? "none" : "grayscale(1)" }}>{emo}</span>)}
+                          {[["veg", "🥬"], ["protein", "💪"], ["grain", "🌾"], ["fruit", "🍎"]].map(([k, emo]) => <span key={k} title={k} style={{ opacity: tk[k] ? 1 : 0.22, filter: tk[k] ? "none" : "grayscale(1)" }}>{emo}</span>)}
                         </span>
                       </div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
@@ -4742,6 +4765,13 @@ function App() {
   const supplementsToday = weekSupplements[tk] || {};
   const habitToday = weekHabits[tk] || {};
   const foodForDate = weekFood[selectedDate] || [];
+  // Other people on this account who logged meals on the SAME date — so a family eating the same
+  // food can copy across profiles (then edit if needed).
+  const otherProfilesMeals = (profiles || []).filter(p => p.id !== activeId).map(p => {
+    const log = kvGet(p.id === "self" ? "week:foodlog" : `p:${p.id}:week:foodlog`, {}) || {};
+    return { id: p.id, name: p.name || (p.id === "self" ? "You" : "Someone"), entries: log[selectedDate] || [] };
+  }).filter(x => x.entries.length);
+  const copyFromProfile = (entries) => (entries || []).forEach(e => addFoodEntry(selectedDate, { ...e, time: Date.now() + Math.random() * 100 }));
   const supplementsForDate = weekSupplements[selectedDate] || {};
   const habitsForDate = weekHabits[selectedDate] || {};
   const targets = computeTargets(profile.weight, goalToggles, profile);
@@ -4934,7 +4964,7 @@ function App() {
           </>);
         })()}
         {tab === "today" && <TodayTab profile={profile} targets={targets} advice={advice} foodToday={foodForDate} habitToday={habitsForDate} supplementsToday={supplementsForDate} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} activities={activities} vitals={vitals} setVital={setVital} toggleHabit={toggleHabit} onToggleWalk={toggleWalk} supplements={supplements} onNavigate={setTab} demoCleared={demoCleared} clearDemo={clearDemo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />}
-        {tab === "food" && <FoodCheckTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} foodForDate={foodForDate} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} addFoodEntry={addFoodEntry} deleteFoodEntry={deleteFoodEntry} updateFoodEntry={updateFoodEntry} splitFoodEntry={splitFoodEntry} customDishes={customDishes} saveCustomDish={saveCustomDish} metrics={metrics} periods={periods} targets={targets} advice={advice} />}
+        {tab === "food" && <FoodCheckTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} foodForDate={foodForDate} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} addFoodEntry={addFoodEntry} deleteFoodEntry={deleteFoodEntry} updateFoodEntry={updateFoodEntry} splitFoodEntry={splitFoodEntry} customDishes={customDishes} saveCustomDish={saveCustomDish} metrics={metrics} periods={periods} targets={targets} advice={advice} otherProfilesMeals={otherProfilesMeals} onCopyFromProfile={copyFromProfile} />}
         {tab === "health" && <MyHealthTab metrics={metrics} periods={periods} supplementsToday={supplementsToday} toggleSupplement={(id) => toggleSupplement(tk, id)} supplements={supplements} onAddReport={() => openSettings("reports")} advice={advice} selectedDate={selectedDate} setSelectedDate={setSelectedDate} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} activities={activities} targets={targets} demoCleared={demoCleared} clearDemo={clearDemo} />}
         {tab === "habits" && <HabitsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} habitsForDate={habitsForDate} toggleHabit={toggleHabit} weekHabits={weekHabits} weekFood={weekFood} weekSupplements={weekSupplements} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} advice={advice} />}
         {tab === "supplements" && <SupplementsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} supplementsForDate={supplementsForDate} toggleSupplement={toggleSupplement} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} supplements={supplements} advice={advice} suggestedSupps={suggestedSupps} onAddSupplement={addSuggestedSupplement} />}
