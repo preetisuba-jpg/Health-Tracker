@@ -646,6 +646,9 @@ const ONB_FREQ = [{
   k: "none",
   l: "Never"
 }, {
+  k: "former",
+  l: "Used to, quit"
+}, {
   k: "rare",
   l: "Very occasionally"
 }, {
@@ -660,6 +663,7 @@ const ONB_FREQ = [{
 }];
 const FREQ_LABEL = {
   none: "Never",
+  former: "Quit",
   rare: "Very occasionally",
   sometimes: "Occasionally",
   weekly: "Weekly",
@@ -1008,9 +1012,14 @@ const PERIOD_TIP_MAP = {
 function lifestyleGuidance(profile) {
   const p = profile || {},
     out = [];
-  const any = f => f && f !== "none";
+  const active = f => f && f !== "none" && f !== "former"; // currently doing it
   const heavy = f => f === "weekly" || f === "daily";
-  if (any(p.alcohol)) {
+  const ago = q => q && String(q).trim() ? ` (${String(q).trim()} ago)` : "";
+  if (p.alcohol === "former") out.push({
+    tag: "Alcohol",
+    tone: "info",
+    body: `Staying off alcohol${ago(p.alcoholQuit)} is one of the best things you can do for your liver (GGT) and triglycerides — keep it up.`
+  });else if (active(p.alcohol)) {
     const liver = (p.conditions || []).some(c => /liver|ggt/i.test(c));
     out.push({
       tag: "Alcohol",
@@ -1018,12 +1027,20 @@ function lifestyleGuidance(profile) {
       body: liver ? "Alcohol is the biggest single lever for your liver (GGT). Cutting down — ideally to rare or none — can lower GGT within weeks." : "Alcohol adds empty calories and pushes triglycerides up. Keep it occasional at most, and never daily."
     });
   }
-  if (any(p.smoking)) out.push({
+  if (p.smoking === "former") out.push({
+    tag: "Ex-smoker",
+    tone: "info",
+    body: `Quitting smoking${ago(p.smokingQuit)} is the single highest-impact thing you've done for your heart and cholesterol — the benefits keep growing every smoke-free year. Stay off it.`
+  });else if (active(p.smoking)) out.push({
     tag: "Smoking",
     tone: "avoid",
     body: "Smoking works against every heart and cholesterol goal here. Quitting is the highest-impact change you can make — ask your doctor about support to stop."
   });
-  if (any(p.vaping)) out.push({
+  if (p.vaping === "former") out.push({
+    tag: "Ex-vaper",
+    tone: "info",
+    body: `Good that you've stopped vaping${ago(p.vapingQuit)} — keep your lungs and heart clear of it.`
+  });else if (active(p.vaping)) out.push({
     tag: "Vaping",
     tone: "avoid",
     body: "Vaping isn't a safe swap — it still strains the heart and lungs. Aim to taper down and off."
@@ -1679,7 +1696,10 @@ function computeAdvice(metrics, periods, supplements, goalToggles, profile) {
     sugarMarkerLabel: sugarKey ? MARKER_INFO[sugarKey].short : null,
     cardioMarkerLabel: cardioKeys.length ? joinNames([...new Set(cardioKeys.map(k => MARKER_INFO[k].short))]) : "your heart & metabolic markers",
     focusMarkerLabel: flaggedKeys.length ? MARKER_INFO[flaggedKeys[0]]?.short || null : null,
-    weightGoal: !!(goalToggles || []).find(g => g.id === "weightloss" && g.active)
+    // Weight goal drives the food verdict. Honor BOTH the explicit toggle AND a "Lose weight"-type
+    // goal picked in setup (the toggle isn't always in sync) — mirrors computeTargets, so a person
+    // who chose "Lose weight" never sees a calorie-dense dish rated "eat freely".
+    weightGoal: !!((goalToggles || []).find(g => g.id === "weightloss" && g.active) || profile && (profile.goals || []).some(g => /lose weight|weight loss|fat loss|reduce belly/i.test(g)))
   };
 }
 let TOTAL_SUPPLEMENTS = 9; // updated by App root each render to reflect the current (editable) supplement list
@@ -5612,16 +5632,58 @@ function gatherAppData() {
   });
   return d;
 }
+// Union the People list across devices by id — a profile added on one phone can NEVER be dropped
+// by another phone that pushes an older list (the old whole-array-replace was the "profile vanished"
+// bug). A name missing on one side is filled from the other. "self" always sorts first.
+function mergeProfileEntries(localList, remoteList) {
+  const byId = new Map();
+  (Array.isArray(localList) ? localList : []).forEach(p => {
+    if (p && p.id) byId.set(p.id, {
+      ...p
+    });
+  });
+  (Array.isArray(remoteList) ? remoteList : []).forEach(p => {
+    if (!p || !p.id) return;
+    const cur = byId.get(p.id);
+    if (!cur) byId.set(p.id, {
+      ...p
+    });else if (!cur.name && p.name) cur.name = p.name;
+  });
+  return [...byId.values()].sort((a, b) => a.id === "self" ? -1 : b.id === "self" ? 1 : 0);
+}
+function unionIds(a, b) {
+  return [...new Set([...(Array.isArray(a) ? a : []), ...(Array.isArray(b) ? b : [])])];
+}
 function applyRemote(data) {
   if (!data) return;
   Object.keys(data).forEach(k => {
     if (!isSyncedKey(k)) return;
+    // profiles:list and profiles:deleted are MERGED, not overwritten, so no device can wipe a
+    // profile another device just created.
+    if (k === "profiles:list") {
+      const m = mergeProfileEntries(KV_MEM[k], data[k]);
+      if (JSON.stringify(KV_MEM[k]) !== JSON.stringify(m)) kvSetLocal(k, m);
+      return;
+    }
+    if (k === "profiles:deleted") {
+      const m = unionIds(KV_MEM[k], data[k]);
+      if (JSON.stringify(KV_MEM[k]) !== JSON.stringify(m)) kvSetLocal(k, m);
+      return;
+    }
     try {
       if (JSON.stringify(KV_MEM[k]) !== JSON.stringify(data[k])) kvSetLocal(k, data[k]);
     } catch (e) {
       kvSetLocal(k, data[k]);
     }
   });
+  // Honor real deletions: a profile explicitly removed on any device stays removed everywhere (never "self").
+  try {
+    const dead = new Set((KV_MEM["profiles:deleted"] || []).filter(id => id !== "self"));
+    if (dead.size && Array.isArray(KV_MEM["profiles:list"])) {
+      const filtered = KV_MEM["profiles:list"].filter(p => !dead.has(p.id));
+      if (filtered.length !== KV_MEM["profiles:list"].length) kvSetLocal("profiles:list", filtered);
+    }
+  } catch (e) {}
 }
 // True if THIS device already holds real data in ANY profile (self or an added person). Used so a
 // device with data never gets overwritten by an emptier cloud copy on sign-in.
@@ -5823,6 +5885,12 @@ async function startAccountSync(uid) {
   // treated a seed-only device as "has data" and let it push the demo over your real data).
   const localData = gatherAppData();
   if (remote && dataScore(remote) >= dataScore(localData)) applyRemote(remote);
+  // Even when THIS device keeps its richer data, always union the People list + deletions so a
+  // profile created on another device is never lost by the push that follows.
+  else if (remote) applyRemote({
+    "profiles:list": remote["profiles:list"] || [],
+    "profiles:deleted": remote["profiles:deleted"] || []
+  });
   const payload = {
     data: gatherAppData(),
     updatedAt: Date.now(),
@@ -5922,6 +5990,30 @@ async function authSignIn(email, pass) {
     dispatchAuth({
       status: "error",
       error: authMsg(e)
+    });
+    return false;
+  }
+}
+// Send a password-reset email. Covers the case where a browser/password-manager auto-generated the
+// password at sign-up: the person can't recall it and can't re-register (email already in use), so
+// resetting is the only way back in. Returns true if the email was sent.
+async function authResetPassword(email) {
+  try {
+    const e = (email || "").trim();
+    if (!e) {
+      dispatchAuth({
+        status: authState().status,
+        error: "Enter your email first, then tap Forgot password."
+      });
+      return false;
+    }
+    const fb = await ensureFirebaseApp();
+    await fb.auth().sendPasswordResetEmail(e);
+    return true;
+  } catch (err) {
+    dispatchAuth({
+      status: "error",
+      error: authMsg(err)
     });
     return false;
   }
@@ -12410,6 +12502,12 @@ function SettingsPanel({
   }, []);
   const [acctEmail, setAcctEmail] = useState("");
   const [acctPass, setAcctPass] = useState("");
+  const [acctResetMsg, setAcctResetMsg] = useState("");
+  const acctForgot = async () => {
+    setAcctResetMsg("");
+    const ok = await authResetPassword(acctEmail);
+    if (ok) setAcctResetMsg(`Reset link sent to ${acctEmail.trim()} — check inbox/spam, set a new password, then sign in.`);
+  };
   const [, setAuthTick] = useState(0);
   useEffect(() => {
     const h = () => setAuthTick(t => t + 1);
@@ -13276,7 +13374,23 @@ function SettingsPanel({
     label: f.l,
     on: (profile.smoking || "none") === f.k,
     onClick: () => pset("smoking", f.k)
-  })))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }))), profile.smoking === "former" && /*#__PURE__*/React.createElement("input", {
+    value: profile.smokingQuit || "",
+    onChange: e => pset("smokingQuit", e.target.value),
+    placeholder: "How long ago did you quit? e.g. 3 years",
+    style: {
+      width: "100%",
+      boxSizing: "border-box",
+      border: `1px solid ${T.border}`,
+      borderRadius: 10,
+      padding: "8px 11px",
+      fontFamily: "Inter",
+      fontSize: 13,
+      background: T.white,
+      color: T.ink,
+      marginTop: 7
+    }
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: subLbl
   }, "Do you vape?"), /*#__PURE__*/React.createElement("div", {
     style: chipWrap
@@ -13285,7 +13399,23 @@ function SettingsPanel({
     label: f.l,
     on: (profile.vaping || "none") === f.k,
     onClick: () => pset("vaping", f.k)
-  })))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }))), profile.vaping === "former" && /*#__PURE__*/React.createElement("input", {
+    value: profile.vapingQuit || "",
+    onChange: e => pset("vapingQuit", e.target.value),
+    placeholder: "How long ago did you quit? e.g. 6 months",
+    style: {
+      width: "100%",
+      boxSizing: "border-box",
+      border: `1px solid ${T.border}`,
+      borderRadius: 10,
+      padding: "8px 11px",
+      fontFamily: "Inter",
+      fontSize: 13,
+      background: T.white,
+      color: T.ink,
+      marginTop: 7
+    }
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: subLbl
   }, "Do you drink alcohol?"), /*#__PURE__*/React.createElement("div", {
     style: chipWrap
@@ -13294,7 +13424,23 @@ function SettingsPanel({
     label: f.l,
     on: (profile.alcohol || "none") === f.k,
     onClick: () => pset("alcohol", f.k)
-  })))), /*#__PURE__*/React.createElement("div", {
+  }))), profile.alcohol === "former" && /*#__PURE__*/React.createElement("input", {
+    value: profile.alcoholQuit || "",
+    onChange: e => pset("alcoholQuit", e.target.value),
+    placeholder: "How long ago did you quit? e.g. 2 years",
+    style: {
+      width: "100%",
+      boxSizing: "border-box",
+      border: `1px solid ${T.border}`,
+      borderRadius: 10,
+      padding: "8px 11px",
+      fontFamily: "Inter",
+      fontSize: 13,
+      background: T.white,
+      color: T.ink,
+      marginTop: 7
+    }
+  })), /*#__PURE__*/React.createElement("div", {
     style: {
       height: 1,
       background: T.border,
@@ -14301,13 +14447,39 @@ function SettingsPanel({
       }
     }, a.status === "working" ? "…" : "Create account")), /*#__PURE__*/React.createElement("div", {
       style: {
+        marginTop: 8
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      disabled: a.status === "working",
+      onClick: acctForgot,
+      style: {
+        background: "none",
+        border: "none",
+        color: T.teal,
+        fontWeight: 700,
+        cursor: "pointer",
+        fontSize: 12.5,
+        fontFamily: "Inter",
+        padding: 0,
+        textDecoration: "underline"
+      }
+    }, "Forgot password?")), acctResetMsg && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "Inter",
+        fontSize: 12,
+        color: T.forest,
+        marginTop: 6,
+        lineHeight: 1.45
+      }
+    }, acctResetMsg), /*#__PURE__*/React.createElement("div", {
+      style: {
         fontFamily: "Inter",
         fontSize: 11.5,
         color: T.inkSoft,
         marginTop: 10,
         lineHeight: 1.5
       }
-    }, "New here? Enter an email + password and tap ", /*#__PURE__*/React.createElement("b", null, "Create account"), ". Already have one? ", /*#__PURE__*/React.createElement("b", null, "Sign in"), ". Needs internet; not available inside the claude.ai preview."));
+    }, "New here? Enter an email + password and tap ", /*#__PURE__*/React.createElement("b", null, "Create account"), ". Already have one? ", /*#__PURE__*/React.createElement("b", null, "Sign in"), ". Forgot your password (or the browser saved one you don't know)? Tap ", /*#__PURE__*/React.createElement("b", null, "Forgot password"), " to reset it. Needs internet; not available inside the claude.ai preview."));
   })(), section === "data" && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: "Manrope",
@@ -14596,6 +14768,14 @@ function WelcomeScreen({
     const ok = await authSignIn(email, pass);
     if (ok) onDone(false);
   };
+  const [resetMsg, setResetMsg] = useState("");
+  const forgot = async () => {
+    setErr("");
+    setResetMsg("");
+    if (!email.trim()) return setErr("Enter your email above first, then tap Forgot password.");
+    const ok = await authResetPassword(email);
+    if (ok) setResetMsg(`Password-reset link sent to ${email.trim()} — check your inbox (and spam). Open it, set a new password, then sign in.`);
+  };
   const inS = {
     width: "100%",
     boxSizing: "border-box",
@@ -14705,7 +14885,15 @@ function WelcomeScreen({
       marginBottom: 8,
       lineHeight: 1.4
     }
-  }, err || a.error), /*#__PURE__*/React.createElement("button", {
+  }, err || a.error), resetMsg && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "Inter",
+      fontSize: 12.5,
+      color: T.forest,
+      marginBottom: 8,
+      lineHeight: 1.4
+    }
+  }, resetMsg), /*#__PURE__*/React.createElement("button", {
     disabled: working,
     onClick: mode === "create" ? create : signin,
     style: {
@@ -14721,7 +14909,26 @@ function WelcomeScreen({
       cursor: "pointer",
       opacity: working ? 0.6 : 1
     }
-  }, working ? "…" : mode === "create" ? "Create free account" : "Sign in"), /*#__PURE__*/React.createElement("div", {
+  }, working ? "…" : mode === "create" ? "Create free account" : "Sign in"), mode === "signin" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: "center",
+      marginTop: 10
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    disabled: working,
+    onClick: forgot,
+    style: {
+      background: "none",
+      border: "none",
+      color: T.teal,
+      fontWeight: 700,
+      cursor: "pointer",
+      fontSize: 12.5,
+      fontFamily: "Inter",
+      padding: 0,
+      textDecoration: "underline"
+    }
+  }, "Forgot password?")), /*#__PURE__*/React.createElement("div", {
     style: {
       textAlign: "center",
       marginTop: 14,
@@ -14792,6 +14999,9 @@ function OnboardingWizard({
     smoking: profile.smoking || "none",
     vaping: profile.vaping || "none",
     alcohol: profile.alcohol || "none",
+    smokingQuit: profile.smokingQuit || "",
+    vapingQuit: profile.vapingQuit || "",
+    alcoholQuit: profile.alcoholQuit || "",
     sleepHours: profile.sleepHours || "",
     bedtime: profile.bedtime || "",
     chronotype: profile.chronotype || "",
@@ -14872,6 +15082,9 @@ function OnboardingWizard({
       smoking: form.smoking,
       vaping: form.vaping,
       alcohol: form.alcohol,
+      smokingQuit: form.smokingQuit,
+      vapingQuit: form.vapingQuit,
+      alcoholQuit: form.alcoholQuit,
       sleepHours: form.sleepHours,
       bedtime: form.bedtime,
       chronotype: form.chronotype,
@@ -15202,46 +15415,75 @@ function OnboardingWizard({
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: hint
-  }, "A fuller picture makes your plan and guidance more accurate. Skip anything you'd rather not answer."), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: subL
-  }, "Do you smoke?"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      flexWrap: "wrap",
-      gap: 8
-    }
-  }, ONB_FREQ.map(f => /*#__PURE__*/React.createElement(OnbChip, {
-    key: f.k,
-    label: f.l,
-    on: (form.smoking || "none") === f.k,
-    onClick: () => set("smoking", f.k)
-  })))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: subL
-  }, "Do you vape?"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      flexWrap: "wrap",
-      gap: 8
-    }
-  }, ONB_FREQ.map(f => /*#__PURE__*/React.createElement(OnbChip, {
-    key: f.k,
-    label: f.l,
-    on: (form.vaping || "none") === f.k,
-    onClick: () => set("vaping", f.k)
-  })))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: subL
-  }, "Do you drink alcohol?"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      flexWrap: "wrap",
-      gap: 8
-    }
-  }, ONB_FREQ.map(f => /*#__PURE__*/React.createElement(OnbChip, {
-    key: f.k,
-    label: f.l,
-    on: (form.alcohol || "none") === f.k,
-    onClick: () => set("alcohol", f.k)
-  })))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, "A fuller picture makes your plan and guidance more accurate. Skip anything you'd rather not answer."), (() => {
+    const qStyle = {
+      width: "100%",
+      boxSizing: "border-box",
+      border: `1px solid ${T.border}`,
+      borderRadius: 10,
+      padding: "8px 11px",
+      fontFamily: "Inter",
+      fontSize: 13,
+      background: T.white,
+      color: T.ink,
+      marginTop: 7
+    };
+    return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+      style: subL
+    }, "Do you smoke?"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 8
+      }
+    }, ONB_FREQ.map(f => /*#__PURE__*/React.createElement(OnbChip, {
+      key: f.k,
+      label: f.l,
+      on: (form.smoking || "none") === f.k,
+      onClick: () => set("smoking", f.k)
+    }))), form.smoking === "former" && /*#__PURE__*/React.createElement("input", {
+      value: form.smokingQuit || "",
+      onChange: e => set("smokingQuit", e.target.value),
+      placeholder: "How long ago did you quit? e.g. 3 years",
+      style: qStyle
+    })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+      style: subL
+    }, "Do you vape?"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 8
+      }
+    }, ONB_FREQ.map(f => /*#__PURE__*/React.createElement(OnbChip, {
+      key: f.k,
+      label: f.l,
+      on: (form.vaping || "none") === f.k,
+      onClick: () => set("vaping", f.k)
+    }))), form.vaping === "former" && /*#__PURE__*/React.createElement("input", {
+      value: form.vapingQuit || "",
+      onChange: e => set("vapingQuit", e.target.value),
+      placeholder: "How long ago did you quit? e.g. 6 months",
+      style: qStyle
+    })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+      style: subL
+    }, "Do you drink alcohol?"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 8
+      }
+    }, ONB_FREQ.map(f => /*#__PURE__*/React.createElement(OnbChip, {
+      key: f.k,
+      label: f.l,
+      on: (form.alcohol || "none") === f.k,
+      onClick: () => set("alcohol", f.k)
+    }))), form.alcohol === "former" && /*#__PURE__*/React.createElement("input", {
+      value: form.alcoholQuit || "",
+      onChange: e => set("alcoholQuit", e.target.value),
+      placeholder: "How long ago did you quit? e.g. 2 years",
+      style: qStyle
+    })));
+  })(), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: subL
   }, "How many hours do you sleep a night?"), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -15641,6 +15883,7 @@ function App() {
   const removePerson = id => {
     if (id === "self") return;
     setProfiles(profiles.filter(p => p.id !== id));
+    kvSet("profiles:deleted", unionIds(kvGet("profiles:deleted", []), [id]));
     if (activeId === id) setActiveId("self");
   };
   // Weekly meal plan: auto-(re)generate when the week rolls over or the diet changes; manual regenerate + per-meal swap.
