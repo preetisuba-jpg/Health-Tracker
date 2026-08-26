@@ -2244,11 +2244,30 @@ async function authResetPassword(email) {
     return true;
   } catch (err) { dispatchAuth({ status: "error", error: authMsg(err) }); return false; }
 }
+// Sign-out must leave NOTHING of the previous account on this device — data lives safely in their
+// cloud account and returns on next sign-in. Wipe the whole local kv store, then lock a clean BLANK
+// slate (blank profile + seed flag set) so "self" never re-seeds the Jignesh demo while signed out.
+function clearLocalForSignOut() {
+  try {
+    Object.keys(KV_MEM).filter(isAppKey).forEach(k => { delete KV_MEM[k]; });
+    if (KV_IDB) { try { KV_IDB.transaction("kv", "readwrite").objectStore("kv").clear(); } catch (e) {} }
+    else { try { for (let i = localStorage.length - 1; i >= 0; i--) { const k = localStorage.key(i); if (isAppKey(k)) localStorage.removeItem(k); } } catch (e) {} }
+    const blanks = {
+      "profile:data": BLANK_PROFILE, "reports:metrics": blankMetrics(), "reports:periods": [], "supplements:list": [],
+      "profiles:list": [{ id: "self", name: "" }], "profiles:active": "self",
+      "week:foodlog": {}, "activities:log": {}, "week:habits": {}, "week:supplements": {}, "week:vitals": {},
+      "plan:weekly": null, "goals:toggles": DEFAULT_GOAL_TOGGLES, "goals:custom": [], "dishes:custom": {}, "cycle:log": [],
+      "seed:history": SEED_VERSION, "profile:onboarded": false, "account:on": false,
+    };
+    Object.keys(blanks).forEach(k => kvSetLocal(k, blanks[k]));
+  } catch (e) {}
+}
 async function authSignOut() {
   try { if (FB && FB.unsub) FB.unsub(); } catch (e) {} FB = null;
-  kvSetLocal("account:on", false);
   try { const fb = window.firebase; if (fb) await fb.auth().signOut(); } catch (e) {}
+  clearLocalForSignOut();
   dispatchAuth({ status: "signedout", email: null, uid: null, error: null });
+  try { setTimeout(() => location.reload(), 60); } catch (e) {}  // hard reset to a clean, signed-out welcome — no lingering data
 }
 // On launch, resume a previous account session (Firebase persists the login itself).
 function autoStartAccount() { try { if (kvGet("account:on", false)) authInit(); } catch (e) {} }
@@ -2266,7 +2285,7 @@ function HealthRing({ score }) {
       </svg>
       <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
         <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 34, color: T.ink, lineHeight: 1 }}>{score}</div>
-        <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>today's score</div>
+        <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 2 }}>today's score</div>
       </div>
     </div>
   );
@@ -2280,7 +2299,7 @@ function NutrientBar({ label, value, target, unit, warnOver }) {
   const color = over ? T.alert : pct >= 90 ? T.forest : T.saffron;
   return (
     <div style={{ marginBottom: 10 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "Inter", fontSize: 12, marginBottom: 4 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "Inter", fontSize: 13, marginBottom: 4 }}>
         <span style={{ color: T.ink, fontWeight: 600 }}>{label}</span>
         <span style={{ color: over ? T.alert : T.inkSoft }}>{value}{unit} / {target}{unit}{over ? " ⚠️" : ""}</span>
       </div>
@@ -2292,7 +2311,7 @@ function QuickAction({ label, icon, onClick }) {
   return (
     <button onClick={onClick} style={{ flex: 1, background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: "10px 6px", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, cursor: "pointer" }}>
       <Icon name={icon} size={17} color={T.saffron} />
-      <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.ink, textAlign: "center" }}>{label}</span>
+      <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.ink, textAlign: "center" }}>{label}</span>
     </button>
   );
 }
@@ -2347,7 +2366,7 @@ function CalendarPicker({ selectedDate, onSelect, onClose, weekFood, activities,
         </div>
         <div style={{ padding: 16, overflowY: "auto" }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 4, marginBottom: 6 }}>
-            {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => <div key={i} style={{ textAlign: "center", fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{d}</div>)}
+            {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => <div key={i} style={{ textAlign: "center", fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>{d}</div>)}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 4 }}>
             {cells.map((d, i) => {
@@ -2366,7 +2385,7 @@ function CalendarPicker({ selectedDate, onSelect, onClose, weekFood, activities,
                   borderRadius: 8, background: isSelected ? T.tealPale : hasAnyData ? T.forestPale : T.white, opacity: isFuture ? 0.3 : 1, cursor: isFuture ? "default" : "pointer",
                   display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 2
                 }}>
-                  <span style={{ fontFamily: "Inter", fontSize: 12, fontWeight: hasAnyData ? 700 : 400, color: T.ink }}>{d}</span>
+                  <span style={{ fontFamily: "Inter", fontSize: 13, fontWeight: hasAnyData ? 700 : 400, color: T.ink }}>{d}</span>
                   <div style={{ display: "flex", gap: 2, marginTop: 2 }}>
                     {hasFood && <span style={{ width: 4, height: 4, borderRadius: 2, background: T.forest, display: "inline-block" }} />}
                     {hasAct && <span style={{ width: 4, height: 4, borderRadius: 2, background: T.tealSolid, display: "inline-block" }} />}
@@ -2376,7 +2395,7 @@ function CalendarPicker({ selectedDate, onSelect, onClose, weekFood, activities,
               );
             })}
           </div>
-          <div style={{ display: "flex", gap: 12, marginTop: 14, fontFamily: "Inter", fontSize: 12, color: T.inkSoft, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 12, marginTop: 14, fontFamily: "Inter", fontSize: 13, color: T.inkSoft, flexWrap: "wrap" }}>
             <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: T.forest, marginRight: 4 }} />Food logged</span>
             <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: T.tealSolid, marginRight: 4 }} />Activity logged</span>
             <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: T.amber, marginRight: 4 }} />Supplement taken</span>
@@ -2458,8 +2477,8 @@ function TwoLineChart({ labels, a, b, aLabel, bLabel, aColor = "#EA7A3B", bColor
         {draw(a, aColor)}
       </svg>
       <div style={{ display: "flex", gap: 14, marginTop: 4, flexWrap: "wrap" }}>
-        <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}><span style={{ width: 14, height: 3, borderRadius: 2, background: aColor, display: "inline-block" }} />{aLabel}</span>
-        <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}><span style={{ width: 14, height: 3, borderRadius: 2, background: bColor, display: "inline-block" }} />{bLabel}</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}><span style={{ width: 14, height: 3, borderRadius: 2, background: aColor, display: "inline-block" }} />{aLabel}</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}><span style={{ width: 14, height: 3, borderRadius: 2, background: bColor, display: "inline-block" }} />{bLabel}</span>
       </div>
     </div>
   );
@@ -2483,8 +2502,8 @@ function MetricDelta({ label, cur, prev, unit = "", goodWhenLower = false }) {
   return (
     <div style={{ flex: 1, minWidth: 76 }}>
       <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>{cur ?? "—"}{cur != null ? unit : ""}</div>
-      <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{label}</div>
-      {delta != null && delta !== 0 && <div style={{ fontFamily: "Inter", fontSize: 12, color: good ? T.forest : T.alert }}>{delta > 0 ? "▲" : "▼"} {Math.abs(delta)}{unit} vs last wk</div>}
+      <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>{label}</div>
+      {delta != null && delta !== 0 && <div style={{ fontFamily: "Inter", fontSize: 13, color: good ? T.forest : T.alert }}>{delta > 0 ? "▲" : "▼"} {Math.abs(delta)}{unit} vs last wk</div>}
     </div>
   );
 }
@@ -2496,7 +2515,7 @@ function TrendRow({ label, value, compareLabel, compareValue }) {
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${T.creamDeep}` }}>
       <div>
         <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13 }}>{label}</div>
-        <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{compareLabel}: {compareValue ?? "no data"}</div>
+        <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>{compareLabel}: {compareValue ?? "no data"}</div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <span style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>{value ?? "—"}</span>
@@ -2546,10 +2565,10 @@ function TodayTab({ profile, targets, advice, foodToday, habitToday, supplements
       </div>
       <Card style={{ padding: 16 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, textAlign: "center" }}>
-          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 23, color: score >= 70 ? T.forest : score >= 45 ? T.amber : T.alert }}>{score}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>score</div></div>
-          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 23, color: walkedToday ? T.forest : T.inkSoft }}>{sunday ? "—" : walkedToday ? "✓" : "✗"}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>walk</div></div>
-          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 23 }}>{supplements.length ? `${supplementsDone}/${supplements.length}` : "—"}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>supplements</div></div>
-          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 23 }}>{sums.calories}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>calories</div></div>
+          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 23, color: score >= 70 ? T.forest : score >= 45 ? T.amber : T.alert }}>{score}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 2 }}>score</div></div>
+          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 23, color: walkedToday ? T.forest : T.inkSoft }}>{sunday ? "—" : walkedToday ? "✓" : "✗"}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 2 }}>walk</div></div>
+          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 23 }}>{supplements.length ? `${supplementsDone}/${supplements.length}` : "—"}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 2 }}>supplements</div></div>
+          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 23 }}>{sums.calories}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 2 }}>calories</div></div>
         </div>
       </Card>
       <div style={{ height: 10 }} />
@@ -2567,11 +2586,11 @@ function TodayTab({ profile, targets, advice, foodToday, habitToday, supplements
       <Card>
         <SectionLabel>Energy balance</SectionLabel>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, textAlign: "center", marginTop: 2 }}>
-          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22 }}>{sums.calories}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>eaten</div></div>
-          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22, color: (targets.burnTarget && burned >= targets.burnTarget) ? T.forest : T.ink }}>{burned}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>active burn</div></div>
-          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22, color: netCals > targets.calories ? T.alert : T.teal }}>{netCals}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 2 }}>net intake</div></div>
+          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22 }}>{sums.calories}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 2 }}>eaten</div></div>
+          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22, color: (targets.burnTarget && burned >= targets.burnTarget) ? T.forest : T.ink }}>{burned}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 2 }}>active burn</div></div>
+          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22, color: netCals > targets.calories ? T.alert : T.teal }}>{netCals}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 2 }}>net intake</div></div>
         </div>
-        <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 8, lineHeight: 1.5 }}>
+        <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 8, lineHeight: 1.5 }}>
           <b>Active burn</b> = extra calories from exercise you logged{targets.burnTarget ? ` — this is on top of the ~${targets.maintenance} kcal your body already burns just living + your normal day` : ""}.
           {targets.burnTarget ? (burned >= targets.burnTarget ? ` Daily move goal is ~${targets.burnTarget} extra — hit it! 🎉` : ` Daily move goal is ~${targets.burnTarget} extra — ${targets.burnTarget - burned} more (≈ a ${Math.max(1, Math.round((targets.burnTarget - burned) / 5))}-min walk).`) : (burned > 0 ? ` You've burned ~${burned} kcal moving.` : " Log activity to see calories burned.")}
           {" "}<b>Net intake</b> (eaten − active burn) = <b>{netCals}</b> — keep it near your <b>{targets.calories} kcal</b> eat target.
@@ -2584,16 +2603,16 @@ function TodayTab({ profile, targets, advice, foodToday, habitToday, supplements
           <span style={{ fontFamily: "Inter", fontSize: 13.5, color: T.ink }}>💧 Water</span>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <button onClick={() => setVital(tk, "water", w => Math.max(0, (w || 0) - 1))} style={{ width: 30, height: 30, borderRadius: 999, border: `1px solid ${T.border}`, background: T.white, color: T.teal, fontFamily: "Manrope", fontWeight: 800, fontSize: 17, cursor: "pointer", lineHeight: 1 }}>−</button>
-            <span style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 16, minWidth: 66, textAlign: "center" }}>{dayVitals.water || 0}<span style={{ fontSize: 11, color: T.inkSoft, fontWeight: 600 }}> glass{(dayVitals.water || 0) === 1 ? "" : "es"}</span></span>
+            <span style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 16, minWidth: 66, textAlign: "center" }}>{dayVitals.water || 0}<span style={{ fontSize: 12, color: T.inkSoft, fontWeight: 600 }}> glass{(dayVitals.water || 0) === 1 ? "" : "es"}</span></span>
             <button onClick={() => setVital(tk, "water", w => (w || 0) + 1)} style={{ width: 30, height: 30, borderRadius: 999, border: "none", background: T.tealSolid, color: T.white, fontFamily: "Manrope", fontWeight: 800, fontSize: 17, cursor: "pointer", lineHeight: 1 }}>＋</button>
           </div>
         </div>
         <div style={{ height: 1, background: T.creamDeep, margin: "8px 0" }} />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0" }}>
-          <span style={{ fontFamily: "Inter", fontSize: 13.5, color: T.ink }}>⚖️ Weight <span style={{ fontSize: 11, color: T.inkSoft }}>kg</span></span>
+          <span style={{ fontFamily: "Inter", fontSize: 13.5, color: T.ink }}>⚖️ Weight <span style={{ fontSize: 12, color: T.inkSoft }}>kg</span></span>
           <input type="number" inputMode="decimal" placeholder={String(profile.weight || "")} value={dayVitals.weight ?? ""} onChange={e => setVital(tk, "weight", e.target.value === "" ? null : Number(e.target.value))} style={{ width: 96, textAlign: "right", border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 9px", fontFamily: "Manrope", fontWeight: 700, fontSize: 14 }} />
         </div>
-        <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 8 }}>Logging weight updates your calorie targets and burn estimate.</div>
+        <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 8 }}>Logging weight updates your calorie targets and burn estimate.</div>
       </Card>
       <div style={{ height: 14 }} />
       <Card>
@@ -2615,7 +2634,7 @@ function TodayTab({ profile, targets, advice, foodToday, habitToday, supplements
             </div>
           ) : <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.forest, marginTop: 10, fontWeight: 700 }}>✓ Nutrients on track today</div>;
         })()}
-        <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 8 }}>Estimated targets ({targets.note}). Change goals in ⚙️ Profile.</div>
+        <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 8 }}>Estimated targets ({targets.note}). Change goals in ⚙️ Profile.</div>
       </Card>
       <div style={{ height: 14 }} />
       <Card>
@@ -2630,14 +2649,14 @@ function TodayTab({ profile, targets, advice, foodToday, habitToday, supplements
             </button>
           </div>
         )}
-        <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 8 }}>Tapping "Done" logs a 30-min walk to your Activity Log. For a different length, gym, yoga or cycling, use ＋ → Activity.</div>
+        <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 8 }}>Tapping "Done" logs a 30-min walk to your Activity Log. For a different length, gym, yoga or cycling, use ＋ → Activity.</div>
       </Card>
       <div style={{ height: 14 }} />
       <Card>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div><SectionLabel>Supplements</SectionLabel><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>{supplements.length ? `${supplementsDone} of ${supplements.length} taken` : "None added yet"}</div></div>
           <button onClick={() => onNavigate("supplements")} style={{ background: T.tealPale, border: "none", borderRadius: 10, padding: "8px 12px", display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
-            <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.teal }}>Go to Supplements</span><Icon name="arrowRight" size={14} color={T.teal} />
+            <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.teal }}>Go to Supplements</span><Icon name="arrowRight" size={14} color={T.teal} />
           </button>
         </div>
       </Card>
@@ -2645,7 +2664,7 @@ function TodayTab({ profile, targets, advice, foodToday, habitToday, supplements
       <Card style={{ background: T.tealPale, border: "none" }}>
         <div style={{ display: "flex", gap: 10 }}>
           <Icon name="sparkles" size={20} color={T.teal} style={{ flexShrink: 0, marginTop: 2 }} />
-          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12, color: T.teal, marginBottom: 3 }}>TODAY'S FOCUS — {tip.marker.toUpperCase()}</div><div style={{ fontFamily: "Inter", fontSize: 14, color: T.ink, lineHeight: 1.45 }}>{tip.tip}</div></div>
+          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 13, color: T.teal, marginBottom: 3 }}>TODAY'S FOCUS — {tip.marker.toUpperCase()}</div><div style={{ fontFamily: "Inter", fontSize: 14, color: T.ink, lineHeight: 1.45 }}>{tip.tip}</div></div>
         </div>
       </Card>
       <div style={{ height: 14 }} />
@@ -2661,7 +2680,7 @@ function TodayTab({ profile, targets, advice, foodToday, habitToday, supplements
                 </div>
               ))}
             </div>
-            <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 10 }}>Pulled from the Food, Habits and Supplements tabs for the week you're viewing.</div>
+            <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 10 }}>Pulled from the Food, Habits and Supplements tabs for the week you're viewing.</div>
           </Card>
           <div style={{ height: 14 }} />
         </>
@@ -2719,9 +2738,9 @@ function TrendsSection({ selectedDate, weekFood, weekHabits, weekSupplements, ac
       <Card>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
           <SectionLabel>Recent 7 days</SectionLabel>
-          {anyDemo && <button onClick={clearDemo} style={{ background: "none", border: "none", display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}><Icon name="trash" size={13} color={T.inkSoft} /><span style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>Clear demo</span></button>}
+          {anyDemo && <button onClick={clearDemo} style={{ background: "none", border: "none", display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}><Icon name="trash" size={13} color={T.inkSoft} /><span style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>Clear demo</span></button>}
         </div>
-        {anyDemo && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.amber, marginBottom: 8 }}>Faded bars are placeholder demo data — clear anytime.</div>}
+        {anyDemo && <div style={{ fontFamily: "Inter", fontSize: 13, color: T.amber, marginBottom: 8 }}>Faded bars are placeholder demo data — clear anytime.</div>}
         <MiniBarChart bars={weekBars} />
       </Card>
       <div style={{ height: 14 }} />
@@ -2749,7 +2768,7 @@ function TrendsSection({ selectedDate, weekFood, weekHabits, weekSupplements, ac
         {!weekActivity && !weekFoodLines && !weekSuppText && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 4 }}>Not enough logged data yet for this week's insights.</div>}
         {(weekLineThis.some(v => v != null) || weekLineLast.some(v => v != null)) && (
           <div style={{ marginTop: 14, width: "100%", overflowX: "auto" }}>
-            <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 4 }}>Daily overall score — this week vs last week</div>
+            <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 4 }}>Daily overall score — this week vs last week</div>
             <div style={{ minWidth: 480 }}>
               <TwoLineChart labels={weekLineLabels} a={weekLineThis} b={weekLineLast} aLabel="This week" bLabel="Last week" yMax={100} height={170} />
             </div>
@@ -2781,20 +2800,20 @@ function TrendsSection({ selectedDate, weekFood, weekHabits, weekSupplements, ac
         {!monthActivity && !monthFoodLines && !monthSuppText && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 4 }}>Not enough logged data yet for this month's insights.</div>}
         {(monthSeriesThis.some(v => v != null) || monthSeriesLast.some(v => v != null)) && (
           <div style={{ marginTop: 14, width: "100%", overflowX: "auto" }}>
-            <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 4 }}>Weekly average score — {monthLabel(thisMonthKey)} vs {monthLabel(lastMonthKey)}</div>
+            <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 4 }}>Weekly average score — {monthLabel(thisMonthKey)} vs {monthLabel(lastMonthKey)}</div>
             <div style={{ minWidth: 480 }}>
               <TwoLineChart labels={monthLineLabels} a={padTo(monthSeriesThis)} b={padTo(monthSeriesLast)} aLabel={monthLabel(thisMonthKey)} bLabel={monthLabel(lastMonthKey)} yMax={100} height={170} />
             </div>
           </div>
         )}
-        <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 10 }}>Relative to the date you're viewing — switch dates with the calendar above.</div>
+        <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 10 }}>Relative to the date you're viewing — switch dates with the calendar above.</div>
       </Card>
     </>
   );
 }
 
 /* ============================== TAB 2: FOOD CHECK ============================== */
-function MiniStat({ v, l }) { return <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15 }}>{v ?? "—"}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{l}</div></div>; }
+function MiniStat({ v, l }) { return <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15 }}>{v ?? "—"}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>{l}</div></div>; }
 
 function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, activities, weekSupplements, addFoodEntry, deleteFoodEntry, updateFoodEntry, splitFoodEntry, customDishes, saveCustomDish, metrics, periods, targets, advice, otherProfilesMeals, onCopyFromProfile }) {
   const priorities = computeTopPriorities(metrics, periods);
@@ -3089,8 +3108,8 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
       {foodHl && <><InsightCallout insight={foodHl} icon="food" /><div style={{ height: 14 }} /></>}
       {foodForDate.length > 0 && (
         <Card style={{ marginBottom: 12, padding: 12 }}>
-          <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11.5, letterSpacing: 0.3, color: T.inkSoft, marginBottom: 6 }}>ALREADY LOGGED {selectedDate === todayKey() ? "TODAY" : ""} · {foodForDate.length}</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{foodForDate.map((f, i) => <span key={i} style={{ fontFamily: "Inter", fontSize: 11.5, color: T.ink, background: T.creamDeep, borderRadius: 999, padding: "3px 9px" }}><span style={{ color: T.inkSoft }}>{(f.mealSlot || "").slice(0, 3)} · </span>{f.dish}</span>)}</div>
+          <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, letterSpacing: 0.3, color: T.inkSoft, marginBottom: 6 }}>ALREADY LOGGED {selectedDate === todayKey() ? "TODAY" : ""} · {foodForDate.length}</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{foodForDate.map((f, i) => <span key={i} style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, background: T.creamDeep, borderRadius: 999, padding: "3px 9px" }}><span style={{ color: T.inkSoft }}>{(f.mealSlot || "").slice(0, 3)} · </span>{f.dish}</span>)}</div>
         </Card>
       )}
       <SectionLabel>Is this safe?</SectionLabel>
@@ -3099,20 +3118,20 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
           <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Type any dish — pizza, biryani, sushi, tacos…" style={{ flex: 1, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", fontFamily: "Inter", fontSize: 14, background: T.cream }} onKeyDown={e => { if (e.key === "Enter" && query.trim()) checkDish(query.trim()); }} />
           <button onClick={() => query.trim() && checkDish(query.trim())} style={{ background: T.saffron, border: "none", borderRadius: 10, padding: "0 16px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13 }}>Check</button>
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 10 }}>{shortcuts.map(s => <button key={s} onClick={() => checkDish(s)} style={{ background: T.creamDeep, border: `1px solid ${T.border}`, borderRadius: 999, padding: "4px 9px", fontFamily: "Inter", fontSize: 11, color: T.inkSoft, textTransform: "capitalize", cursor: "pointer" }}>{s}</button>)}</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 10 }}>{shortcuts.map(s => <button key={s} onClick={() => checkDish(s)} style={{ background: T.creamDeep, border: `1px solid ${T.border}`, borderRadius: 999, padding: "4px 9px", fontFamily: "Inter", fontSize: 12, color: T.inkSoft, textTransform: "capitalize", cursor: "pointer" }}>{s}</button>)}</div>
       </Card>
       {disambig && (
         <>
           <div style={{ height: 10 }} />
           <Card>
             <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 14, marginBottom: 3 }}>Which {disambig.query}?</div>
-            <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 10 }}>A few varieties match — pick the closest so the numbers are right.</div>
+            <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 10 }}>A few varieties match — pick the closest so the numbers are right.</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {disambig.options.map(o => (
                 <button key={o.id} onClick={() => pickHealthDish(o.id)} style={{ textAlign: "left", background: T.creamDeep, border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", fontFamily: "Inter", fontSize: 13.5, color: T.ink }}>{o.name}</button>
               ))}
             </div>
-            <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 8 }}>Not listed? Type a more specific name.</div>
+            <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 8 }}>Not listed? Type a more specific name.</div>
           </Card>
         </>
       )}
@@ -3130,7 +3149,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
             </div>
 
             <div style={{ background: T.tealPale, borderRadius: 10, padding: 12, marginBottom: 14 }}>
-              <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.teal, marginBottom: 6 }}>Got an answer from Google or Google AI? Paste it here:</div>
+              <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.teal, marginBottom: 6 }}>Got an answer from Google or Google AI? Paste it here:</div>
               <textarea value={pasteText} onChange={e => { setPasteText(e.target.value); setPastePreview(null); }} placeholder="Paste the nutrition text you found — calories, protein, sugar, carbs, fat…" rows={4}
                 style={{ width: "100%", border: `1px solid ${T.border}`, borderRadius: 8, padding: 8, fontFamily: "Inter", fontSize: 12.5, resize: "vertical" }} />
               {!pastePreview ? (
@@ -3142,7 +3161,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
                   </div>
                   {pastePreview.calories == null && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.alert, marginBottom: 8 }}>Couldn't find a calorie number in that text — check the paste, or fall back to the manual verdict below.</div>}
                   <button onClick={saveAndLogPasted} disabled={pastePreview.calories == null} style={{ width: "100%", background: pastePreview.calories != null ? T.teal : T.creamDeep, border: "none", borderRadius: 8, padding: "9px 0", color: pastePreview.calories != null ? T.white : T.inkSoft, fontFamily: "Manrope", fontWeight: 700, fontSize: 13 }}>Save & log this meal</button>
-                  <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 6 }}>Saved permanently — typing "{notFound}" again will use these numbers instantly, no need to search or paste twice.</div>
+                  <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 6 }}>Saved permanently — typing "{notFound}" again will use these numbers instantly, no need to search or paste twice.</div>
                 </div>
               )}
             </div>
@@ -3151,7 +3170,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
               {["safe", "moderate", "limit", "avoid"].map(v => (
                 <button key={v} onClick={() => setManualVerdict(v)} style={{
                   background: manualVerdict === v ? meta(v).fg : T.creamDeep, color: manualVerdict === v ? T.white : T.ink,
-                  border: "none", borderRadius: 999, padding: "6px 12px", fontFamily: "Inter", fontSize: 12
+                  border: "none", borderRadius: 999, padding: "6px 12px", fontFamily: "Inter", fontSize: 13
                 }}>{meta(v).emoji} {meta(v).label}</button>
               ))}
             </div>
@@ -3161,10 +3180,10 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
             </div>
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 6 }}>When?</div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{MEAL_SLOTS.map(s => <button key={s} onClick={() => setMealSlot(s)} style={{ background: mealSlot === s ? T.teal : T.creamDeep, color: mealSlot === s ? T.white : T.ink, border: "none", borderRadius: 999, padding: "5px 11px", fontFamily: "Inter", fontSize: 12 }}>{s}</button>)}</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{MEAL_SLOTS.map(s => <button key={s} onClick={() => setMealSlot(s)} style={{ background: mealSlot === s ? T.teal : T.creamDeep, color: mealSlot === s ? T.white : T.ink, border: "none", borderRadius: 999, padding: "5px 11px", fontFamily: "Inter", fontSize: 13 }}>{s}</button>)}</div>
             </div>
             <button onClick={logManual} disabled={!manualVerdict} style={{ width: "100%", background: manualVerdict ? T.teal : T.creamDeep, border: "none", borderRadius: 10, padding: "10px 0", color: manualVerdict ? T.white : T.inkSoft, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5 }}>Log this meal</button>
-            <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 6 }}>Saved permanently — typing "{notFound}" again will use this verdict instantly.</div>
+            <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 6 }}>Saved permanently — typing "{notFound}" again will use this verdict instantly.</div>
           </Card>
         </>
       )}
@@ -3173,42 +3192,42 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
           <div style={{ height: 12 }} />
           <Card style={{ borderColor: meta(result.verdict).fg }}>
             <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, textTransform: "capitalize", marginBottom: 4 }}>{result.dish} {result.lookedUp && <Badge bg={T.creamDeep} fg={T.inkSoft}>Estimated</Badge>}</div>
-            {correctedFrom && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 8 }}>Matched "{query}" to "{correctedFrom}"</div>}
-            {result.composite && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 8, lineHeight: 1.45 }}>Combined <b>{result.composite.components.length}</b> ingredients (equal parts, averaged): {result.composite.components.join(" · ")}</div>}
+            {correctedFrom && <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 8 }}>Matched "{query}" to "{correctedFrom}"</div>}
+            {result.composite && <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 8, lineHeight: 1.45 }}>Combined <b>{result.composite.components.length}</b> ingredients (equal parts, averaged): {result.composite.components.join(" · ")}</div>}
             {result.ingredients && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>Likely: {result.ingredients}</div>}
             {health && pvShow ? (
               <div style={{ marginBottom: 10 }}>
                 <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: T[VERDICT_TONE[pvShow.tone].bg], color: T[VERDICT_TONE[pvShow.tone].fg], padding: "8px 13px", borderRadius: 10, fontFamily: "Manrope", fontWeight: 800, fontSize: 13.5, marginBottom: 8 }}>{VERDICT_TONE[pvShow.tone].emoji} {pvShow.text}</div>
-                {isAlcohol && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.alert, marginBottom: 8, lineHeight: 1.45 }}>Alcohol is processed by the liver and raises triglycerides — the two things your reports are watching. There's no liver-safe amount when GGT/TG are up.</div>}
-                {isSugaryDrink && liverSugarRisk && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.amber, marginBottom: 8, lineHeight: 1.45 }}>Even 100% juice concentrates fruit sugar without the fibre, so it spikes the liver like added sugar. A whole fruit is the better choice.</div>}
+                {isAlcohol && <div style={{ fontFamily: "Inter", fontSize: 13, color: T.alert, marginBottom: 8, lineHeight: 1.45 }}>Alcohol is processed by the liver and raises triglycerides — the two things your reports are watching. There's no liver-safe amount when GGT/TG are up.</div>}
+                {isSugaryDrink && liverSugarRisk && <div style={{ fontFamily: "Inter", fontSize: 13, color: T.amber, marginBottom: 8, lineHeight: 1.45 }}>Even 100% juice concentrates fruit sugar without the fibre, so it spikes the liver like added sugar. A whole fruit is the better choice.</div>}
                 {mod.applied.length > 0 && (
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", background: T.tealPale, borderRadius: 8, padding: "6px 10px", marginBottom: 8 }}>
-                    <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.teal }}>✓ ADJUSTED FOR</span>
-                    {mod.applied.map((a, i) => <span key={i} style={{ fontFamily: "Inter", fontSize: 12, color: T.teal }}>{a}{i < mod.applied.length - 1 ? "," : ""}</span>)}
-                    <span style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>— scores &amp; calories recalculated</span>
+                    <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.teal }}>✓ ADJUSTED FOR</span>
+                    {mod.applied.map((a, i) => <span key={i} style={{ fontFamily: "Inter", fontSize: 13, color: T.teal }}>{a}{i < mod.applied.length - 1 ? "," : ""}</span>)}
+                    <span style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>— scores &amp; calories recalculated</span>
                   </div>
                 )}
                 {scored.worse_for.length > 0 && (
                   <div style={{ marginTop: 6 }}>
-                    <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, letterSpacing: 0.4, color: T.inkSoft, marginBottom: 4 }}>NOT GOOD FOR</div>
+                    <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, letterSpacing: 0.4, color: T.inkSoft, marginBottom: 4 }}>NOT GOOD FOR</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                       {scored.worse_for.map(([c, lvl, reason], i) => (
-                        <span key={i} style={{ background: "transparent", border: `1px solid ${lvl === "red" ? T.alert : T.amber}`, color: lvl === "red" ? T.alert : T.amber, padding: "4px 10px", borderRadius: 999, fontFamily: "Inter", fontSize: 12 }}>{HEALTH_DB.labels[c] || c}</span>
+                        <span key={i} style={{ background: "transparent", border: `1px solid ${lvl === "red" ? T.alert : T.amber}`, color: lvl === "red" ? T.alert : T.amber, padding: "4px 10px", borderRadius: 999, fontFamily: "Inter", fontSize: 13 }}>{HEALTH_DB.labels[c] || c}</span>
                       ))}
                     </div>
                     {scored.worse_for.some(w => w[2]) && (
                       <div style={{ marginTop: 5, display: "flex", flexDirection: "column", gap: 2 }}>
-                        {scored.worse_for.filter(w => w[2]).map(([c, lvl, reason], i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, lineHeight: 1.4 }}>• <b style={{ color: lvl === "red" ? T.alert : T.amber }}>{HEALTH_DB.labels[c] || c}:</b> {reason}</div>)}
+                        {scored.worse_for.filter(w => w[2]).map(([c, lvl, reason], i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, lineHeight: 1.4 }}>• <b style={{ color: lvl === "red" ? T.alert : T.amber }}>{HEALTH_DB.labels[c] || c}:</b> {reason}</div>)}
                       </div>
                     )}
                   </div>
                 )}
                 {scored.good_source_for.length > 0 && (
                   <div style={{ marginTop: 8 }}>
-                    <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, letterSpacing: 0.4, color: T.inkSoft, marginBottom: 4 }}>GOOD SOURCE FOR</div>
+                    <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, letterSpacing: 0.4, color: T.inkSoft, marginBottom: 4 }}>GOOD SOURCE FOR</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                       {scored.good_source_for.map(([c, reason], i) => (
-                        <span key={i} title={reason} style={{ background: T.forestPale, color: T.forest, padding: "4px 10px", borderRadius: 999, fontFamily: "Inter", fontSize: 12 }}>{HEALTH_DB.labels[c] || c}</span>
+                        <span key={i} title={reason} style={{ background: T.forestPale, color: T.forest, padding: "4px 10px", borderRadius: 999, fontFamily: "Inter", fontSize: 13 }}>{HEALTH_DB.labels[c] || c}</span>
                       ))}
                     </div>
                   </div>
@@ -3220,12 +3239,12 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
                     ))}
                   </div>
                 )}
-                {health.estimated && <div style={{ fontFamily: "Inter", fontSize: 11, color: T.saffronDeep, marginTop: 6 }}>≈ Estimated nutrition (typical for this kind of dish) — not measured. Treat as a rough guide.</div>}
+                {health.estimated && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.saffronDeep, marginTop: 6 }}>≈ Estimated nutrition (typical for this kind of dish) — not measured. Treat as a rough guide.</div>}
                 {microList.length > 0 && (
                   <div style={{ marginTop: 8 }}>
-                    <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, letterSpacing: 0.4, color: T.inkSoft, marginBottom: 4 }}>ALSO PROVIDES <span style={{ fontWeight: 400, textTransform: "none" }}>(per 100g)</span></div>
+                    <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, letterSpacing: 0.4, color: T.inkSoft, marginBottom: 4 }}>ALSO PROVIDES <span style={{ fontWeight: 400, textTransform: "none" }}>(per 100g)</span></div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {microList.map((m, i) => <span key={i} style={{ background: T.forestPale, color: T.forest, padding: "3px 9px", borderRadius: 999, fontFamily: "Inter", fontSize: 11.5 }}>{m}</span>)}
+                      {microList.map((m, i) => <span key={i} style={{ background: T.forestPale, color: T.forest, padding: "3px 9px", borderRadius: 999, fontFamily: "Inter", fontSize: 12.5 }}>{m}</span>)}
                     </div>
                   </div>
                 )}
@@ -3243,14 +3262,14 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
             <div style={{ fontFamily: "Inter", fontSize: 13.5, color: T.ink, lineHeight: 1.5, marginBottom: 10 }}>{result.reason}</div>
             <div style={{ display: "flex", gap: 14, marginBottom: 8, flexWrap: "wrap" }}><MiniStat v={dm.cal} l="cal" /><MiniStat v={dm.protein} l="protein g" /><MiniStat v={dm.fiber} l="fiber g" /><MiniStat v={dm.sugar} l="sugar g" /></div>
             {health && dm.sugar > 2 && (SWEET_WHOLE_RE.test(result.dish || "") || (mod.n.free_sugar_g === 0 && mod.n.carb_g > 5)) && (
-              <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 10, lineHeight: 1.45 }}>{isSugaryDrink ? "This is juice/added sugar — it hits triglycerides fast because there's no fibre to slow it." : "This is natural fruit sugar (0g added) — it comes bundled with fibre, so it's gentler on triglycerides than added or juice sugar."}</div>
+              <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 10, lineHeight: 1.45 }}>{isSugaryDrink ? "This is juice/added sugar — it hits triglycerides fast because there's no fibre to slow it." : "This is natural fruit sugar (0g added) — it comes bundled with fibre, so it's gentler on triglycerides than added or juice sugar."}</div>
             )}
             {result.weeklyLimit != null && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 10 }}>You've had this {weeklyCountFor(result.dish)}x this week · cap: {result.weeklyLimit}/week</div>}
             {result.healthierTip && (
               <div style={{ background: T.tealPale, borderRadius: 10, padding: 10, marginBottom: 12 }}>
                 <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.teal, marginBottom: 3 }}>💡 HEALTHIER TWIST</div>
                 <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.4, marginBottom: 6 }}>{result.healthierTip}</div>
-                <a href={recipeUrl(result.dish)} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, color: T.saffronDeep, fontFamily: "Manrope", fontWeight: 700, fontSize: 12, textDecoration: "none" }}>
+                <a href={recipeUrl(result.dish)} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, color: T.saffronDeep, fontFamily: "Manrope", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>
                   Search a healthier recipe <Icon name="external" size={12} color={T.saffronDeep} />
                 </a>
               </div>
@@ -3261,13 +3280,13 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
                 <button onClick={() => setQty(q => Math.max(1, q - 1))} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${T.border}`, background: T.creamDeep, color: T.ink, fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>−</button>
                 <div style={{ minWidth: 34, textAlign: "center", fontFamily: "Manrope", fontWeight: 800, fontSize: 16 }}>{qty}</div>
                 <button onClick={() => setQty(q => q + 1)} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${T.border}`, background: T.creamDeep, color: T.ink, fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>+</button>
-                <div style={{ display: "flex", gap: 6, marginLeft: 6 }}>{[1, 2, 3].map(x => <button key={x} onClick={() => setQty(x)} style={{ background: qty === x ? T.teal : T.creamDeep, color: qty === x ? T.white : T.ink, border: "none", borderRadius: 999, padding: "6px 12px", fontFamily: "Inter", fontSize: 12 }}>×{x}</button>)}</div>
+                <div style={{ display: "flex", gap: 6, marginLeft: 6 }}>{[1, 2, 3].map(x => <button key={x} onClick={() => setQty(x)} style={{ background: qty === x ? T.teal : T.creamDeep, color: qty === x ? T.white : T.ink, border: "none", borderRadius: 999, padding: "6px 12px", fontFamily: "Inter", fontSize: 13 }}>×{x}</button>)}</div>
               </div>
-              {dm.cal != null && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 7 }}>Will log <b>{Math.round(dm.cal * qty)} cal</b>{dm.sugar != null ? ` · ${Math.round(dm.sugar * qty)}g sugar` : ""}{health ? ` · ${qty * 100}g total` : ` · ${qty} serving${qty > 1 ? "s" : ""}`}</div>}
+              {dm.cal != null && <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 7 }}>Will log <b>{Math.round(dm.cal * qty)} cal</b>{dm.sugar != null ? ` · ${Math.round(dm.sugar * qty)}g sugar` : ""}{health ? ` · ${qty * 100}g total` : ` · ${qty} serving${qty > 1 ? "s" : ""}`}</div>}
             </div>
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 6 }}>When?</div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{MEAL_SLOTS.map(s => <button key={s} onClick={() => setMealSlot(s)} style={{ background: mealSlot === s ? T.teal : T.creamDeep, color: mealSlot === s ? T.white : T.ink, border: "none", borderRadius: 999, padding: "5px 11px", fontFamily: "Inter", fontSize: 12 }}>{s}</button>)}</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{MEAL_SLOTS.map(s => <button key={s} onClick={() => setMealSlot(s)} style={{ background: mealSlot === s ? T.teal : T.creamDeep, color: mealSlot === s ? T.white : T.ink, border: "none", borderRadius: 999, padding: "5px 11px", fontFamily: "Inter", fontSize: 13 }}>{s}</button>)}</div>
             </div>
             <button onClick={logMeal} style={{ width: "100%", background: T.tealSolid, border: "none", borderRadius: 10, padding: "10px 0", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5 }}>Log this meal</button>
           </Card>
@@ -3278,7 +3297,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
           <div style={{ height: 10 }} />
           <Card style={{ background: T.amberPale, border: "none" }}>
             <div style={{ fontFamily: "Inter", fontSize: 13, color: T.ink, lineHeight: 1.45, marginBottom: 8 }}>{warning}</div>
-            <button onClick={() => { setWarning(null); setResult(null); setQuery(""); }} style={{ background: T.tealSolid, border: "none", borderRadius: 8, padding: "7px 12px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 12 }}>Got it</button>
+            <button onClick={() => { setWarning(null); setResult(null); setQuery(""); }} style={{ background: T.tealSolid, border: "none", borderRadius: 8, padding: "7px 12px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13 }}>Got it</button>
           </Card>
         </>
       )}
@@ -3286,8 +3305,8 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
       <SectionLabel>What {selectedDate === todayKey() ? "I ate today" : `was eaten — ${formatDateLabel(selectedDate)}`}</SectionLabel>
       <Card>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 20 }}>{totalCals}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>calories</div></div>
-          <div style={{ textAlign: "right" }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 20, color: badCount > 1 ? T.alert : T.forest }}>{badCount}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>flagged items</div></div>
+          <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 20 }}>{totalCals}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>calories</div></div>
+          <div style={{ textAlign: "right" }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 20, color: badCount > 1 ? T.alert : T.forest }}>{badCount}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>flagged items</div></div>
         </div>
         <div style={{ height: 8, borderRadius: 999, background: T.creamDeep, overflow: "hidden", display: "flex", marginBottom: 10 }}>{foodForDate.length === 0 ? <div style={{ flex: 1 }} /> : foodForDate.map((f, i) => <div key={i} style={{ flex: 1, background: meta(f.verdict).fg }} />)}</div>
         {foodForDate.length === 0 ? (
@@ -3295,7 +3314,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
             <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: (yesterdayMeals.length || (otherProfilesMeals || []).length) ? 10 : 0 }}>Nothing logged for this date.</div>
             {(yesterdayMeals.length > 0 || (otherProfilesMeals || []).length > 0) && (
               <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11, letterSpacing: 0.3, color: T.inkSoft, textTransform: "uppercase" }}>Copy a whole day (you can edit after)</div>
+                <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, letterSpacing: 0.3, color: T.inkSoft, textTransform: "uppercase" }}>Copy a whole day (you can edit after)</div>
                 {yesterdayMeals.length > 0 && <button onClick={copyYesterday} style={{ width: "100%", textAlign: "left", background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 10, padding: "10px 12px", color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>📋 Copy yesterday's {yesterdayMeals.length} meal{yesterdayMeals.length > 1 ? "s" : ""}</button>}
                 {(otherProfilesMeals || []).map(p => <button key={p.id} onClick={() => onCopyFromProfile(p.entries)} style={{ width: "100%", textAlign: "left", background: T.creamDeep, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", color: T.ink, fontFamily: "Manrope", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>👥 Copy {p.name}'s {p.entries.length} meal{p.entries.length > 1 ? "s" : ""} (same day)</button>)}
               </div>
@@ -3305,7 +3324,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
           <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 4 }}>
             {MEAL_SLOTS.filter(slot => foodForDate.some(f => (f.mealSlot || "Snack") === slot)).map(slot => (
               <div key={slot} style={{ flex: "0 0 auto", width: 168, background: T.creamDeep, borderRadius: 12, padding: 10 }}>
-                <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 11.5, letterSpacing: 0.3, color: T.teal, marginBottom: 8, textTransform: "uppercase" }}>{slot}</div>
+                <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12.5, letterSpacing: 0.3, color: T.teal, marginBottom: 8, textTransform: "uppercase" }}>{slot}</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {foodForDate.map((f, i) => ({ f, i })).filter(({ f }) => (f.mealSlot || "Snack") === slot).map(({ f, i }) => {
                     const canSplit = String(f.dish || "").split(/\s*[+&]\s*|\s+and\s+/i).map(s => s.trim()).filter(Boolean).length >= 2;
@@ -3316,10 +3335,10 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
                         <DeleteBtn onClick={() => deleteFoodEntry(selectedDate, i)} />
                       </div>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginTop: 6 }}>
-                        <span style={{ fontFamily: "Inter", fontSize: 11.5, color: meta(f.verdict).fg, fontWeight: 700 }}>{meta(f.verdict).emoji} {f.calories ?? "—"} cal</span>
-                        <select value={f.mealSlot || "Snack"} onChange={e => updateFoodEntry(selectedDate, i, { mealSlot: e.target.value })} title="Move to another meal" style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, background: "transparent", border: `1px solid ${T.border}`, borderRadius: 6, padding: "1px 2px", cursor: "pointer", maxWidth: 74 }}>{MEAL_SLOTS.map(s => <option key={s} value={s} style={{ color: "#111" }}>{s}</option>)}</select>
+                        <span style={{ fontFamily: "Inter", fontSize: 12.5, color: meta(f.verdict).fg, fontWeight: 700 }}>{meta(f.verdict).emoji} {f.calories ?? "—"} cal</span>
+                        <select value={f.mealSlot || "Snack"} onChange={e => updateFoodEntry(selectedDate, i, { mealSlot: e.target.value })} title="Move to another meal" style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, background: "transparent", border: `1px solid ${T.border}`, borderRadius: 6, padding: "1px 2px", cursor: "pointer", maxWidth: 74 }}>{MEAL_SLOTS.map(s => <option key={s} value={s} style={{ color: "#111" }}>{s}</option>)}</select>
                       </div>
-                      {canSplit && <button onClick={() => splitFoodEntry(selectedDate, i)} title="Split into separate items so you can move each to a different meal" style={{ marginTop: 6, width: "100%", background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 6, padding: "3px 0", color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 10.5, cursor: "pointer" }}>⤲ Split items</button>}
+                      {canSplit && <button onClick={() => splitFoodEntry(selectedDate, i)} title="Split into separate items so you can move each to a different meal" style={{ marginTop: 6, width: "100%", background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 6, padding: "3px 0", color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>⤲ Split items</button>}
                     </div>
                     );
                   })}
@@ -3341,7 +3360,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
             </div>
             {(weekCalThis.some(v => v != null) || weekCalLast.some(v => v != null)) && (
               <div style={{ marginTop: 8, width: "100%", overflowX: "auto" }}>
-                <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 4 }}>Calories per day — this week vs last week</div>
+                <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 4 }}>Calories per day — this week vs last week</div>
                 <div style={{ minWidth: 480 }}>
                   <TwoLineChart labels={foodWeekLabels} a={weekCalThis} b={weekCalLast} aLabel="This week" bLabel="Last week" height={170} />
                 </div>
@@ -3349,7 +3368,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
             )}
             {(weekSugThis.some(v => v != null) || weekSugLast.some(v => v != null)) && (
               <div style={{ marginTop: 14, width: "100%", overflowX: "auto" }}>
-                <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 4 }}>Sugar per day (g) — this week vs last week</div>
+                <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 4 }}>Sugar per day (g) — this week vs last week</div>
                 <div style={{ minWidth: 480 }}>
                   <TwoLineChart labels={foodWeekLabels} a={weekSugThis} b={weekSugLast} aLabel="This week" bLabel="Last week" aColor={T.alert} bColor={T.inkSoft} unit="g" height={150} />
                 </div>
@@ -3357,7 +3376,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
             )}
             {(monCalThis.some(v => v != null) || monCalLast.some(v => v != null)) && (
               <div style={{ marginTop: 14, width: "100%", overflowX: "auto" }}>
-                <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 4 }}>Weekly average calories — {monthLabel(thisMonthKey)} vs {monthLabel(lastMonthKey)}</div>
+                <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 4 }}>Weekly average calories — {monthLabel(thisMonthKey)} vs {monthLabel(lastMonthKey)}</div>
                 <div style={{ minWidth: 480 }}>
                   <TwoLineChart labels={foodMonLabels} a={foodMonPad(monCalThis)} b={foodMonPad(monCalLast)} aLabel={monthLabel(thisMonthKey)} bLabel={monthLabel(lastMonthKey)} height={170} />
                 </div>
@@ -3384,13 +3403,13 @@ function MyHealthTab({ metrics, periods, supplementsToday, toggleSupplement, sup
       <div style={{ height: 18 }} />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <SectionLabel>Top priorities right now</SectionLabel>
-        <button onClick={onAddReport} style={{ background: T.tealPale, border: "none", borderRadius: 8, padding: "5px 10px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.teal, marginBottom: 8 }}>+ New report</button>
+        <button onClick={onAddReport} style={{ background: T.tealPale, border: "none", borderRadius: 8, padding: "5px 10px", fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.teal, marginBottom: 8 }}>+ New report</button>
       </div>
       {priorities.length === 0 ? <Card><div style={{ fontFamily: "Inter", fontSize: 13, color: T.forest }}>Nothing flagged — every tracked marker is within range.</div></Card> : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{priorities.map(p => (
           <Card key={p.key} style={{ borderColor: p.status === "bad" ? T.alert : T.amber }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 14 }}>{p.label}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>Target: {p.target} {p.unit}</div></div>
+              <div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 14 }}>{p.label}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>Target: {p.target} {p.unit}</div></div>
               <div style={{ textAlign: "right" }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 20, color: p.status === "bad" ? T.alert : T.amber }}>{p.value}</div><Icon name="trendDown" size={16} color={p.status === "bad" ? T.alert : T.amber} /></div>
             </div>
           </Card>
@@ -3408,7 +3427,7 @@ function MyHealthTab({ metrics, periods, supplementsToday, toggleSupplement, sup
               <div style={{ textAlign: "right", marginRight: 10 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 17 }}>{latest ?? "—"}</div></div>
               <Badge bg={s.bg} fg={s.fg}>{s.label}</Badge>
             </div>
-            {m.note && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 6, lineHeight: 1.4 }}>{m.note}</div>}
+            {m.note && <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 6, lineHeight: 1.4 }}>{m.note}</div>}
           </Card>
         );
       })}</div>
@@ -3419,9 +3438,9 @@ function MyHealthTab({ metrics, periods, supplementsToday, toggleSupplement, sup
           <MiniLineChart periods={periods} series={metrics.filter(m => ["chol", "ldl", "tg", "hdl", "ggt"].includes(m.key)).map(m => ({ key: m.key, points: m.points, color: m.color }))} />
         </div></div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 8 }}>{metrics.filter(m => ["chol", "ldl", "tg", "hdl", "ggt"].includes(m.key)).map(m => (
-          <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 9, height: 9, borderRadius: 3, background: m.color, display: "inline-block" }} /><span style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{m.label}</span></div>
+          <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 9, height: 9, borderRadius: 3, background: m.color, display: "inline-block" }} /><span style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>{m.label}</span></div>
         ))}</div>
-        <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 6 }}>Gaps mean the marker wasn't tested that period.</div>
+        <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 6 }}>Gaps mean the marker wasn't tested that period.</div>
       </Card>
       <div style={{ height: 18 }} />
       <SectionLabel>Supplement tracker — today</SectionLabel>
@@ -3469,7 +3488,7 @@ function ActivityLog({ selectedDate, activities, addActivity, deleteActivity, we
     <>
       <SectionLabel>Activity log — {formatDateLabel(selectedDate)}</SectionLabel>
       <Card>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>{ACTIVITY_TYPES.map(t => <button key={t} onClick={() => setType(t)} style={{ background: type === t ? T.teal : T.creamDeep, color: type === t ? T.white : T.ink, border: "none", borderRadius: 999, padding: "6px 12px", fontFamily: "Inter", fontSize: 12 }}>{t}</button>)}</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>{ACTIVITY_TYPES.map(t => <button key={t} onClick={() => setType(t)} style={{ background: type === t ? T.teal : T.creamDeep, color: type === t ? T.white : T.ink, border: "none", borderRadius: 999, padding: "6px 12px", fontFamily: "Inter", fontSize: 13 }}>{t}</button>)}</div>
         <div style={{ display: "flex", gap: 8 }}>
           <input value={duration} onChange={e => setDuration(e.target.value.replace(/\D/g, ""))} placeholder="Minutes" inputMode="numeric" style={{ flex: 1, border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", fontFamily: "Inter", fontSize: 13.5 }} />
           <button onClick={add} style={{ background: T.saffron, border: "none", borderRadius: 10, padding: "0 16px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13 }}>Add</button>
@@ -3481,7 +3500,7 @@ function ActivityLog({ selectedDate, activities, addActivity, deleteActivity, we
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{allEntries.map((e, i) => (
           <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
             <span style={{ fontFamily: "Inter", fontSize: 13 }}>{e.type}</span>
-            <span style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, flex: 1, textAlign: "right" }}>{e.duration} min · ~{activityCalories(e.type, e.duration, weightKg)} kcal · {e.dateKey === todayKey() ? "Today" : formatDateLabel(e.dateKey)}</span>
+            <span style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, flex: 1, textAlign: "right" }}>{e.duration} min · ~{activityCalories(e.type, e.duration, weightKg)} kcal · {e.dateKey === todayKey() ? "Today" : formatDateLabel(e.dateKey)}</span>
             <DeleteBtn onClick={() => deleteActivity(e.dateKey, e.idx)} />
           </div>
         ))}</div>
@@ -3492,16 +3511,16 @@ function ActivityLog({ selectedDate, activities, addActivity, deleteActivity, we
         <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, marginBottom: 6 }}>{monthLabel(curMk)}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
           <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22 }}>{curPct}%</div>
-          <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{curStats ? curStats.activeDays.size : 0} active days of {daysElapsedThisMonth}{isCurRealMonth ? " so far" : ""}{curStats ? ` · ${curStats.totalMinutes} min total` : ""}</div>
+          <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>{curStats ? curStats.activeDays.size : 0} active days of {daysElapsedThisMonth}{isCurRealMonth ? " so far" : ""}{curStats ? ` · ${curStats.totalMinutes} min total` : ""}</div>
         </div>
         {prevPct !== null ? (
           <div style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 6 }}>
             <Icon name={curPct >= prevPct ? "trendUp" : "trendDown"} size={14} color={curPct >= prevPct ? T.forest : T.alert} /> vs {prevPct}% in {monthLabel(prevMk)}
           </div>
-        ) : <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 6 }}>No data yet for {monthLabel(prevMk)} to compare.</div>}
+        ) : <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 6 }}>No data yet for {monthLabel(prevMk)} to compare.</div>}
         {(monActThis.some(v => v != null) || monActLast.some(v => v != null)) && (
           <div style={{ marginTop: 14, width: "100%", overflowX: "auto" }}>
-            <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 4 }}>Active minutes per week — {monthLabel(curMk)} vs {monthLabel(prevMk)}</div>
+            <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 4 }}>Active minutes per week — {monthLabel(curMk)} vs {monthLabel(prevMk)}</div>
             <div style={{ minWidth: 480 }}>
               <TwoLineChart labels={monActLabels} a={monActPad(monActThis)} b={monActPad(monActLast)} aLabel={monthLabel(curMk)} bLabel={monthLabel(prevMk)} unit="m" height={170} />
             </div>
@@ -3556,7 +3575,7 @@ function HabitsTab({ selectedDate, setSelectedDate, habitsForDate, toggleHabit, 
               const key = ymd(d);
               const isToday = key === todayKey();
               return (
-                <th key={i} style={{ fontFamily: "Manrope", fontWeight: isToday ? 800 : 700, fontSize: 12, color: isToday ? T.saffronDeep : T.inkSoft, paddingBottom: 8 }}>
+                <th key={i} style={{ fontFamily: "Manrope", fontWeight: isToday ? 800 : 700, fontSize: 13, color: isToday ? T.saffronDeep : T.inkSoft, paddingBottom: 8 }}>
                   <div>{dayLabel(d)}</div>
                   <div style={{ fontSize: 13, marginTop: 1 }}>{d.getDate()}</div>
                 </th>
@@ -3573,17 +3592,17 @@ function HabitsTab({ selectedDate, setSelectedDate, habitsForDate, toggleHabit, 
             ))}</tbody>
           </table>
         </div>
-        <div style={{ display: "flex", gap: 12, marginTop: 12, fontFamily: "Inter", fontSize: 12, color: T.inkSoft, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 12, marginTop: 12, fontFamily: "Inter", fontSize: 13, color: T.inkSoft, flexWrap: "wrap" }}>
           <span><span style={{ display: "inline-block", width: 10, height: 10, background: T.forest, borderRadius: 3, marginRight: 4 }} />Done</span>
           <span><span style={{ display: "inline-block", width: 10, height: 10, background: "rgba(200,90,70,0.16)", border: `1px solid ${T.border}`, borderRadius: 3, marginRight: 4 }} />Missed</span>
           <span><span style={{ display: "inline-block", width: 10, height: 10, background: T.creamDeep, borderRadius: 3, marginRight: 4 }} />Sunday</span>
         </div>
-        <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 6 }}>Tap any day to jump the whole tab to that date, or use the calendar above for further back.</div>
+        <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 6 }}>Tap any day to jump the whole tab to that date, or use the calendar above for further back.</div>
       </Card>
       <div style={{ height: 14 }} />
       <SectionLabel>Streaks</SectionLabel>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{HABITS.map(h => (
-        <Card key={h.id} style={{ flex: "1 1 45%", textAlign: "center", padding: 12 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 20, color: T.saffronDeep }}>{streakFor(h.id)}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{h.label}</div></Card>
+        <Card key={h.id} style={{ flex: "1 1 45%", textAlign: "center", padding: 12 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 20, color: T.saffronDeep }}>{streakFor(h.id)}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>{h.label}</div></Card>
       ))}</div>
       <div style={{ height: 14 }} />
       <SectionLabel>Weekly score</SectionLabel>
@@ -3595,7 +3614,7 @@ function HabitsTab({ selectedDate, setSelectedDate, habitsForDate, toggleHabit, 
         <MiniBarChart bars={weekBars} />
         {(weekHabitThis.some(v => v != null) || weekHabitLast.some(v => v != null)) && (
           <div style={{ marginTop: 14, width: "100%", overflowX: "auto" }}>
-            <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 4 }}>Habits completed per day (%) — this week vs last week</div>
+            <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 4 }}>Habits completed per day (%) — this week vs last week</div>
             <div style={{ minWidth: 480 }}>
               <TwoLineChart labels={weekLabels} a={weekHabitThis} b={weekHabitLast} aLabel="This week" bLabel="Last week" yMax={100} unit="%" height={170} />
             </div>
@@ -3634,9 +3653,9 @@ function SupplementsTab({ selectedDate, setSelectedDate, supplementsForDate, tog
       {suppHl && <><InsightCallout insight={suppHl} icon="pill" /><div style={{ height: 14 }} /></>}
       <Card style={{ marginBottom: 14, textAlign: "center" }}>
         {supplements.length === 0 ? (
-          <><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 17, color: T.forest }}>✅ No supplements to take</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 3 }}>Add any your doctor recommends in ⚙️ → Supplements.</div></>
+          <><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 17, color: T.forest }}>✅ No supplements to take</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 3 }}>Add any your doctor recommends in ⚙️ → Supplements.</div></>
         ) : (
-          <><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22 }}>{takenToday} of {supplements.length}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>taken — {formatDateLabel(selectedDate)}</div></>
+          <><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22 }}>{takenToday} of {supplements.length}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>taken — {formatDateLabel(selectedDate)}</div></>
         )}
       </Card>
       {suggestedSupps && suggestedSupps.length > 0 && (
@@ -3649,14 +3668,14 @@ function SupplementsTab({ selectedDate, setSelectedDate, supplementsForDate, tog
                 return (
                 <div key={s.name} style={{ display: "flex", gap: 9, alignItems: "flex-start" }}>
                   <span style={{ color: T.teal, fontSize: 15, lineHeight: "20px" }}>•</span>
-                  <div style={{ flex: 1 }}><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, color: T.ink }}>{s.name}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{s.why}</div></div>
+                  <div style={{ flex: 1 }}><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, color: T.ink }}>{s.name}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>{s.why}</div></div>
                   {added
-                    ? <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.forest, whiteSpace: "nowrap", alignSelf: "center" }}>Added ✓</span>
-                    : <button onClick={() => onAddSupplement && onAddSupplement(s)} style={{ background: T.tealSolid, border: "none", borderRadius: 8, padding: "7px 12px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 12, cursor: "pointer", whiteSpace: "nowrap", alignSelf: "center" }}>+ Add</button>}
+                    ? <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.forest, whiteSpace: "nowrap", alignSelf: "center" }}>Added ✓</span>
+                    : <button onClick={() => onAddSupplement && onAddSupplement(s)} style={{ background: T.tealSolid, border: "none", borderRadius: 8, padding: "7px 12px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap", alignSelf: "center" }}>+ Add</button>}
                 </div>
               );})}
             </div>
-            <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginTop: 10, borderTop: `1px solid ${T.border}`, paddingTop: 8 }}>Based on the conditions in your profile. General wellness ideas only — confirm what's right for you (and any doses) with your doctor before starting.</div>
+            <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 10, borderTop: `1px solid ${T.border}`, paddingTop: 8 }}>Based on the conditions in your profile. General wellness ideas only — confirm what's right for you (and any doses) with your doctor before starting.</div>
           </Card>
         </>
       )}
@@ -3667,11 +3686,11 @@ function SupplementsTab({ selectedDate, setSelectedDate, supplementsForDate, tog
             <div style={{ display: "flex", gap: 10, marginBottom: 6 }}>
               <MetricDelta label="This week" cur={curW ? curW.pct : null} prev={prevW ? prevW.pct : null} unit="%" />
               <MetricDelta label="Avg taken/day" cur={curW ? curW.avgTaken : null} prev={prevW ? prevW.avgTaken : null} />
-              <div style={{ flex: 1, minWidth: 76 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>{prevW ? prevW.pct + "%" : "—"}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>Last week</div></div>
+              <div style={{ flex: 1, minWidth: 76 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>{prevW ? prevW.pct + "%" : "—"}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>Last week</div></div>
             </div>
             {(weekSuppThis.some(v => v != null) || weekSuppLast.some(v => v != null)) && (
               <div style={{ marginTop: 8, width: "100%", overflowX: "auto" }}>
-                <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 4 }}>Supplements taken per day (%) — this week vs last week</div>
+                <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 4 }}>Supplements taken per day (%) — this week vs last week</div>
                 <div style={{ minWidth: 480 }}>
                   <TwoLineChart labels={weekLabels} a={weekSuppThis} b={weekSuppLast} aLabel="This week" bLabel="Last week" yMax={100} unit="%" height={170} />
                 </div>
@@ -3679,7 +3698,7 @@ function SupplementsTab({ selectedDate, setSelectedDate, supplementsForDate, tog
             )}
             {(monSuppThis.some(v => v != null) || monSuppLast.some(v => v != null)) && (
               <div style={{ marginTop: 14, width: "100%", overflowX: "auto" }}>
-                <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 4 }}>Weekly average (%) — {monthLabel(thisMonthKey)} vs {monthLabel(lastMonthKey)}</div>
+                <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 4 }}>Weekly average (%) — {monthLabel(thisMonthKey)} vs {monthLabel(lastMonthKey)}</div>
                 <div style={{ minWidth: 480 }}>
                   <TwoLineChart labels={monLabels} a={monPad(monSuppThis)} b={monPad(monSuppLast)} aLabel={monthLabel(thisMonthKey)} bLabel={monthLabel(lastMonthKey)} yMax={100} unit="%" height={170} />
                 </div>
@@ -3713,7 +3732,7 @@ function Collapsible({ title, subtitle, emoji, accent, defaultOpen, right, child
       <button onClick={() => setOpen(o => !o)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, background: "none", border: "none", padding: "13px 15px", cursor: "pointer", textAlign: "left" }}>
         <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
           <span style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 14, color: accent || T.teal }}>{emoji ? emoji + " " : ""}{title}</span>
-          {subtitle && <span style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginTop: 2 }}>{subtitle}</span>}
+          {subtitle && <span style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 2 }}>{subtitle}</span>}
         </span>
         <span style={{ flexShrink: 0, width: 28, height: 28, borderRadius: 999, background: T.tealPale, color: T.teal, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800, lineHeight: 1, transform: open ? "rotate(180deg)" : "none", transition: "transform .18s" }}>⌄</span>
       </button>
@@ -3770,7 +3789,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
   const fRow = (r, tint, i) => (
     <div key={i} style={{ display: "flex", flexDirection: "column", gap: 1, padding: "5px 0", borderTop: i > 0 ? `1px solid ${T.creamDeep}` : "none" }}>
       <div style={{ fontFamily: "Inter", fontSize: 13, fontWeight: 600, color: T.ink }}>{r.food}</div>
-      <div style={{ fontFamily: "Inter", fontSize: 11.5, color: tint, lineHeight: 1.35 }}>
+      <div style={{ fontFamily: "Inter", fontSize: 12.5, color: tint, lineHeight: 1.35 }}>
         {r.conflict
           ? `Helps your ${labels(r.helps)} — but not safe for your ${labels(r.harms)}, so skip it`
           : r.harms.length ? `Not good for your ${labels(r.harms)}`
@@ -3783,7 +3802,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
   );
   const gBlock = (title, items, color, emoji) => (!items || !items.length) ? null : (
     <div style={{ marginBottom: 8 }}>
-      <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11, letterSpacing: 0.3, color: color, marginBottom: 4 }}>{emoji} {title}</div>
+      <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, letterSpacing: 0.3, color: color, marginBottom: 4 }}>{emoji} {title}</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>{items.map((x, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.35 }}>• {x}</div>)}</div>
     </div>
   );
@@ -3820,15 +3839,15 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
         <Card style={{ marginBottom: 14, background: `linear-gradient(180deg, ${T.tealPale}, ${T.white})` }}>
           <SectionLabel>Your plan targets</SectionLabel>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19 }}>{targets.calories}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>kcal/day</div></div>
-            <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19 }}>{targets.protein}g</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>protein</div></div>
-            <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19 }}>{targets.fiber}g</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>fiber</div></div>
-            <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19, color: T.amber }}>&lt;{targets.sugar}g</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>sugar cap</div></div>
-            {targets.burnTarget > 0 && <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19, color: T.forest }}>🔥{targets.burnTarget}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>extra to burn</div></div>}
+            <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19 }}>{targets.calories}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>kcal/day</div></div>
+            <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19 }}>{targets.protein}g</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>protein</div></div>
+            <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19 }}>{targets.fiber}g</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>fiber</div></div>
+            <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19, color: T.amber }}>&lt;{targets.sugar}g</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>sugar cap</div></div>
+            {targets.burnTarget > 0 && <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19, color: T.forest }}>🔥{targets.burnTarget}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>extra to burn</div></div>}
           </div>
-          <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 8 }}>Tuned to your goals ({targets.note}){advice.focusMarkerLabel ? ` and ${advice.focusMarkerLabel}` : ""}.</div>
+          <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 8 }}>Tuned to your goals ({targets.note}){advice.focusMarkerLabel ? ` and ${advice.focusMarkerLabel}` : ""}.</div>
           {targets.bmi != null && (
-            <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", fontFamily: "Inter", fontSize: 12, color: T.ink }}>
+            <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", fontFamily: "Inter", fontSize: 13, color: T.ink }}>
               <span>BMI <b>{targets.bmi}</b> · {bmiCategory(targets.bmi)}</span>
               <span style={{ color: T.inkSoft }}>Healthy <b style={{ color: T.ink }}>{targets.healthyMin}–{targets.healthyMax} kg</b> · ideal ≈ <b style={{ color: T.ink }}>{targets.idealWeight} kg</b></span>
             </div>
@@ -3845,7 +3864,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
           ) : null}
         </Card>
       )}
-      <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, margin: "2px 2px 10px" }}>Tap a section to open it.</div>
+      <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, margin: "2px 2px 10px" }}>Tap a section to open it.</div>
       {female && (
         <Collapsible title="🌸 Your cycle" subtitle={pred ? (pred.daysUntil > 1 ? `Next period in about ${pred.daysUntil} days` : pred.daysUntil >= 0 ? "Period expected around now" : `Period is ~${Math.abs(pred.daysUntil)} days late`) : "Add your last period date to start"}>
           {pred ? (
@@ -3854,29 +3873,29 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
               <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, marginTop: 3, lineHeight: 1.45 }}>
                 {pred.daysUntil > 1 ? `in about ${pred.daysUntil} days` : pred.daysUntil >= 0 ? "expected around now" : `${Math.abs(pred.daysUntil)} days late — log it below when it comes`} · cycle ~{pred.cycle} days {pred.learned ? "(learned from your logs)" : "(from your stated cycle)"}
               </div>
-              {pred.daysUntil <= 1 && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.ink, marginTop: 8, background: T.white, borderRadius: 8, padding: "7px 9px" }}>Did it start? Log the date below — that confirms the prediction and teaches it your real pattern.</div>}
+              {pred.daysUntil <= 1 && <div style={{ fontFamily: "Inter", fontSize: 13, color: T.ink, marginTop: 8, background: T.white, borderRadius: 8, padding: "7px 9px" }}>Did it start? Log the date below — that confirms the prediction and teaches it your real pattern.</div>}
             </div>
           ) : (
             <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 12, lineHeight: 1.5 }}>Add your last period's first day in ⚙️ → Profile → Health &amp; Diet, and your next date will be predicted here.</div>
           )}
           {periodTips.length > 0 ? (
             <div style={{ marginBottom: 12 }}>
-              {periodTips.some(t => t.before) && <><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.saffron, marginBottom: 6 }}>Prepare in the days before</div>{periodTips.filter(t => t.before).map((t, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.4, marginBottom: 4 }}>• <b>{t.s}:</b> {t.before}</div>)}</>}
-              {periodTips.some(t => t.during) && <><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.teal, margin: "10px 0 6px" }}>During your period</div>{periodTips.filter(t => t.during).map((t, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.4, marginBottom: 4 }}>• <b>{t.s}:</b> {t.during}</div>)}</>}
+              {periodTips.some(t => t.before) && <><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.saffron, marginBottom: 6 }}>Prepare in the days before</div>{periodTips.filter(t => t.before).map((t, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.4, marginBottom: 4 }}>• <b>{t.s}:</b> {t.before}</div>)}</>}
+              {periodTips.some(t => t.during) && <><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.teal, margin: "10px 0 6px" }}>During your period</div>{periodTips.filter(t => t.during).map((t, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.4, marginBottom: 4 }}>• <b>{t.s}:</b> {t.during}</div>)}</>}
             </div>
-          ) : <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 12, lineHeight: 1.5 }}>Add the symptoms you usually get (⚙️ Profile) to see tailored eating &amp; lifestyle tips before and during your period.</div>}
+          ) : <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 12, lineHeight: 1.5 }}>Add the symptoms you usually get (⚙️ Profile) to see tailored eating &amp; lifestyle tips before and during your period.</div>}
           <div style={{ borderTop: `1px solid ${T.creamDeep}`, paddingTop: 10 }}>
-            <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11.5, color: T.inkSoft, marginBottom: 6 }}>LOG A PERIOD</div>
+            <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.inkSoft, marginBottom: 6 }}>LOG A PERIOD</div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
               <input type="date" value={logDate} onChange={e => setLogDate(e.target.value)} style={{ flex: 1, minWidth: 0, border: `1px solid ${T.border}`, borderRadius: 10, padding: "8px 10px", fontFamily: "Inter", fontSize: 13, background: T.white, color: T.ink }} />
               <button onClick={() => onLogPeriod && onLogPeriod(logDate)} style={{ background: T.tealSolid, border: "none", borderRadius: 10, padding: "9px 13px", color: "#fff", fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, cursor: "pointer", whiteSpace: "nowrap" }}>Save date</button>
             </div>
             {cycleHistory.length > 0 && (<>
-              <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11.5, color: T.inkSoft, marginBottom: 6 }}>HISTORY ({cycleHistory.length})</div>
+              <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.inkSoft, marginBottom: 6 }}>HISTORY ({cycleHistory.length})</div>
               <div style={{ maxHeight: 156, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
                 {cycleHistory.map((e, i) => { const nx = cycleHistory[i + 1]; const gap = nx ? cycleDaysBetween(nx.start, e.start) : null; return (
                   <div key={e.start + i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: T.creamDeep, borderRadius: 8, padding: "7px 10px", fontFamily: "Inter", fontSize: 12.5, color: T.ink }}>
-                    <span>{formatDateLabel(e.start)}</span><span style={{ color: T.inkSoft, fontSize: 11.5 }}>{gap ? `${gap}-day cycle` : "most recent"}</span>
+                    <span>{formatDateLabel(e.start)}</span><span style={{ color: T.inkSoft, fontSize: 12.5 }}>{gap ? `${gap}-day cycle` : "most recent"}</span>
                   </div>
                 ); })}
               </div>
@@ -3901,7 +3920,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
           {fastCautions.length > 0 && (
             <div style={{ background: T.alertPale, border: `1px solid ${T.alert}`, borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
               {fastCautions.map((c, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 12.5, color: T.alert, lineHeight: 1.5, marginBottom: i < fastCautions.length - 1 ? 5 : 0 }}>⚠ {c}</div>)}
-              <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginTop: 6 }}>Please don't rely on fasting here until you've cleared it with your doctor.</div>
+              <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 6 }}>Please don't rely on fasting here until you've cleared it with your doctor.</div>
             </div>
           )}
           {fastStatus && (
@@ -3917,26 +3936,26 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
             <div style={{ borderLeft: `3px solid ${T.saffron}`, paddingLeft: 11 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12.5, color: T.saffron }}>Easing in</div><div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.5, marginTop: 2 }}>Build up gradually (12:12 → 14:10 → 16:8) over a few weeks. Keep the meals inside your window balanced — fasting works with good food, not instead of it.</div></div>
             {(advice.flaggedKeys || []).some(k => /liver|ggt|tg|trig|sugar|glucose|hba1c|ldl|chol/i.test(k)) && <div style={{ borderLeft: `3px solid ${T.forest}`, paddingLeft: 11 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12.5, color: T.forest }}>For your markers</div><div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.5, marginTop: 2 }}>Giving the body a long daily break from food is one of the better-studied levers for fatty liver, triglycerides and insulin sensitivity — alongside the food choices in your plan.</div></div>}
           </div>
-          <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 12, borderTop: `1px solid ${T.border}`, paddingTop: 8, lineHeight: 1.5 }}>General guidance based on Johns Hopkins Medicine and the U.S. National Institute on Aging — not medical advice. Check with your doctor before starting, especially on any medication.</div>
+          <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 12, borderTop: `1px solid ${T.border}`, paddingTop: 8, lineHeight: 1.5 }}>General guidance based on Johns Hopkins Medicine and the U.S. National Institute on Aging — not medical advice. Check with your doctor before starting, especially on any medication.</div>
         </Collapsible>
       )}
       {weeklyPlan && weeklyPlan.days && (
         <Collapsible title="This week's meal plan" emoji="🍽️" subtitle="Your editable plan — add, remove, shuffle any meal">
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
-            <button onClick={onRegeneratePlan} style={{ background: T.tealPale, border: "none", borderRadius: 8, padding: "5px 10px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.teal, cursor: "pointer" }}>↻ Regenerate</button>
+            <button onClick={onRegeneratePlan} style={{ background: T.tealPale, border: "none", borderRadius: 8, padding: "5px 10px", fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.teal, cursor: "pointer" }}>↻ Regenerate</button>
           </div>
           <div style={{ display: "flex", gap: 14, alignItems: "center", background: T.tealPale, borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
             <div style={{ width: 74, height: 74, borderRadius: "50%", flexShrink: 0, background: "conic-gradient(#3FA46A 0 50%, #E08A3C 50% 75%, #CDA52A 75% 100%)", boxShadow: `inset 0 0 0 4px ${T.white}` }} />
             <div>
               <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12.5, color: T.teal, marginBottom: 5 }}>Build every meal like this</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 3, fontFamily: "Inter", fontSize: 12, color: T.ink }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3, fontFamily: "Inter", fontSize: 13, color: T.ink }}>
                 <div><span style={{ color: "#3FA46A", fontWeight: 800 }}>½</span> vegetables &amp; salad</div>
                 <div><span style={{ color: "#E08A3C", fontWeight: 800 }}>¼</span> protein — dal, paneer, egg, fish</div>
                 <div><span style={{ color: "#CDA52A", fontWeight: 800 }}>¼</span> whole grain — roti, millet, brown rice</div>
               </div>
             </div>
           </div>
-          <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 10, lineHeight: 1.5 }}>Tap <b>+ Add</b> on any meal to search &amp; place your own dish; <b>×</b> removes one; <b>↻</b> shuffles. Ticks show what the plate has — 🥬 veg · 💪 protein · 🌾 grain · 🍎 fruit.</div>
+          <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 10, lineHeight: 1.5 }}>Tap <b>+ Add</b> on any meal to search &amp; place your own dish; <b>×</b> removes one; <b>↻</b> shuffles. Ticks show what the plate has — 🥬 veg · 💪 protein · 🌾 grain · 🍎 fruit.</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {weeklyPlan.days.map((d, i) => (
               <div key={i} style={{ borderBottom: i < 6 ? `1px solid ${T.creamDeep}` : "none", paddingBottom: i < 6 ? 12 : 0 }}>
@@ -3947,21 +3966,21 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
                   return (
                     <div key={slot} style={{ marginBottom: 10 }}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-                        <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 10.5, letterSpacing: 0.4, color: T.inkSoft, textTransform: "uppercase" }}>{slot}</span>
-                        <span style={{ display: "flex", gap: 5, fontSize: 12 }}>
+                        <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, letterSpacing: 0.4, color: T.inkSoft, textTransform: "uppercase" }}>{slot}</span>
+                        <span style={{ display: "flex", gap: 5, fontSize: 13 }}>
                           {[["veg", "🥬"], ["protein", "💪"], ["grain", "🌾"], ["fruit", "🍎"]].map(([k, emo]) => <span key={k} title={k} style={{ opacity: tk[k] ? 1 : 0.22, filter: tk[k] ? "none" : "grayscale(1)" }}>{emo}</span>)}
                         </span>
                       </div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-                        {items.length === 0 && <span style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, fontStyle: "italic" }}>nothing yet</span>}
+                        {items.length === 0 && <span style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, fontStyle: "italic" }}>nothing yet</span>}
                         {items.map((it, j) => (
-                          <span key={j} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: T.creamDeep, borderRadius: 999, padding: "4px 5px 4px 10px", fontFamily: "Inter", fontSize: 12.5, color: T.ink }}>
+                          <span key={j} style={{ display: "inline-flex", alignItems: "center", gap: 5, maxWidth: "100%", background: T.creamDeep, borderRadius: 14, padding: "4px 5px 4px 10px", fontFamily: "Inter", fontSize: 13, color: T.ink }}>
                             <span style={{ width: 7, height: 7, borderRadius: 4, background: vMeta(it).fg, flexShrink: 0 }} />
-                            {it}
-                            <button onClick={() => onRemovePlanItem(i, slot, j)} aria-label="Remove" style={{ background: "none", border: "none", cursor: "pointer", color: T.inkSoft, fontSize: 15, lineHeight: 1, padding: "0 3px" }}>×</button>
+                            <span style={{ minWidth: 0, overflowWrap: "anywhere", lineHeight: 1.3 }}>{it}</span>
+                            <button onClick={() => onRemovePlanItem(i, slot, j)} aria-label="Remove" style={{ background: "none", border: "none", cursor: "pointer", color: T.inkSoft, fontSize: 16, lineHeight: 1, padding: "0 3px", flexShrink: 0 }}>×</button>
                           </span>
                         ))}
-                        <button onClick={() => { setPicker({ dayIdx: i, slot }); setPQuery(""); }} style={{ background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 999, padding: "4px 11px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.teal, cursor: "pointer" }}>+ Add</button>
+                        <button onClick={() => { setPicker({ dayIdx: i, slot }); setPQuery(""); }} style={{ background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 999, padding: "4px 11px", fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.teal, cursor: "pointer" }}>+ Add</button>
                         {items.length > 0 && slot !== "snack" && <button onClick={() => onSwapMeal(i, slot)} aria-label={"Shuffle " + slot} title="Shuffle" style={{ background: "none", border: "none", cursor: "pointer", color: T.saffron, fontSize: 15, padding: "0 2px" }}>↻</button>}
                       </div>
                     </div>
@@ -3970,7 +3989,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
               </div>
             ))}
           </div>
-          <div style={{ background: T.tealPale, borderRadius: 10, padding: "9px 11px", marginTop: 12, fontFamily: "Inter", fontSize: 11.5, color: T.ink, lineHeight: 1.5 }}>🍎 <b>Fruit:</b> 1–2 servings a day (one fruit or a cup cut), best mid-morning or as an evening snack. {(advice.flaggedKeys || []).some(k => /tg|chol|sugar|glucose|hba1c/i.test(k)) ? "As your sugar/triglycerides run high, prefer lower-sugar fruit (guava, apple, pear, papaya, berries), keep mango/banana/grapes small, and pair with a few nuts." : "Rotate seasonal fruit for variety."}</div>
+          <div style={{ background: T.tealPale, borderRadius: 10, padding: "9px 11px", marginTop: 12, fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.5 }}>🍎 <b>Fruit:</b> 1–2 servings a day (one fruit or a cup cut), best mid-morning or as an evening snack. {(advice.flaggedKeys || []).some(k => /tg|chol|sugar|glucose|hba1c/i.test(k)) ? "As your sugar/triglycerides run high, prefer lower-sugar fruit (guava, apple, pear, papaya, berries), keep mango/banana/grapes small, and pair with a few nuts." : "Rotate seasonal fruit for variety."}</div>
         </Collapsible>
       )}
       {picker && (() => {
@@ -3985,7 +4004,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
         const add = (name) => onAddPlanItem(picker.dayIdx, slot, name);
         return (
           <div onClick={() => setPicker(null)} style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,0.45)", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-            <div onClick={e => e.stopPropagation()} style={{ background: T.cream, borderTopLeftRadius: 18, borderTopRightRadius: 18, maxHeight: "82vh", display: "flex", flexDirection: "column", width: "100%", maxWidth: 420, margin: "0 auto" }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: T.cream, borderTopLeftRadius: 18, borderTopRightRadius: 18, maxHeight: "82vh", display: "flex", flexDirection: "column", width: "100%", maxWidth: 460, margin: "0 auto" }}>
               <div style={{ padding: "14px 16px 10px", borderBottom: `1px solid ${T.border}` }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                   <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, color: T.teal }}>Add to {planDayLabels[picker.dayIdx]} · <span style={{ textTransform: "capitalize" }}>{slot}</span></div>
@@ -3993,22 +4012,22 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
                 </div>
                 <input autoFocus value={pQuery} onChange={e => setPQuery(e.target.value)} placeholder="Search a dish…" style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", fontFamily: "Inter", fontSize: 14, background: T.white, color: T.ink }} onKeyDown={e => { if (e.key === "Enter" && pQuery.trim()) { add(pQuery.trim()); setPicker(null); } }} />
                 <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-                  {[["all", "All"], ["veg", "Veg"], ["nonveg", "Non-veg"]].map(([k, l]) => <button key={k} onClick={() => setPNV(k)} style={{ background: pNV === k ? T.teal : T.white, color: pNV === k ? "#fff" : T.ink, border: `1px solid ${pNV === k ? T.teal : T.border}`, borderRadius: 999, padding: "4px 11px", fontFamily: "Inter", fontSize: 12, cursor: "pointer" }}>{l}</button>)}
+                  {[["all", "All"], ["veg", "Veg"], ["nonveg", "Non-veg"]].map(([k, l]) => <button key={k} onClick={() => setPNV(k)} style={{ background: pNV === k ? T.teal : T.white, color: pNV === k ? "#fff" : T.ink, border: `1px solid ${pNV === k ? T.teal : T.border}`, borderRadius: 999, padding: "4px 11px", fontFamily: "Inter", fontSize: 13, cursor: "pointer" }}>{l}</button>)}
                 </div>
                 {slot !== "snack" && (
                   <div style={{ display: "flex", gap: 6, marginTop: 6, overflowX: "auto", paddingBottom: 2 }}>
-                    {cuisineOpts.map(c => <button key={c} onClick={() => setPCuisine(c)} style={{ whiteSpace: "nowrap", background: pCuisine === c ? T.saffron : T.white, color: pCuisine === c ? "#fff" : T.inkSoft, border: `1px solid ${pCuisine === c ? T.saffron : T.border}`, borderRadius: 999, padding: "4px 10px", fontFamily: "Inter", fontSize: 11.5, cursor: "pointer" }}>{c}</button>)}
+                    {cuisineOpts.map(c => <button key={c} onClick={() => setPCuisine(c)} style={{ whiteSpace: "nowrap", background: pCuisine === c ? T.saffron : T.white, color: pCuisine === c ? "#fff" : T.inkSoft, border: `1px solid ${pCuisine === c ? T.saffron : T.border}`, borderRadius: 999, padding: "4px 10px", fontFamily: "Inter", fontSize: 12.5, cursor: "pointer" }}>{c}</button>)}
                   </div>
                 )}
               </div>
               <div style={{ overflowY: "auto", padding: "8px 12px 20px" }}>
-                {q && profile.dietStyle && profile.dietStyle !== "balanced" && <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.teal, marginBottom: 6 }}>Showing {DIET_STYLE_LABEL[profile.dietStyle] || profile.dietStyle}-friendly dishes only (change in ⚙️ Profile).</div>}
+                {q && profile.dietStyle && profile.dietStyle !== "balanced" && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.teal, marginBottom: 6 }}>Showing {DIET_STYLE_LABEL[profile.dietStyle] || profile.dietStyle}-friendly dishes only (change in ⚙️ Profile).</div>}
                 {pQuery.trim() && <button onClick={() => { add(pQuery.trim()); setPicker(null); }} style={{ width: "100%", textAlign: "left", background: T.tealPale, border: `1px dashed ${T.teal}`, borderRadius: 10, padding: "10px 12px", marginBottom: 8, fontFamily: "Inter", fontSize: 13, color: T.teal, cursor: "pointer" }}>+ Add “{pQuery.trim()}” (my own)</button>}
                 {list.length === 0 && !pQuery.trim() && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, padding: 10 }}>No matches — type your own above.</div>}
                 {list.map((x, i) => (
                   <button key={i} onClick={() => { add(x.name); setPicker(null); }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", textAlign: "left", background: "none", border: "none", borderBottom: `1px solid ${T.creamDeep}`, padding: "10px 4px", fontFamily: "Inter", fontSize: 13.5, color: T.ink, cursor: "pointer" }}>
                     <span>{x.name}</span>
-                    <span style={{ fontFamily: "Inter", fontSize: 10.5, color: T.inkSoft, marginLeft: 8, flexShrink: 0 }}>{x.cuisine !== "Any" ? x.cuisine : ""}{x.nv ? " · non-veg" : ""}</span>
+                    <span style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginLeft: 8, flexShrink: 0 }}>{x.cuisine !== "Any" ? x.cuisine : ""}{x.nv ? " · non-veg" : ""}</span>
                   </button>
                 ))}
               </div>
@@ -4022,18 +4041,18 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
             const on = checkedGro.has(g);
             return (
               <div key={i} onClick={() => toggleGro(g)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", cursor: "pointer" }}>
-                <span style={{ width: 19, height: 19, borderRadius: 5, flexShrink: 0, border: `1.5px solid ${on ? T.tealSolid : T.border}`, background: on ? T.tealSolid : "transparent", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 900 }}>{on ? "✓" : ""}</span>
+                <span style={{ width: 19, height: 19, borderRadius: 5, flexShrink: 0, border: `1.5px solid ${on ? T.tealSolid : T.border}`, background: on ? T.tealSolid : "transparent", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 900 }}>{on ? "✓" : ""}</span>
                 <span style={{ fontFamily: "Inter", fontSize: 13.5, color: on ? T.inkSoft : T.ink, textDecoration: on ? "line-through" : "none" }}>{g}</span>
               </div>
             );
           })}
-          <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginTop: 8, lineHeight: 1.5 }}>Auto-made from this week's meals. Prep tip: soak dal &amp; chop veg on Sunday to make the week easy.</div>
+          <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 8, lineHeight: 1.5 }}>Auto-made from this week's meals. Prep tip: soak dal &amp; chop veg on Sunday to make the week easy.</div>
         </Collapsible>
       )}
       <Collapsible title="Eat more of" emoji="🌿" accent={T.forest} subtitle={eatMoreByCond.length ? "By your goals — chosen so they don't clash" : null}>
         {eatMoreByCond.length ? eatMoreByCond.map((c, i) => (
           <div key={i} style={{ marginBottom: 10 }}>
-            <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.forest, marginBottom: 4 }}>For your {c.label}</div>
+            <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.forest, marginBottom: 4 }}>For your {c.label}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>{c.items.map((x, j) => <div key={j} style={{ fontFamily: "Inter", fontSize: 13, color: T.ink }}>🌿 {x}</div>)}</div>
           </div>
         )) : <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>{advice.eatMore.map((e, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 13, color: T.ink }}>🌿 {e}</div>)}</div>}
@@ -4041,31 +4060,31 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
       <Collapsible title="Foods to avoid" emoji="🔴" accent={T.alert} subtitle={avoidByCond.length ? "By your goals" : null}>
         {avoidByCond.length ? avoidByCond.map((c, i) => (
           <div key={i} style={{ marginBottom: 10 }}>
-            <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, color: T.alert, marginBottom: 4 }}>For your {c.label}</div>
+            <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.alert, marginBottom: 4 }}>For your {c.label}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
               {c.strong.map((x, j) => <div key={"s" + j} style={{ fontFamily: "Inter", fontSize: 13, color: T.ink }}>🔴 {x}</div>)}
               {c.less.map((x, j) => <div key={"l" + j} style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>🟡 {x} — go easy</div>)}
             </div>
           </div>
         )) : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{advice.avoidList.map((b, i) => (
-          <div key={i}><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.alert }}>🔴 {b.item}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{b.reason}</div></div>
+          <div key={i}><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.alert }}>🔴 {b.item}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>{b.reason}</div></div>
         ))}</div>}
       </Collapsible>
       {reco && (reco.eatMore.length + reco.careful.length + reco.avoid.length > 0) && (
         <Collapsible title="Your combined food plan" emoji="🧩" subtitle={`Reconciled across your ${myConds.length} conditions`}>
-          <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 8, lineHeight: 1.4 }}>
+          <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 8, lineHeight: 1.4 }}>
             Some foods help one condition but hurt another — these are reconciled so nothing clashes. <b>Safety first:</b> anything risky for even one of your conditions is moved to Avoid.
           </div>
           {reco.eatMore.length > 0 && <>
-            <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11, letterSpacing: 0.3, color: T.forest, marginBottom: 2 }}>🌿 EAT FREELY — good for you, safe across all your conditions</div>
+            <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, letterSpacing: 0.3, color: T.forest, marginBottom: 2 }}>🌿 EAT FREELY — good for you, safe across all your conditions</div>
             {reco.eatMore.map((r, i) => fRow(r, T.forest, i))}
           </>}
           {reco.careful.length > 0 && <>
-            <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11, letterSpacing: 0.3, color: T.amber, marginTop: reco.eatMore.length ? 12 : 0, marginBottom: 2 }}>🟡 IN MODERATION — helpful, but keep portions small</div>
+            <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, letterSpacing: 0.3, color: T.amber, marginTop: reco.eatMore.length ? 12 : 0, marginBottom: 2 }}>🟡 IN MODERATION — helpful, but keep portions small</div>
             {reco.careful.map((r, i) => fRow(r, T.amberDeep || T.amber, i))}
           </>}
           {reco.avoid.length > 0 && <>
-            <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 11, letterSpacing: 0.3, color: T.alert, marginTop: (reco.eatMore.length || reco.careful.length) ? 12 : 0, marginBottom: 2 }}>🔴 AVOID — risky for at least one of your conditions</div>
+            <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12, letterSpacing: 0.3, color: T.alert, marginTop: (reco.eatMore.length || reco.careful.length) ? 12 : 0, marginBottom: 2 }}>🔴 AVOID — risky for at least one of your conditions</div>
             {reco.avoid.map((r, i) => fRow(r, T.alert, i))}
           </>}
         </Collapsible>
@@ -4075,12 +4094,12 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
           {guides.map(g => (
             <div key={g.id} style={{ marginBottom: 12, paddingBottom: 12, borderBottom: `1px solid ${T.creamDeep}` }}>
               <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 14.5, marginBottom: 2 }}>{g.label}</div>
-              {g.improves && <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 8 }}>Helps: {g.improves}</div>}
+              {g.improves && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>Helps: {g.improves}</div>}
               {gBlock("DO THIS", g.lifestyle, T.teal, "🧘")}
-              {g.caveat && <div style={{ fontFamily: "Inter", fontSize: 11, color: T.alert, marginTop: 6, lineHeight: 1.4 }}>⚠ {g.caveat}</div>}
+              {g.caveat && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.alert, marginTop: 6, lineHeight: 1.4 }}>⚠ {g.caveat}</div>}
             </div>
           ))}
-          <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, lineHeight: 1.4 }}>Food to eat &amp; avoid are in the sections above. {(GUIDANCE_DB && GUIDANCE_DB.disclaimer) || "General guidance, not medical advice."}</div>
+          <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, lineHeight: 1.4 }}>Food to eat &amp; avoid are in the sections above. {(GUIDANCE_DB && GUIDANCE_DB.disclaimer) || "General guidance, not medical advice."}</div>
         </Collapsible>
       )}
       {homeRemedies.length > 0 && (
@@ -4117,7 +4136,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
             return (
               <div key={dish}>
                 <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, textTransform: "capitalize" }}>{dish}</div>
-                <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, lineHeight: 1.4 }}>{tip || "Cut back on frequency — no lighter version identified for this one."}</div>
+                <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, lineHeight: 1.4 }}>{tip || "Cut back on frequency — no lighter version identified for this one."}</div>
               </div>
             );
           })}</div>
@@ -4148,6 +4167,18 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
   useEffect(() => { const h = () => setSyncTick(t => t + 1); window.addEventListener("sync-state", h); return () => window.removeEventListener("sync-state", h); }, []);
   const [acctEmail, setAcctEmail] = useState("");
   const [acctPass, setAcctPass] = useState("");
+  const [acctName, setAcctName] = useState("");
+  const [acctPhone, setAcctPhone] = useState("+");
+  // Creating an account requires basic info (name + mobile), same as the welcome screen — never
+  // just email+password. Sign-in ignores name/phone.
+  const acctCreate = async () => {
+    if (!acctName.trim()) return dispatchAuth({ status: authState().status, error: "Please enter your name to create an account." });
+    const digits = (acctPhone || "").replace(/[^0-9]/g, "");
+    if (!(acctPhone || "").trim().startsWith("+") || digits.length < 8) return dispatchAuth({ status: authState().status, error: "Enter a mobile number with country code, starting with + (e.g. +91 98765 43210)." });
+    if (!acctEmail.trim()) return dispatchAuth({ status: authState().status, error: "Please enter your email." });
+    if ((acctPass || "").length < 6) return dispatchAuth({ status: authState().status, error: "Password should be at least 6 characters." });
+    await authSignUp(acctEmail, acctPass, { name: acctName.trim(), phone: acctPhone.trim() });
+  };
   const [acctResetMsg, setAcctResetMsg] = useState("");
   const acctForgot = async () => { setAcctResetMsg(""); const ok = await authResetPassword(acctEmail); if (ok) setAcctResetMsg(`Reset link sent to ${acctEmail.trim()} — check inbox/spam, set a new password, then sign in.`); };
   const [, setAuthTick] = useState(0);
@@ -4208,7 +4239,7 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
   const pset = (k, v) => saveProfile({ ...profile, [k]: v });
   const ptoggle = (k, val) => { const a = profile[k] || []; pset(k, a.includes(val) ? a.filter(x => x !== val) : [...a, val]); };
   const setSetupGoal = (g) => { const a = profile.goals || []; const next = a.includes(g) ? a.filter(x => x !== g) : [...a, g]; saveProfile({ ...profile, goals: next }); saveGoalToggles(goalToggles.map(t => t.id === "weightloss" ? { ...t, active: next.includes("Lose weight") } : t.id === "muscle" ? { ...t, active: next.includes("Build muscle") } : t)); };
-  const subLbl = { fontFamily: "Manrope", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, color: T.teal, textTransform: "uppercase", marginBottom: 8 };
+  const subLbl = { fontFamily: "Manrope", fontWeight: 800, fontSize: 13, letterSpacing: 0.3, color: T.teal, textTransform: "uppercase", marginBottom: 8 };
   const chipWrap = { display: "flex", flexWrap: "wrap", gap: 8 };
   return (
     <div className="askOverlay" onClick={onClose}>
@@ -4230,7 +4261,7 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
                     ))}
                   </div>
                   <button onClick={onAddPerson} style={{ width: "100%", background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 10, padding: "8px 0", color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 13 }}>+ Add another person</button>
-                  <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 8, lineHeight: 1.5 }}>Each person keeps their own reports, food, activity and supplements — switching changes everything.</div>
+                  <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 8, lineHeight: 1.5 }}>Each person keeps their own reports, food, activity and supplements — switching changes everything.</div>
                 </div>
               )}
               {[{ key: "name", label: "Name" }, { key: "age", label: "Age" }, { key: "weight", label: "Weight (kg)" }, { key: "height", label: "Height (cm)" }, { key: "gender", label: "Gender" }, { key: "city", label: "City / Country" }, { key: "diet", label: "Dietary pattern" }].map(f => (
@@ -4239,12 +4270,12 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
               {(() => { const bmi = computeBMI(Number(form.weight), Number(form.height)); return bmi ? (
                 <Card style={{ background: T.tealPale, padding: 10 }}>
                   <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 16, color: T.teal }}>BMI: {bmi.toFixed(1)} — {bmiCategory(bmi)}</div>
-                  <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>Recalculates automatically from weight and height.</div>
+                  <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>Recalculates automatically from weight and height.</div>
                 </Card>
               ) : null; })()}
               <button onClick={saveProfileForm} style={{ background: profileSaved ? T.forest : T.saffron, border: "none", borderRadius: 10, padding: "10px 0", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, marginTop: 6, transition: "background 0.2s" }}>{profileSaved ? "✓ Saved" : "Save profile"}</button>
               {onOpenWizard && <button onClick={onOpenWizard} style={{ background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 10, padding: "10px 0", color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5 }}>Guided setup (conditions, goals, diet, cuisines…)</button>}
-              <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>Changing weight recalculates calorie/protein targets automatically.</div>
+              <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>Changing weight recalculates calorie/protein targets automatically.</div>
             </div>
           )}
           {section === "goals" && (
@@ -4265,7 +4296,7 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
                 <input value={newGoalText} onChange={e => setNewGoalText(e.target.value)} placeholder="e.g. Improve sleep" style={{ flex: 1, border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", fontFamily: "Inter", fontSize: 13 }} />
                 <button onClick={addCustomGoal} style={{ background: T.tealSolid, border: "none", borderRadius: 10, padding: "0 14px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5 }}>Add</button>
               </div>
-              <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 10 }}>Marker-based priorities update automatically from your latest report.</div>
+              <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 10 }}>Marker-based priorities update automatically from your latest report.</div>
             </div>
           )}
           {section === "setup" && (
@@ -4275,7 +4306,7 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
                 <div style={subLbl}>Health conditions</div>
                 {ONB_CONDITION_GROUPS.map(g => (
                   <div key={g.cat} style={{ marginBottom: 10 }}>
-                    <div style={{ fontFamily: "Inter", fontWeight: 700, fontSize: 12, color: T.inkSoft, marginBottom: 6 }}>{g.cat}</div>
+                    <div style={{ fontFamily: "Inter", fontWeight: 700, fontSize: 13, color: T.inkSoft, marginBottom: 6 }}>{g.cat}</div>
                     <div style={chipWrap}>{g.items.map(c => <OnbChip key={c} label={c} on={(profile.conditions || []).includes(c)} onClick={() => ptoggle("conditions", c)} />)}</div>
                   </div>
                 ))}
@@ -4283,7 +4314,7 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
               <div>
                 <div style={subLbl}>Goals</div>
                 <div style={chipWrap}>{ONB_GOALS.map(c => <OnbChip key={c} label={c} on={(profile.goals || []).includes(c)} onClick={() => setSetupGoal(c)} />)}</div>
-                <div style={{ fontFamily: "Inter", fontWeight: 700, fontSize: 12, color: T.inkSoft, margin: "12px 0 6px" }}>Other goals</div>
+                <div style={{ fontFamily: "Inter", fontWeight: 700, fontSize: 13, color: T.inkSoft, margin: "12px 0 6px" }}>Other goals</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
                   {(customGoals || []).map(g => <div key={g.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: T.creamDeep, borderRadius: 10, padding: "7px 10px" }}><span style={{ fontFamily: "Inter", fontSize: 13 }}>{g.label}</span><button onClick={() => removeCustomGoal(g.id)} style={{ background: "none", border: "none", cursor: "pointer" }}><Icon name="x" size={13} color={T.inkSoft} /></button></div>)}
                 </div>
@@ -4293,18 +4324,18 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
                 </div>
               </div>
               <div><div style={subLbl}>Diet pattern</div><div style={chipWrap}>{ONB_DIET_PATTERNS.map(c => <OnbChip key={c} label={c} on={profile.dietPattern === c} onClick={() => pset("dietPattern", c)} />)}</div></div>
-              <div><div style={subLbl}>Diet style (filters meal suggestions)</div><div style={chipWrap}>{DIET_STYLES.map(s => <OnbChip key={s.k} label={s.l} on={(profile.dietStyle || "balanced") === s.k} onClick={() => pset("dietStyle", s.k)} />)}</div><div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 5 }}>{(DIET_STYLES.find(s => s.k === (profile.dietStyle || "balanced")) || {}).d}. When you search dishes to add in Plan, only ones fitting this style show.</div></div>
+              <div><div style={subLbl}>Diet style (filters meal suggestions)</div><div style={chipWrap}>{DIET_STYLES.map(s => <OnbChip key={s.k} label={s.l} on={(profile.dietStyle || "balanced") === s.k} onClick={() => pset("dietStyle", s.k)} />)}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 5 }}>{(DIET_STYLES.find(s => s.k === (profile.dietStyle || "balanced")) || {}).d}. When you search dishes to add in Plan, only ones fitting this style show.</div></div>
               <div><div style={subLbl}>Intermittent fasting</div><div style={chipWrap}>{FASTING_METHODS.map(m => <OnbChip key={m.k} label={m.l} on={(profile.fastingMethod || "off") === m.k} onClick={() => pset("fastingMethod", m.k)} />)}</div>
-                {(FASTING_METHODS.find(m => m.k === (profile.fastingMethod || "off")) || {}).d && <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 5, lineHeight: 1.45 }}>{(FASTING_METHODS.find(m => m.k === profile.fastingMethod) || {}).d}</div>}
+                {(FASTING_METHODS.find(m => m.k === (profile.fastingMethod || "off")) || {}).d && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 5, lineHeight: 1.45 }}>{(FASTING_METHODS.find(m => m.k === profile.fastingMethod) || {}).d}</div>}
                 {(FASTING_METHODS.find(m => m.k === profile.fastingMethod) || {}).window && (
                   <div style={{ display: "flex", gap: 10, marginTop: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
                     <div><div style={{ ...subLbl, marginBottom: 3 }}>Eating window: from</div><input type="time" value={profile.eatStart || "12:00"} onChange={e => pset("eatStart", e.target.value)} style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "8px 10px", fontFamily: "Inter", fontSize: 13.5, background: T.white, color: T.ink }} /></div>
                     <div><div style={{ ...subLbl, marginBottom: 3 }}>to</div><input type="time" value={profile.eatEnd || "20:00"} onChange={e => pset("eatEnd", e.target.value)} style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "8px 10px", fontFamily: "Inter", fontSize: 13.5, background: T.white, color: T.ink }} /></div>
                   </div>
                 )}
-                {profile.fastingMethod && profile.fastingMethod !== "off" && fastingSafety(profile).length > 0 && <div style={{ background: T.alertPale, border: `1px solid ${T.alert}`, borderRadius: 10, padding: "9px 11px", marginTop: 8, fontFamily: "Inter", fontSize: 12, color: T.alert, lineHeight: 1.5 }}>⚠ {fastingSafety(profile)[0]}</div>}
+                {profile.fastingMethod && profile.fastingMethod !== "off" && fastingSafety(profile).length > 0 && <div style={{ background: T.alertPale, border: `1px solid ${T.alert}`, borderRadius: 10, padding: "9px 11px", marginTop: 8, fontFamily: "Inter", fontSize: 13, color: T.alert, lineHeight: 1.5 }}>⚠ {fastingSafety(profile)[0]}</div>}
               </div>
-              <div><div style={subLbl}>Restrictions & allergies</div><div style={chipWrap}>{ONB_DIET_RULES.map(c => <OnbChip key={c} label={c} on={(profile.dietRules || []).includes(c)} onClick={() => ptoggle("dietRules", c)} />)}</div><div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginTop: 6 }}>Allergy and “-free” tags remove matching dishes from your meal suggestions.</div></div>
+              <div><div style={subLbl}>Restrictions & allergies</div><div style={chipWrap}>{ONB_DIET_RULES.map(c => <OnbChip key={c} label={c} on={(profile.dietRules || []).includes(c)} onClick={() => ptoggle("dietRules", c)} />)}</div><div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 6 }}>Allergy and “-free” tags remove matching dishes from your meal suggestions.</div></div>
               <div><div style={subLbl}>Cuisines you like</div><div style={chipWrap}>{ONB_CUISINES.map(c => <OnbChip key={c} label={c} on={(profile.cuisines || []).includes(c)} onClick={() => ptoggle("cuisines", c)} />)}</div></div>
               <div><div style={subLbl}>Activity level</div><div style={chipWrap}>{ONB_ACTIVITY.map(a => <OnbChip key={a.k} label={a.l} on={profile.activityLevel === a.k} onClick={() => pset("activityLevel", a.k)} />)}</div></div>
               <div style={{ height: 1, background: T.border, margin: "4px 0" }} />
@@ -4321,7 +4352,7 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
                 <div style={{ height: 1, background: T.border, margin: "4px 0" }} />
                 <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 13, color: T.teal }}>Women's health</div>
                 <div><div style={subLbl}>Are you pregnant?</div><div style={chipWrap}><OnbChip label="No" on={!profile.pregnant} onClick={() => pset("pregnant", false)} /><OnbChip label="Yes" on={!!profile.pregnant} onClick={() => pset("pregnant", true)} /></div>
-                  {profile.pregnant && <div style={{ background: T.alertPale, border: `1px solid ${T.alert}`, borderRadius: 10, padding: "9px 11px", marginTop: 6, fontFamily: "Inter", fontSize: 12, color: T.alert, lineHeight: 1.5 }}>This app isn't designed for use during pregnancy. Please don't rely on its meal or calorie targets — follow your doctor's guidance instead.</div>}
+                  {profile.pregnant && <div style={{ background: T.alertPale, border: `1px solid ${T.alert}`, borderRadius: 10, padding: "9px 11px", marginTop: 6, fontFamily: "Inter", fontSize: 13, color: T.alert, lineHeight: 1.5 }}>This app isn't designed for use during pregnancy. Please don't rely on its meal or calorie targets — follow your doctor's guidance instead.</div>}
                 </div>
                 {!profile.pregnant && (<>
                   <div><div style={subLbl}>Last period — first day</div><input type="date" value={profile.periodLastStart || ""} onChange={e => pset("periodLastStart", e.target.value)} style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", fontFamily: "Inter", fontSize: 13.5, background: T.white, color: T.ink }} /></div>
@@ -4329,9 +4360,9 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
                     <div style={{ flex: 1 }}><div style={subLbl}>Lasts (days)</div><input type="number" min="1" max="14" value={profile.periodDuration ?? 5} onChange={e => pset("periodDuration", Number(e.target.value) || 5)} style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", fontFamily: "Inter", fontSize: 13.5 }} /></div>
                     <div style={{ flex: 1 }}><div style={subLbl}>Cycle gap (days)</div><input type="number" min="15" max="60" value={profile.periodCycle ?? 28} onChange={e => pset("periodCycle", Number(e.target.value) || 28)} style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", fontFamily: "Inter", fontSize: 13.5 }} /></div>
                   </div>
-                  <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft }}>Roughly how many days from the start of one period to the next (average is ~28).</div>
+                  <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>Roughly how many days from the start of one period to the next (average is ~28).</div>
                   <div><div style={subLbl}>Symptoms you usually get</div><div style={chipWrap}>{ONB_PERIOD_SYMPTOMS.map(s => <OnbChip key={s} label={s} on={(profile.periodSymptoms || []).includes(s)} onClick={() => ptoggle("periodSymptoms", s)} />)}</div></div>
-                  <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, lineHeight: 1.5 }}>Your cycle, a prediction of the next date, and symptom-based tips appear in the <b>Plan</b> tab. Log each new period there so the prediction learns your real pattern.</div>
+                  <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, lineHeight: 1.5 }}>Your cycle, a prediction of the next date, and symptom-based tips appear in the <b>Plan</b> tab. Log each new period there so the prediction learns your real pattern.</div>
                 </>)}
               </>)}
             </div>
@@ -4380,14 +4411,14 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
                     <input value={newMarker.high} onChange={e => setNewMarker({ ...newMarker, high: e.target.value.replace(/[^0-9.]/g, "") })} placeholder="High limit" inputMode="decimal" style={{ flex: 1, minWidth: 0, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px", fontFamily: "Inter", fontSize: 13 }} />
                     <input value={newMarker.low} onChange={e => setNewMarker({ ...newMarker, low: e.target.value.replace(/[^0-9.]/g, "") })} placeholder="Low limit" inputMode="decimal" style={{ flex: 1, minWidth: 0, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px", fontFamily: "Inter", fontSize: 13 }} />
                   </div>
-                  <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 8 }}>Set the abnormal limit — a high limit for things like sugar or uric acid, a low limit for things like HDL or B12.</div>
+                  <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 8 }}>Set the abnormal limit — a high limit for things like sugar or uric acid, a low limit for things like HDL or B12.</div>
                   <div style={{ display: "flex", gap: 8 }}>
                     <button onClick={() => setAddingMarker(false)} style={{ flex: 1, background: T.white, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 0", fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.ink }}>Cancel</button>
                     <button onClick={addMarker} style={{ flex: 1, background: T.tealSolid, border: "none", borderRadius: 8, padding: "8px 0", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5 }}>Add marker</button>
                   </div>
                 </div>
               )}
-              <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 14, lineHeight: 1.5 }}>Manual entry only — this app can't read an uploaded PDF/Excel file itself.</div>
+              <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 14, lineHeight: 1.5 }}>Manual entry only — this app can't read an uploaded PDF/Excel file itself.</div>
             </div>
           )}
           {section === "supplements" && (
@@ -4397,19 +4428,19 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
               </div>
               {editingSuppId ? (
                 <div style={{ background: T.creamDeep, borderRadius: 10, padding: 12, marginBottom: 12 }}>
-                  <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 4 }}>Name</div>
+                  <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 4 }}>Name</div>
                   <input value={suppForm.name} onChange={e => setSuppForm({ ...suppForm, name: e.target.value })} style={{ width: "100%", border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px", fontFamily: "Inter", fontSize: 13, marginBottom: 8 }} />
-                  <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 4 }}>Dose</div>
+                  <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 4 }}>Dose</div>
                   <input value={suppForm.dose} onChange={e => setSuppForm({ ...suppForm, dose: e.target.value })} placeholder="e.g. 500mg" style={{ width: "100%", border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px", fontFamily: "Inter", fontSize: 13, marginBottom: 8 }} />
-                  <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 4 }}>Time of day</div>
+                  <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 4 }}>Time of day</div>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
                     {[{ k: "morning", l: "Morning" }, { k: "afternoon", l: "After lunch" }, { k: "evening", l: "Evening" }, { k: "night", l: "Before bed" }, { k: "weekly", l: "Weekly" }].map(t => (
                       <button key={t.k} onClick={() => setSuppForm({ ...suppForm, time: t.k })} style={{ background: suppForm.time === t.k ? T.teal : T.white, color: suppForm.time === t.k ? T.white : T.ink, border: `1px solid ${T.border}`, borderRadius: 999, padding: "5px 10px", fontFamily: "Inter", fontSize: 12.5 }}>{t.l}</button>
                     ))}
                   </div>
-                  <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 4 }}>Timing note (shown under the dose)</div>
+                  <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 4 }}>Timing note (shown under the dose)</div>
                   <input value={suppForm.timeLabel} onChange={e => setSuppForm({ ...suppForm, timeLabel: e.target.value })} placeholder="e.g. After breakfast" style={{ width: "100%", border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px", fontFamily: "Inter", fontSize: 13, marginBottom: 8 }} />
-                  <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 4 }}>Why (optional)</div>
+                  <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 4 }}>Why (optional)</div>
                   <input value={suppForm.why} onChange={e => setSuppForm({ ...suppForm, why: e.target.value })} style={{ width: "100%", border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px", fontFamily: "Inter", fontSize: 13, marginBottom: 10 }} />
                   <div style={{ display: "flex", gap: 8 }}>
                     <button onClick={() => setEditingSuppId(null)} style={{ flex: 1, background: T.white, border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 0", fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5 }}>Cancel</button>
@@ -4423,7 +4454,7 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {supplements.map(s => (
                   <div key={s.id} onClick={() => startEditSupplement(s)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: T.white, border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", cursor: "pointer" }}>
-                    <div><div style={{ fontFamily: "Inter", fontWeight: 600, fontSize: 13 }}>{s.name}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{s.dose} · {s.timeLabel}</div></div>
+                    <div><div style={{ fontFamily: "Inter", fontWeight: 600, fontSize: 13 }}>{s.name}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>{s.dose} · {s.timeLabel}</div></div>
                     <Icon name="chevron" size={14} color={T.inkSoft} />
                   </div>
                 ))}
@@ -4435,7 +4466,7 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
             const set = (k, v) => saveNotifSettings({ ...S, [k]: v });
             const Toggle = ({ k, label, desc }) => (
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 0", borderBottom: `1px solid ${T.creamDeep}`, gap: 10 }}>
-                <div style={{ flex: 1 }}><div style={{ fontFamily: "Inter", fontSize: 13.5, fontWeight: 600, color: T.ink }}>{label}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{desc}</div></div>
+                <div style={{ flex: 1 }}><div style={{ fontFamily: "Inter", fontSize: 13.5, fontWeight: 600, color: T.ink }}>{label}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>{desc}</div></div>
                 <button onClick={() => set(k, S[k] === false)} aria-label={"Toggle " + label} style={{ width: 46, height: 27, borderRadius: 999, background: S[k] !== false ? T.forest : T.border, border: "none", position: "relative", cursor: "pointer", flexShrink: 0 }}><span style={{ position: "absolute", top: 3, left: S[k] !== false ? 22 : 3, width: 21, height: 21, borderRadius: 999, background: "#fff" }} /></button>
               </div>
             );
@@ -4449,7 +4480,7 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
                 <Toggle k="focus" label="Health focus" desc="Your flagged marker to watch" />
                 <Toggle k="weekly" label="Weekly summary" desc="Wins & warnings vs last week" />
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14 }}>
-                  <div style={{ flex: 1 }}><div style={{ fontFamily: "Inter", fontSize: 13.5, fontWeight: 600, color: T.ink }}>End-of-day reminder</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>Always on — fires only if nothing's logged. Set the time:</div></div>
+                  <div style={{ flex: 1 }}><div style={{ fontFamily: "Inter", fontSize: 13.5, fontWeight: 600, color: T.ink }}>End-of-day reminder</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>Always on — fires only if nothing's logged. Set the time:</div></div>
                   <input type="time" value={S.endOfDayTime || "22:00"} onChange={e => set("endOfDayTime", e.target.value)} style={{ border: `1px solid ${T.border}`, borderRadius: 8, padding: "7px 8px", fontFamily: "Inter", fontSize: 13.5, background: T.cream, color: T.ink }} />
                 </div>
               </div>
@@ -4473,16 +4504,21 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
             return (
               <div>
                 <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 14, lineHeight: 1.5 }}>Create an account to save your data safely and use it on any device — just sign in and your profile, logs and plan follow you. Your data stays private to you.</div>
+                <div style={{ fontFamily: "Inter", fontSize: 11, fontWeight: 700, color: T.inkSoft, marginBottom: 4 }}>NEW ACCOUNT — YOUR NAME &amp; MOBILE</div>
+                <input autoComplete="name" placeholder="Your name" value={acctName} onChange={e => setAcctName(e.target.value)} style={inS2} />
+                <input type="tel" autoComplete="tel" placeholder="Mobile with country code, e.g. +91 98765 43210" value={acctPhone} onChange={e => setAcctPhone(e.target.value)} style={inS2} />
+                <div style={{ fontFamily: "Inter", fontSize: 11, fontWeight: 700, color: T.inkSoft, marginBottom: 4, marginTop: 2 }}>EMAIL &amp; PASSWORD</div>
                 <input type="email" autoComplete="email" placeholder="Email" value={acctEmail} onChange={e => setAcctEmail(e.target.value)} style={inS2} />
                 <input type="password" autoComplete="current-password" placeholder="Password (6+ characters)" value={acctPass} onChange={e => setAcctPass(e.target.value)} style={inS2} />
                 {a.error && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.alert, marginBottom: 8, lineHeight: 1.4 }}>{a.error}</div>}
                 <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
                   <button disabled={a.status === "working"} onClick={() => authSignIn(acctEmail, acctPass)} style={{ flex: 1, background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 10, padding: "11px 0", color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, opacity: a.status === "working" ? 0.6 : 1 }}>{a.status === "working" ? "…" : "Sign in"}</button>
-                  <button disabled={a.status === "working"} onClick={() => authSignUp(acctEmail, acctPass)} style={{ flex: 1, background: T.tealSolid, border: "none", borderRadius: 10, padding: "11px 0", color: "#fff", fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, opacity: a.status === "working" ? 0.6 : 1 }}>{a.status === "working" ? "…" : "Create account"}</button>
+                  <button disabled={a.status === "working"} onClick={acctCreate} style={{ flex: 1, background: T.tealSolid, border: "none", borderRadius: 10, padding: "11px 0", color: "#fff", fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, opacity: a.status === "working" ? 0.6 : 1 }}>{a.status === "working" ? "…" : "Create account"}</button>
                 </div>
+                <div style={{ fontFamily: "Inter", fontSize: 11, color: T.inkSoft, marginTop: 6 }}>Signing in? Just email + password — name &amp; mobile are only for a new account.</div>
                 <div style={{ marginTop: 8 }}><button disabled={a.status === "working"} onClick={acctForgot} style={{ background: "none", border: "none", color: T.teal, fontWeight: 700, cursor: "pointer", fontSize: 12.5, fontFamily: "Inter", padding: 0, textDecoration: "underline" }}>Forgot password?</button></div>
-                {acctResetMsg && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.forest, marginTop: 6, lineHeight: 1.45 }}>{acctResetMsg}</div>}
-                <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginTop: 10, lineHeight: 1.5 }}>New here? Enter an email + password and tap <b>Create account</b>. Already have one? <b>Sign in</b>. Forgot your password (or the browser saved one you don't know)? Tap <b>Forgot password</b> to reset it. Needs internet; not available inside the claude.ai preview.</div>
+                {acctResetMsg && <div style={{ fontFamily: "Inter", fontSize: 13, color: T.forest, marginTop: 6, lineHeight: 1.45 }}>{acctResetMsg}</div>}
+                <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 10, lineHeight: 1.5 }}>New here? Enter an email + password and tap <b>Create account</b>. Already have one? <b>Sign in</b>. Forgot your password (or the browser saved one you don't know)? Tap <b>Forgot password</b> to reset it. Needs internet; not available inside the claude.ai preview.</div>
               </div>
             );
           })()}
@@ -4500,7 +4536,7 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
                   setTimeout(() => location.reload(), 1600);
                 }); e.target.value = ""; }} />
               </div>
-              <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: importMsg ? 6 : 20, lineHeight: 1.5 }}>Saves all your data (profiles, logs, reports, supplements, plan) to a JSON file you can restore here or on another device. Do this before switching browsers or clearing storage.</div>
+              <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: importMsg ? 6 : 20, lineHeight: 1.5 }}>Saves all your data (profiles, logs, reports, supplements, plan) to a JSON file you can restore here or on another device. Do this before switching browsers or clearing storage.</div>
               {importMsg && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.teal, marginBottom: 20 }}>{importMsg}</div>}
 
               <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>SYNC ACROSS DEVICES</div>
@@ -4511,7 +4547,7 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
               </div>
 
               <button onClick={onApplyDemoMonth} style={{ width: "100%", background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 10, padding: "10px 0", color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, marginBottom: 6 }}>Generate history (Jul 1 → today)</button>
-              <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 20, lineHeight: 1.5 }}>Fills every empty day from Jul 1 with sample food (from the Weekly Menu), activity and supplement data. Won't touch days you've already logged.</div>
+              <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 20, lineHeight: 1.5 }}>Fills every empty day from Jul 1 with sample food (from the Weekly Menu), activity and supplement data. Won't touch days you've already logged.</div>
               <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>CLEAR A SPECIFIC DATE</div>
               <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
                 <input type="date" value={clearDateVal} max={todayKey()} onChange={e => setClearDateVal(e.target.value)} style={{ flex: 1, border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", fontFamily: "Inter", fontSize: 13.5 }} />
@@ -4580,7 +4616,7 @@ function WelcomeScreen({ onDone }) {
     if (ok) setResetMsg(`Password-reset link sent to ${email.trim()} — check your inbox (and spam). Open it, set a new password, then sign in.`);
   };
   const inS = { width: "100%", boxSizing: "border-box", border: `1px solid ${T.border}`, borderRadius: 12, padding: "12px 14px", fontFamily: "Inter", fontSize: 15, marginBottom: 10, background: T.cream, color: T.ink };
-  const lbl = { fontFamily: "Inter", fontSize: 11.5, fontWeight: 700, color: T.inkSoft, marginBottom: 4, marginTop: 2 };
+  const lbl = { fontFamily: "Inter", fontSize: 12.5, fontWeight: 700, color: T.inkSoft, marginBottom: 4, marginTop: 2 };
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 60, background: `linear-gradient(160deg, ${T.teal}, ${T.tealSolid})`, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "26px 20px", overflowY: "auto" }}>
       <div style={{ width: "100%", maxWidth: 380, background: T.cream, borderRadius: 22, padding: 22, boxShadow: "0 20px 50px rgba(0,0,0,0.3)" }}>
@@ -4629,7 +4665,7 @@ function OnboardingWizard({ open, onClose, profile, saveProfile, goalToggles, sa
   const STEPS = ["About you", "Health conditions", "Your goals", "Diet", "Cuisines you like", "Activity & plans", "Lifestyle & sleep", "You're all set"];
   const last = STEPS.length - 1;
   const inS = { width: "100%", border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", fontFamily: "Inter", fontSize: 14, background: T.cream, color: T.ink };
-  const lS = { fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 4 };
+  const lS = { fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 4 };
   const hint = { fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 12 };
   const subL = { fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 10 };
 
@@ -4646,11 +4682,11 @@ function OnboardingWizard({ open, onClose, profile, saveProfile, goalToggles, sa
 
   return (
     <div className="askOverlay" style={{ alignItems: "stretch" }}>
-      <div style={{ background: T.cream, width: "100%", maxWidth: 420, margin: "0 auto", display: "flex", flexDirection: "column", height: "100%" }}>
-        <div style={{ padding: "16px 18px 12px", borderBottom: `1px solid ${T.border}` }}>
+      <div style={{ background: T.cream, width: "100%", maxWidth: 460, margin: "0 auto", display: "flex", flexDirection: "column", height: "100%" }}>
+        <div style={{ padding: "calc(14px + env(safe-area-inset-top, 0px)) 18px 12px", borderBottom: `1px solid ${T.border}` }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, color: T.teal }}>Set up your profile</div>
-            <button onClick={onClose} style={{ background: "none", border: "none", fontFamily: "Inter", fontSize: 13, color: T.inkSoft, cursor: "pointer" }}>Skip</button>
+            <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 16, color: T.teal }}>Set up your profile</div>
+            <button onClick={onClose} style={{ background: T.creamDeep, border: `1px solid ${T.border}`, borderRadius: 999, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, color: T.ink, cursor: "pointer", padding: "6px 16px" }}>Skip</button>
           </div>
           <div style={{ display: "flex", gap: 5, marginTop: 12 }}>{STEPS.map((s, i) => <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= step ? T.saffron : T.border }} />)}</div>
           <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19, color: T.ink, marginTop: 12 }}>{STEPS[step]}</div>
@@ -4676,7 +4712,7 @@ function OnboardingWizard({ open, onClose, profile, saveProfile, goalToggles, sa
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 {ONB_CONDITION_GROUPS.map(g => (
                   <div key={g.cat}>
-                    <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 11.5, letterSpacing: 0.4, color: T.teal, marginBottom: 7, textTransform: "uppercase" }}>{g.cat}</div>
+                    <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12.5, letterSpacing: 0.4, color: T.teal, marginBottom: 7, textTransform: "uppercase" }}>{g.cat}</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{g.items.map(c => <OnbChip key={c} label={c} on={(form.conditions || []).includes(c)} onClick={() => toggleIn("conditions", c)} />)}</div>
                   </div>
                 ))}
@@ -4696,7 +4732,7 @@ function OnboardingWizard({ open, onClose, profile, saveProfile, goalToggles, sa
             <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
               <div><div style={subL}>Baseline activity level</div><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{ONB_ACTIVITY.map(a => (
                 <button key={a.k} onClick={() => set("activityLevel", a.k)} style={{ textAlign: "left", background: form.activityLevel === a.k ? T.tealPale : T.white, border: `1.5px solid ${form.activityLevel === a.k ? T.teal : T.border}`, borderRadius: 12, padding: "11px 13px", cursor: "pointer" }}>
-                  <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 14, color: T.ink }}>{a.l}</div><div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{a.d}</div>
+                  <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 14, color: T.ink }}>{a.l}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>{a.d}</div>
                 </button>
               ))}</div></div>
               <div><div style={subL}>Want a weekly meal plan?</div><div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{ONB_MEALPLAN.map(c => <OnbChip key={c} label={c} on={form.wantsMealPlan === c} onClick={() => set("wantsMealPlan", c)} />)}</div></div>
@@ -4725,7 +4761,7 @@ function OnboardingWizard({ open, onClose, profile, saveProfile, goalToggles, sa
                     <div style={{ flex: 1 }}><div style={subL}>Lasts (days)</div><input type="number" min="1" max="14" value={form.periodDuration} onChange={e => set("periodDuration", Number(e.target.value) || 5)} style={inS} /></div>
                     <div style={{ flex: 1 }}><div style={subL}>Cycle gap (days)</div><input type="number" min="15" max="60" value={form.periodCycle} onChange={e => set("periodCycle", Number(e.target.value) || 28)} style={inS} /></div>
                   </div>
-                  <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft }}>“Cycle gap” = days from the start of one period to the next (average ≈ 28). We'll predict your next date and refine it as you log.</div>
+                  <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft }}>“Cycle gap” = days from the start of one period to the next (average ≈ 28). We'll predict your next date and refine it as you log.</div>
                   <div><div style={subL}>Which symptoms do you usually get?</div><div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{ONB_PERIOD_SYMPTOMS.map(s => <OnbChip key={s} label={s} on={(form.periodSymptoms || []).includes(s)} onClick={() => toggleIn("periodSymptoms", s)} />)}</div></div>
                 </>)}
               </>)}
@@ -4741,7 +4777,7 @@ function OnboardingWizard({ open, onClose, profile, saveProfile, goalToggles, sa
             </div>
           )}
         </div>
-        <div style={{ display: "flex", gap: 10, padding: "12px 18px 20px", borderTop: `1px solid ${T.border}` }}>
+        <div style={{ display: "flex", gap: 10, padding: "12px 18px calc(18px + env(safe-area-inset-bottom, 0px))", borderTop: `1px solid ${T.border}` }}>
           {step > 0 && <button onClick={() => setStep(step - 1)} style={{ flex: "0 0 auto", background: T.creamDeep, border: `1px solid ${T.border}`, borderRadius: 12, padding: "12px 18px", fontFamily: "Manrope", fontWeight: 700, fontSize: 14, color: T.ink, cursor: "pointer" }}>Back</button>}
           {step < last && <button onClick={() => setStep(step + 1)} style={{ flex: 1, background: T.saffron, border: "none", borderRadius: 12, padding: "12px 0", fontFamily: "Manrope", fontWeight: 800, fontSize: 15, color: "#fff", cursor: "pointer" }}>Next</button>}
         </div>
@@ -5013,7 +5049,7 @@ function App() {
         .pulseWrap { animation: pulse 3s ease-in-out infinite; }
         @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.03); } }
         .askOverlay { position: fixed; inset: 0; background: rgba(38,48,46,0.45); z-index: 50; display: flex; align-items: flex-end; justify-content: center; }
-        .askPanel { background: ${T.cream}; width: 100%; max-width: 420px; height: 78vh; border-radius: 20px 20px 0 0; display: flex; flex-direction: column; }
+        .askPanel { background: ${T.cream}; width: 100%; max-width: 460px; height: 78vh; border-radius: 20px 20px 0 0; display: flex; flex-direction: column; }
         .tabPane { padding: calc(56px + env(safe-area-inset-top, 0px)) 16px 16px; }
         input, textarea, select { color: ${T.ink}; background-color: ${T.cream}; border-color: ${T.border}; }
         input::placeholder, textarea::placeholder { color: ${T.inkSoft}; opacity: 1; }
@@ -5022,7 +5058,7 @@ function App() {
         .spin { animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
-      <div style={{ width: "100%", maxWidth: 420, background: T.cream, color: T.ink, minHeight: "100vh", position: "relative", boxShadow: "0 0 40px rgba(0,0,0,0.06)" }}>
+      <div style={{ width: "100%", maxWidth: 460, background: T.cream, color: T.ink, minHeight: "100vh", position: "relative", boxShadow: "0 0 40px rgba(0,0,0,0.06)" }}>
         {profile.pregnant && (
           <div style={{ position: "sticky", top: 0, zIndex: 12, background: T.alert, color: "#fff", padding: "10px 14px 10px 14px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, lineHeight: 1.45, textAlign: "center", boxShadow: "0 2px 8px rgba(0,0,0,0.2)" }}>
             ⚠ This app is not for use during pregnancy. Please don't follow its meal or calorie targets — see your doctor for pregnancy-safe guidance.
@@ -5035,7 +5071,7 @@ function App() {
         )}
         <button onClick={() => setNotifsOpen(true)} aria-label="Notifications" style={{ position: "absolute", top: "calc(14px + env(safe-area-inset-top, 0px))", right: 102, zIndex: 15, background: T.white, border: `1px solid ${T.border}`, borderRadius: 999, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.08)" }}>
           <Icon name="bell" size={17} color={T.teal} />
-          {notifications.length > 0 && <span style={{ position: "absolute", top: -4, right: -4, minWidth: 18, height: 18, padding: "0 4px", borderRadius: 9, background: T.alert, color: "#fff", fontFamily: "Manrope", fontWeight: 800, fontSize: 12, display: "grid", placeItems: "center", border: `2px solid ${T.cream}` }}>{notifications.length}</span>}
+          {notifications.length > 0 && <span style={{ position: "absolute", top: -4, right: -4, minWidth: 18, height: 18, padding: "0 4px", borderRadius: 9, background: T.alert, color: "#fff", fontFamily: "Manrope", fontWeight: 800, fontSize: 13, display: "grid", placeItems: "center", border: `2px solid ${T.cream}` }}>{notifications.length}</span>}
         </button>
         <button onClick={() => setTheme(theme === "light" ? "dark" : "light")} aria-label="Toggle light or dark mode" style={{ position: "absolute", top: "calc(14px + env(safe-area-inset-top, 0px))", right: 58, zIndex: 15, background: T.white, border: `1px solid ${T.border}`, borderRadius: 999, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.08)", fontSize: 16 }}>{theme === "light" ? "🌙" : "☀️"}</button>
         <button onClick={() => setGearMenuOpen(o => !o)} aria-label="Menu" style={{ position: "absolute", top: "calc(14px + env(safe-area-inset-top, 0px))", right: 14, zIndex: 20, background: T.white, border: `1px solid ${T.border}`, borderRadius: 999, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.08)" }}><Icon name="settings" size={17} color={T.teal} /></button>
@@ -5045,7 +5081,7 @@ function App() {
           const item = (emoji, label, sub, onClick) => (
             <button onClick={onClick} style={rowS} onMouseDown={e => e.preventDefault()}>
               <span style={{ fontSize: 17, width: 20, textAlign: "center" }}>{emoji}</span>
-              <span><span>{label}</span>{sub && <span style={{ display: "block", fontFamily: "Inter", fontWeight: 400, fontSize: 11.5, color: T.inkSoft, marginTop: 1 }}>{sub}</span>}</span>
+              <span><span>{label}</span>{sub && <span style={{ display: "block", fontFamily: "Inter", fontWeight: 400, fontSize: 12.5, color: T.inkSoft, marginTop: 1 }}>{sub}</span>}</span>
             </button>
           );
           return (<>
@@ -5053,8 +5089,8 @@ function App() {
             <div style={{ position: "absolute", top: "calc(56px + env(safe-area-inset-top, 0px))", right: 14, zIndex: 19, background: T.white, border: `1px solid ${T.border}`, borderRadius: 14, boxShadow: "0 12px 34px rgba(0,0,0,0.20)", overflow: "hidden", minWidth: 220 }}>
               <div style={{ padding: "10px 15px", borderBottom: `1px solid ${T.border}`, background: T.cream }}>
                 {acc.status === "signedin"
-                  ? <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft }}>Signed in as<div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.ink, marginTop: 1, wordBreak: "break-all" }}>{acc.email}</div></div>
-                  : <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>Not signed in</div>}
+                  ? <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft }}>Signed in as<div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.ink, marginTop: 1, wordBreak: "break-all" }}>{acc.email}</div></div>
+                  : <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>Not signed in</div>}
               </div>
               {item("👤", "Profile", "Your details & reports", () => { setGearMenuOpen(false); openSettings("profile"); })}
               {item("⚙️", "Settings", "Reminders, backup & data", () => { setGearMenuOpen(false); openSettings("data"); })}
@@ -5068,7 +5104,7 @@ function App() {
         {tab === "habits" && <HabitsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} habitsForDate={habitsForDate} toggleHabit={toggleHabit} weekHabits={weekHabits} weekFood={weekFood} weekSupplements={weekSupplements} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} advice={advice} weightKg={profile.weight} />}
         {tab === "supplements" && <SupplementsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} supplementsForDate={supplementsForDate} toggleSupplement={toggleSupplement} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} supplements={supplements} advice={advice} suggestedSupps={suggestedSupps} onAddSupplement={addSuggestedSupplement} />}
         {tab === "plan" && <PlanTab weekFood={weekFood} advice={advice} profile={profile} targets={targets} weeklyPlan={weeklyPlan} onRegeneratePlan={regeneratePlan} onSwapMeal={swapPlanMeal} onAddPlanItem={addPlanItem} onRemovePlanItem={removePlanItem} cycleLog={cycleLog} onLogPeriod={logPeriod} />}
-        <div style={{ position: "fixed", bottom: 0, width: "100%", maxWidth: 420, background: T.tealSolid, display: "flex", alignItems: "center", justifyContent: "space-around", padding: "8px 8px 10px", zIndex: 30 }}>
+        <div style={{ position: "fixed", bottom: 0, width: "100%", maxWidth: 460, background: T.tealSolid, display: "flex", alignItems: "center", justifyContent: "space-around", padding: "8px 8px 10px", zIndex: 30 }}>
           {NAV.map((t, i) => {
             if (t.center) return (
               <button key="log" onClick={() => setLogOpen(true)} aria-label="Log something" style={{ flex: "0 0 auto", background: T.saffron, border: "none", width: 52, height: 52, borderRadius: 18, display: "grid", placeItems: "center", cursor: "pointer", marginTop: -22, boxShadow: "0 8px 18px rgba(0,0,0,0.26)" }}>
@@ -5081,14 +5117,14 @@ function App() {
             return (
               <button key={t.id} onClick={onClick} style={{ background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, cursor: "pointer", flex: 1, minWidth: 0 }}>
                 <Icon name={t.icon} size={20} color={col} />
-                <span style={{ fontFamily: "Inter", fontSize: 12, fontWeight: active ? 700 : 500, color: col }}>{t.label}</span>
+                <span style={{ fontFamily: "Inter", fontSize: 13, fontWeight: active ? 700 : 500, color: col }}>{t.label}</span>
               </button>
             );
           })}
         </div>
         {logOpen && (
           <div className="askOverlay" onClick={() => setLogOpen(false)}>
-            <div onClick={e => e.stopPropagation()} style={{ background: T.cream, width: "100%", maxWidth: 420, borderRadius: "22px 22px 0 0", padding: "12px 16px 26px" }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: T.cream, width: "100%", maxWidth: 460, borderRadius: "22px 22px 0 0", padding: "12px 16px 26px" }}>
               <div style={{ width: 40, height: 4, borderRadius: 2, background: T.border, margin: "0 auto 14px" }} />
               <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 16, color: T.teal, marginBottom: 12 }}>What do you want to log?</div>
               {logOptions.map(o => (
@@ -5103,11 +5139,11 @@ function App() {
         )}
         {notifsOpen && (
           <div className="askOverlay" onClick={() => setNotifsOpen(false)}>
-            <div onClick={e => e.stopPropagation()} style={{ background: T.cream, width: "100%", maxWidth: 420, borderRadius: "22px 22px 0 0", padding: "12px 16px 26px", maxHeight: "72vh", overflowY: "auto" }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: T.cream, width: "100%", maxWidth: 460, borderRadius: "22px 22px 0 0", padding: "12px 16px 26px", maxHeight: "72vh", overflowY: "auto" }}>
               <div style={{ width: 40, height: 4, borderRadius: 2, background: T.border, margin: "0 auto 14px" }} />
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                 <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 16, color: T.teal }}>Notifications</div>
-                {notifications.length > 0 && <span style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft }}>{notifications.length} for today</span>}
+                {notifications.length > 0 && <span style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>{notifications.length} for today</span>}
               </div>
               {notifications.length === 0 ? (
                 <div style={{ fontFamily: "Inter", fontSize: 14, color: T.inkSoft, textAlign: "center", padding: "26px 0" }}>🎉 All caught up — nothing needs your attention right now.</div>
@@ -5117,7 +5153,7 @@ function App() {
                   <span style={{ fontFamily: "Inter", fontSize: 14, color: T.ink, lineHeight: 1.4 }}>{n.text}</span>
                 </button>
               ))}
-              <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 8, textAlign: "center" }}>Reminder scheduling &amp; per-type settings arrive with the notifications phase.</div>
+              <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 8, textAlign: "center" }}>Reminder scheduling &amp; per-type settings arrive with the notifications phase.</div>
             </div>
           </div>
         )}
