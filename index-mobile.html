@@ -5700,6 +5700,10 @@ function deviceHasData() {
 let _pushTimer = null;
 function syncPushSoon() {
   if (!FB) return;
+  dispatchSync({
+    status: "saving",
+    error: null
+  });
   clearTimeout(_pushTimer);
   _pushTimer = setTimeout(syncPushNow, 900);
 }
@@ -5712,9 +5716,17 @@ function syncPushNow() {
   };
   const contact = kvGet("account:contact", null);
   if (contact) payload.contact = contact;
+  dispatchSync({
+    status: "saving",
+    error: null
+  });
   FB.ref.set(payload, {
     merge: true
-  }).catch(e => dispatchSync({
+  }).then(() => dispatchSync({
+    status: "live",
+    error: null,
+    at: Date.now()
+  })).catch(e => dispatchSync({
     status: "error",
     error: String(e && e.message || e)
   }));
@@ -5904,6 +5916,16 @@ async function startAccountSync(uid) {
   FB.unsub = ref.onSnapshot(s => {
     const d = s.data();
     if (d && d.data && d.origin !== SYNC_CLIENT) applyRemote(d.data);
+    dispatchSync({
+      status: "live",
+      error: null,
+      at: Date.now()
+    });
+  });
+  dispatchSync({
+    status: "live",
+    error: null,
+    at: Date.now()
   });
 }
 // Attach the auth-state listener once; on sign-in start per-uid sync, on sign-out stop it.
@@ -6212,6 +6234,61 @@ function Badge({
       whiteSpace: "nowrap"
     }
   }, children);
+}
+// Live cloud-sync status — so you never have to guess whether your data is safely in your account.
+function SyncBadge({
+  compact
+}) {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const on = () => force(t => t + 1);
+    ["sync-state", "auth-state", "online", "offline"].forEach(e => window.addEventListener(e, on));
+    return () => ["sync-state", "auth-state", "online", "offline"].forEach(e => window.removeEventListener(e, on));
+  }, []);
+  const signedIn = authState().status === "signedin";
+  const online = typeof navigator !== "undefined" ? navigator.onLine : true;
+  const s = syncState().status;
+  let text, color;
+  if (!signedIn) {
+    text = "On this device";
+    color = T.inkSoft;
+  } else if (!online) {
+    text = "Offline — will sync";
+    color = T.amber;
+  } else if (s === "saving" || s === "connecting") {
+    text = "Syncing…";
+    color = T.teal;
+  } else if (s === "error") {
+    text = "Sync issue — retrying";
+    color = T.alert;
+  } else {
+    text = "Synced";
+    color = T.forest;
+  }
+  return /*#__PURE__*/React.createElement("span", {
+    title: signedIn ? "Your data syncs to your account automatically" : "Sign in to back up & sync across devices",
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 5,
+      fontFamily: "Inter",
+      fontSize: compact ? 11 : 12,
+      fontWeight: 700,
+      color,
+      background: compact ? "transparent" : T.creamDeep,
+      borderRadius: 999,
+      padding: compact ? 0 : "3px 9px",
+      whiteSpace: "nowrap"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 7,
+      height: 7,
+      borderRadius: 999,
+      background: color,
+      flexShrink: 0
+    }
+  }), text === "Synced" ? "✓ Synced" : text);
 }
 function NutrientBar({
   label,
@@ -7042,11 +7119,18 @@ function TodayTab({
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
       fontFamily: "Inter",
       fontSize: 13,
       color: T.inkSoft
     }
-  }, dateStr), /*#__PURE__*/React.createElement("div", {
+  }, dateStr), /*#__PURE__*/React.createElement(SyncBadge, null)), /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: "Manrope",
       fontWeight: 800,
@@ -12562,6 +12646,7 @@ function SettingsPanel({
   const [acctPass, setAcctPass] = useState("");
   const [acctName, setAcctName] = useState("");
   const [acctPhone, setAcctPhone] = useState("+");
+  const [confirmRemoveId, setConfirmRemoveId] = useState(null); // profile pending delete-confirmation
   // Creating an account requires basic info (name + mobile), same as the welcome screen — never
   // just email+password. Sign-in ignores name/phone.
   const acctCreate = async () => {
@@ -12929,7 +13014,7 @@ function SettingsPanel({
       padding: 0
     }
   }, p.name || (p.id === "self" ? "You" : "Unnamed")), p.id !== "self" && /*#__PURE__*/React.createElement("button", {
-    onClick: () => onRemovePerson(p.id),
+    onClick: () => setConfirmRemoveId(p.id),
     "aria-label": "Remove person",
     style: {
       background: "none",
@@ -12942,7 +13027,60 @@ function SettingsPanel({
     name: "x",
     size: 13,
     color: p.id === activeId ? "#fff" : T.inkSoft
-  }))))), /*#__PURE__*/React.createElement("button", {
+  }))))), confirmRemoveId && (() => {
+    const rp = profiles.find(p => p.id === confirmRemoveId);
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        background: T.alertPale,
+        border: `1px solid ${T.alert}`,
+        borderRadius: 10,
+        padding: "10px 12px",
+        marginBottom: 10
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "Inter",
+        fontSize: 12.5,
+        color: T.alert,
+        lineHeight: 1.5,
+        marginBottom: 8
+      }
+    }, "Delete ", /*#__PURE__*/React.createElement("b", null, rp && rp.name || "this person"), "? Their profile, reports, food, activity and history will be removed from this account. This can't be undone."), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => setConfirmRemoveId(null),
+      style: {
+        flex: 1,
+        background: T.white,
+        border: `1px solid ${T.border}`,
+        borderRadius: 8,
+        padding: "8px 0",
+        fontFamily: "Manrope",
+        fontWeight: 700,
+        fontSize: 12.5,
+        color: T.ink
+      }
+    }, "Cancel"), /*#__PURE__*/React.createElement("button", {
+      onClick: () => {
+        onRemovePerson(confirmRemoveId);
+        setConfirmRemoveId(null);
+      },
+      style: {
+        flex: 1,
+        background: T.alert,
+        border: "none",
+        borderRadius: 8,
+        padding: "8px 0",
+        fontFamily: "Manrope",
+        fontWeight: 700,
+        fontSize: 12.5,
+        color: "#fff"
+      }
+    }, "Delete")));
+  })(), /*#__PURE__*/React.createElement("button", {
     onClick: onAddPerson,
     style: {
       width: "100%",
@@ -14443,13 +14581,68 @@ function SettingsPanel({
         }
       }, "Signed in as ", /*#__PURE__*/React.createElement("b", null, a.email))), /*#__PURE__*/React.createElement("div", {
         style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          marginBottom: 12
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "Inter",
+          fontSize: 12.5,
+          color: T.inkSoft
+        }
+      }, "Cloud status:"), /*#__PURE__*/React.createElement(SyncBadge, null)), /*#__PURE__*/React.createElement("div", {
+        style: {
           fontFamily: "Inter",
           fontSize: 12.5,
           color: T.inkSoft,
-          marginBottom: 16,
+          marginBottom: 14,
           lineHeight: 1.5
         }
-      }, "Your data is private to this account and syncs automatically on every device where you sign in \u2014 no sync code needed."), /*#__PURE__*/React.createElement("button", {
+      }, "Your data is private to this account and syncs automatically on every device where you sign in \u2014 no sync code needed. Stay online a few seconds after changes so they reach the cloud before you sign out."), /*#__PURE__*/React.createElement("button", {
+        onClick: () => {
+          if (navigator.onLine) syncPushNow();
+        },
+        style: {
+          width: "100%",
+          background: T.tealPale,
+          border: `1px solid ${T.teal}`,
+          borderRadius: 10,
+          padding: "10px 0",
+          color: T.teal,
+          fontFamily: "Manrope",
+          fontWeight: 700,
+          fontSize: 13.5,
+          marginBottom: 8
+        }
+      }, "\u2601\uFE0E Sync now"), /*#__PURE__*/React.createElement("button", {
+        onClick: () => {
+          try {
+            location.reload();
+          } catch (e) {}
+        },
+        style: {
+          width: "100%",
+          background: T.creamDeep,
+          border: `1px solid ${T.border}`,
+          borderRadius: 10,
+          padding: "10px 0",
+          color: T.ink,
+          fontFamily: "Manrope",
+          fontWeight: 700,
+          fontSize: 13.5,
+          marginBottom: 8
+        }
+      }, "\u21BB Reload app (get the latest version)"), /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontFamily: "Inter",
+          fontSize: 11.5,
+          color: T.inkSoft,
+          marginBottom: 12,
+          lineHeight: 1.5
+        }
+      }, "Added to your home screen? Tap ", /*#__PURE__*/React.createElement("b", null, "Reload app"), " after an update \u2014 or fully close it (swipe it away from the app switcher) and reopen. Your logged data stays safe."), /*#__PURE__*/React.createElement("button", {
         onClick: () => authSignOut(),
         style: {
           width: "100%",

@@ -2099,8 +2099,16 @@ function deviceHasData() {
   return false;
 }
 let _pushTimer = null;
-function syncPushSoon() { if (!FB) return; clearTimeout(_pushTimer); _pushTimer = setTimeout(syncPushNow, 900); }
-function syncPushNow() { if (!FB) return; const payload = { data: gatherAppData(), updatedAt: Date.now(), origin: SYNC_CLIENT }; const contact = kvGet("account:contact", null); if (contact) payload.contact = contact; FB.ref.set(payload, { merge: true }).catch(e => dispatchSync({ status: "error", error: String(e && e.message || e) })); }
+function syncPushSoon() { if (!FB) return; dispatchSync({ status: "saving", error: null }); clearTimeout(_pushTimer); _pushTimer = setTimeout(syncPushNow, 900); }
+function syncPushNow() {
+  if (!FB) return;
+  const payload = { data: gatherAppData(), updatedAt: Date.now(), origin: SYNC_CLIENT };
+  const contact = kvGet("account:contact", null); if (contact) payload.contact = contact;
+  dispatchSync({ status: "saving", error: null });
+  FB.ref.set(payload, { merge: true })
+    .then(() => dispatchSync({ status: "live", error: null, at: Date.now() }))
+    .catch(e => dispatchSync({ status: "error", error: String(e && e.message || e) }));
+}
 async function startSync(config, code) {
   dispatchSync({ status: "connecting", error: null });
   try {
@@ -2195,7 +2203,8 @@ async function startAccountSync(uid) {
   const payload = { data: gatherAppData(), updatedAt: Date.now(), origin: SYNC_CLIENT };
   const contact = kvGet("account:contact", null); if (contact) payload.contact = contact; // name+phone of who registered (owner-visible in Firestore)
   await ref.set(payload, { merge: true }); // push the winner up
-  FB.unsub = ref.onSnapshot(s => { const d = s.data(); if (d && d.data && d.origin !== SYNC_CLIENT) applyRemote(d.data); });
+  FB.unsub = ref.onSnapshot(s => { const d = s.data(); if (d && d.data && d.origin !== SYNC_CLIENT) applyRemote(d.data); dispatchSync({ status: "live", error: null, at: Date.now() }); });
+  dispatchSync({ status: "live", error: null, at: Date.now() });
 }
 // Attach the auth-state listener once; on sign-in start per-uid sync, on sign-out stop it.
 async function authInit() {
@@ -2293,6 +2302,30 @@ function HealthRing({ score }) {
 function SectionLabel({ children }) { return <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 13, letterSpacing: 0.4, textTransform: "uppercase", color: T.teal, marginBottom: 10 }}>{children}</div>; }
 function Card({ children, style }) { return <div style={{ background: T.white, borderRadius: 16, padding: 16, border: `1px solid ${T.border}`, boxShadow: "0 1px 2px rgba(38,48,46,0.04)", ...style }}>{children}</div>; }
 function Badge({ children, bg, fg }) { return <span style={{ background: bg, color: fg, fontFamily: "Inter", fontWeight: 700, fontSize: 12.5, padding: "3px 9px", borderRadius: 999, whiteSpace: "nowrap" }}>{children}</span>; }
+// Live cloud-sync status — so you never have to guess whether your data is safely in your account.
+function SyncBadge({ compact }) {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const on = () => force(t => t + 1);
+    ["sync-state", "auth-state", "online", "offline"].forEach(e => window.addEventListener(e, on));
+    return () => ["sync-state", "auth-state", "online", "offline"].forEach(e => window.removeEventListener(e, on));
+  }, []);
+  const signedIn = authState().status === "signedin";
+  const online = (typeof navigator !== "undefined") ? navigator.onLine : true;
+  const s = syncState().status;
+  let text, color;
+  if (!signedIn) { text = "On this device"; color = T.inkSoft; }
+  else if (!online) { text = "Offline — will sync"; color = T.amber; }
+  else if (s === "saving" || s === "connecting") { text = "Syncing…"; color = T.teal; }
+  else if (s === "error") { text = "Sync issue — retrying"; color = T.alert; }
+  else { text = "Synced"; color = T.forest; }
+  return (
+    <span title={signedIn ? "Your data syncs to your account automatically" : "Sign in to back up & sync across devices"} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "Inter", fontSize: compact ? 11 : 12, fontWeight: 700, color, background: compact ? "transparent" : T.creamDeep, borderRadius: 999, padding: compact ? 0 : "3px 9px", whiteSpace: "nowrap" }}>
+      <span style={{ width: 7, height: 7, borderRadius: 999, background: color, flexShrink: 0 }} />
+      {text === "Synced" ? "✓ Synced" : text}
+    </span>
+  );
+}
 function NutrientBar({ label, value, target, unit, warnOver }) {
   const pct = Math.min(100, Math.round((value / target) * 100));
   const over = warnOver && value > target;
@@ -2560,7 +2593,10 @@ function TodayTab({ profile, targets, advice, foodToday, habitToday, supplements
     <div className="tabPane">
       <DateBar selectedDate={selectedDate} onOpenCalendar={() => setCalendarOpen(true)} onBackToToday={() => setSelectedDate(todayKey())} />
       <div style={{ marginBottom: 14 }}>
-        <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>{dateStr}</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>{dateStr}</div>
+          <SyncBadge />
+        </div>
         <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22, color: T.teal }}>Hi {(profile.name || "").trim().split(/\s+/)[0] || "there"} 👋</div>
       </div>
       <Card style={{ padding: 16 }}>
@@ -4169,6 +4205,7 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
   const [acctPass, setAcctPass] = useState("");
   const [acctName, setAcctName] = useState("");
   const [acctPhone, setAcctPhone] = useState("+");
+  const [confirmRemoveId, setConfirmRemoveId] = useState(null); // profile pending delete-confirmation
   // Creating an account requires basic info (name + mobile), same as the welcome screen — never
   // just email+password. Sign-in ignores name/phone.
   const acctCreate = async () => {
@@ -4256,10 +4293,22 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
                     {profiles.map(p => (
                       <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 4, background: p.id === activeId ? T.saffron : T.white, border: `1px solid ${p.id === activeId ? T.saffron : T.border}`, borderRadius: 999, padding: "5px 6px 5px 12px" }}>
                         <button onClick={() => p.id !== activeId && onSwitchPerson(p.id)} style={{ background: "none", border: "none", color: p.id === activeId ? "#fff" : T.ink, fontFamily: "Inter", fontSize: 13, fontWeight: 700, cursor: "pointer", padding: 0 }}>{p.name || (p.id === "self" ? "You" : "Unnamed")}</button>
-                        {p.id !== "self" && <button onClick={() => onRemovePerson(p.id)} aria-label="Remove person" style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}><Icon name="x" size={13} color={p.id === activeId ? "#fff" : T.inkSoft} /></button>}
+                        {p.id !== "self" && <button onClick={() => setConfirmRemoveId(p.id)} aria-label="Remove person" style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}><Icon name="x" size={13} color={p.id === activeId ? "#fff" : T.inkSoft} /></button>}
                       </div>
                     ))}
                   </div>
+                  {confirmRemoveId && (() => {
+                    const rp = profiles.find(p => p.id === confirmRemoveId);
+                    return (
+                      <div style={{ background: T.alertPale, border: `1px solid ${T.alert}`, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
+                        <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.alert, lineHeight: 1.5, marginBottom: 8 }}>Delete <b>{(rp && rp.name) || "this person"}</b>? Their profile, reports, food, activity and history will be removed from this account. This can't be undone.</div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button onClick={() => setConfirmRemoveId(null)} style={{ flex: 1, background: T.white, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 0", fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.ink }}>Cancel</button>
+                          <button onClick={() => { onRemovePerson(confirmRemoveId); setConfirmRemoveId(null); }} style={{ flex: 1, background: T.alert, border: "none", borderRadius: 8, padding: "8px 0", fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: "#fff" }}>Delete</button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                   <button onClick={onAddPerson} style={{ width: "100%", background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 10, padding: "8px 0", color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 13 }}>+ Add another person</button>
                   <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 8, lineHeight: 1.5 }}>Each person keeps their own reports, food, activity and supplements — switching changes everything.</div>
                 </div>
@@ -4496,7 +4545,11 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
                     <span style={{ width: 9, height: 9, borderRadius: 5, background: T.forest }} />
                     <span style={{ fontFamily: "Inter", fontSize: 13.5, color: T.ink }}>Signed in as <b>{a.email}</b></span>
                   </div>
-                  <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 16, lineHeight: 1.5 }}>Your data is private to this account and syncs automatically on every device where you sign in — no sync code needed.</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}><span style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft }}>Cloud status:</span><SyncBadge /></div>
+                  <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 14, lineHeight: 1.5 }}>Your data is private to this account and syncs automatically on every device where you sign in — no sync code needed. Stay online a few seconds after changes so they reach the cloud before you sign out.</div>
+                  <button onClick={() => { if (navigator.onLine) syncPushNow(); }} style={{ width: "100%", background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 10, padding: "10px 0", color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, marginBottom: 8 }}>☁︎ Sync now</button>
+                  <button onClick={() => { try { location.reload(); } catch (e) {} }} style={{ width: "100%", background: T.creamDeep, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 0", color: T.ink, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, marginBottom: 8 }}>↻ Reload app (get the latest version)</button>
+                  <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 12, lineHeight: 1.5 }}>Added to your home screen? Tap <b>Reload app</b> after an update — or fully close it (swipe it away from the app switcher) and reopen. Your logged data stays safe.</div>
                   <button onClick={() => authSignOut()} style={{ width: "100%", background: T.alertPale, border: `1px solid ${T.alert}`, borderRadius: 10, padding: "10px 0", color: T.alert, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5 }}>Sign out</button>
                 </div>
               );
