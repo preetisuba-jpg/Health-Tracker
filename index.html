@@ -4184,6 +4184,55 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
 }
 
 
+// ---- Report-photo reader (#5): map an AI-extracted lab name to the app's marker keys, and turn a
+// picked image/PDF into base64 (images are downscaled first to keep the upload small and fast). ----
+const REPORT_MARKER_SYNONYMS = [
+  { key: "chol", re: /total chol|cholesterol[, ]*total|^cholesterol$|\bt\.?\s*chol/i },
+  { key: "ldl", re: /\bldl\b/i },
+  { key: "hdl", re: /\bhdl\b/i },
+  { key: "tg", re: /triglyc|\btg\b|\btgl\b/i },
+  { key: "ggt", re: /\bggt\b|gamma[- ]?gt|gamma glut/i },
+  { key: "tsh", re: /\btsh\b|thyroid stimulating/i },
+  { key: "sgot", re: /\bsgot\b|\bast\b|aspartate/i },
+  { key: "sgpt", re: /\bsgpt\b|\balt\b|alanine/i },
+  { key: "weight", re: /^weight$|body weight/i },
+];
+function matchMarkerKey(metrics, name) {
+  const n = (name || "").toLowerCase().trim();
+  const syn = REPORT_MARKER_SYNONYMS.find(s => s.re.test(n));
+  if (syn && metrics.some(m => m.key === syn.key)) return syn.key;
+  const byLabel = metrics.find(m => m.label && (m.label.toLowerCase() === n || (n.length > 3 && (m.label.toLowerCase().includes(n) || n.includes(m.label.toLowerCase())))));
+  if (byLabel) return byLabel.key;
+  return syn ? syn.key : null; // canonical key even if not tracked yet (caller adds it)
+}
+function downscaleImage(file, maxDim = 1600, quality = 0.82) {
+  return new Promise((resolve) => {
+    try {
+      const img = new Image(); const url = URL.createObjectURL(file);
+      img.onload = () => {
+        let w = img.width, h = img.height; const scale = Math.min(1, maxDim / Math.max(w, h));
+        w = Math.round(w * scale); h = Math.round(h * scale);
+        const c = document.createElement("canvas"); c.width = w; c.height = h;
+        c.getContext("2d").drawImage(img, 0, 0, w, h); URL.revokeObjectURL(url);
+        resolve({ mimeType: "image/jpeg", data: c.toDataURL("image/jpeg", quality).split(",")[1] });
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+      img.src = url;
+    } catch (e) { resolve(null); }
+  });
+}
+function fileToBase64(file) {
+  return new Promise((resolve) => {
+    const r = new FileReader();
+    r.onload = () => resolve({ mimeType: file.type || "application/octet-stream", data: String(r.result).split(",")[1] });
+    r.onerror = () => resolve(null);
+    r.readAsDataURL(file);
+  });
+}
+async function reportFileToInline(file) {
+  if (file.type && file.type.startsWith("image/")) { const d = await downscaleImage(file); if (d) return d; }
+  return fileToBase64(file);
+}
 function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveGoalToggles, customGoals, saveCustomGoals, metrics, saveMetrics, periods, savePeriods, supplements, saveSupplements, initialSection, onClearDate, onClearAll, onApplyDemoMonth, onOpenWizard, profiles, activeId, onSwitchPerson, onAddPerson, onRemovePerson, notifSettings, saveNotifSettings }) {
   const [section, setSection] = useState(initialSection || "profile");
   const [form, setForm] = useState(profile);
@@ -4191,6 +4240,9 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
   const [newPeriodLabel, setNewPeriodLabel] = useState("");
   const [newValues, setNewValues] = useState({});
   const [addingReport, setAddingReport] = useState(false);
+  const [uploadingReport, setUploadingReport] = useState(false);
+  const [uploadErr, setUploadErr] = useState("");
+  const reportFileRef = useRef(null);
   const [addingMarker, setAddingMarker] = useState(false);
   const [newMarker, setNewMarker] = useState({ label: "", unit: "", high: "", low: "" });
   const [clearDateVal, setClearDateVal] = useState(todayKey());
@@ -4248,6 +4300,43 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
     savePeriods([...periods, newPeriodLabel.trim()]);
     saveMetrics(metrics.map(m => ({ ...m, points: [...m.points, newValues[m.key] != null && newValues[m.key] !== "" ? Number(newValues[m.key]) : null] })));
     setNewPeriodLabel(""); setNewValues({}); setAddingReport(false);
+  }
+  // #5: pre-fill the "add report" form from AI-extracted values so the user reviews before saving.
+  function applyExtractedReport(ex) {
+    let label = "";
+    if (ex.reportDate) { try { label = new Date(ex.reportDate + "T00:00:00").toLocaleDateString("en-IN", { month: "short", year: "numeric" }); } catch (e) {} }
+    let mx = [...metrics]; const vals = {};
+    (ex.markers || []).forEach(mk => {
+      const v = Number(mk.value); if (!isFinite(v)) return;
+      let key = matchMarkerKey(mx, mk.name);
+      let found = key ? mx.find(m => m.key === key) : null;
+      if (!found) {
+        key = (mk.name || "marker").toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 14) || `m${Date.now()}`;
+        if (mx.some(m => m.key === key)) key = key + Date.now().toString().slice(-4);
+        found = { key, label: mk.name || key, unit: mk.unit || "", low: (mk.refLow != null ? Number(mk.refLow) : null), high: (mk.refHigh != null ? Number(mk.refHigh) : null), idealLow: null, idealHigh: null, points: periods.map(() => null), color: "#2F6E6A", note: "" };
+        mx = [...mx, found];
+      }
+      vals[found.key] = String(v);
+    });
+    if (!Object.keys(vals).length) { setUploadErr("Read the report, but couldn't match any values. Add them by hand below."); return; }
+    saveMetrics(mx); setNewPeriodLabel(label); setNewValues(vals); setAddingReport(true); setUploadErr("");
+  }
+  async function handleReportFiles(fileList) {
+    const files = Array.from(fileList || []).slice(0, 5);
+    if (!files.length) return;
+    setUploadErr(""); setUploadingReport(true);
+    try {
+      const inline = (await Promise.all(files.map(reportFileToInline))).filter(Boolean);
+      if (!inline.length) { setUploadErr("Couldn't read that file. Try a JPG/PNG photo or a PDF."); setUploadingReport(false); return; }
+      const resp = await fetch("/api/read-report", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: inline }) });
+      const data = await resp.json().catch(() => null);
+      if (!resp.ok || !data) { setUploadErr((data && data.error) || "Reading failed. This works on the web app (Vercel) once set up — not the claude.ai preview."); setUploadingReport(false); return; }
+      if (!Array.isArray(data.markers) || !data.markers.length) { setUploadErr("No lab values could be read. Try a clearer photo, good lighting, or the original PDF."); setUploadingReport(false); return; }
+      applyExtractedReport(data);
+    } catch (e) {
+      setUploadErr("Reading failed — needs internet, and only works on the deployed web app (Vercel), not the claude.ai preview.");
+    }
+    setUploadingReport(false);
   }
   // Add a brand-new marker (a fresh issue that shows up later) — appended with a null history so
   // it slots into every existing report period; the advice engine picks it up automatically.
@@ -4431,7 +4520,13 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
               )}
               <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>REPORT HISTORY</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>{periods.map(p => <Badge key={p} bg={T.tealPale} fg={T.teal}>{p}</Badge>)}</div>
-              {!addingReport ? <button onClick={() => setAddingReport(true)} style={{ width: "100%", background: T.saffron, border: "none", borderRadius: 10, padding: "10px 0", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5 }}>+ Add new report</button> : (
+              {!addingReport && (<>
+                <input ref={reportFileRef} type="file" accept="image/*,application/pdf" multiple style={{ display: "none" }} onChange={e => { handleReportFiles(e.target.files); e.target.value = ""; }} />
+                <button onClick={() => reportFileRef.current && reportFileRef.current.click()} disabled={uploadingReport} style={{ width: "100%", background: T.tealSolid, border: "none", borderRadius: 10, padding: "11px 0", color: "#fff", fontFamily: "Manrope", fontWeight: 800, fontSize: 13.5, marginBottom: 8, opacity: uploadingReport ? 0.6 : 1 }}>{uploadingReport ? "Reading your report…" : "📷 Upload report photo / PDF"}</button>
+                <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: uploadErr ? 6 : 10, lineHeight: 1.5 }}>Snap or pick your lab report — the app reads the values and fills the form below for you to check before saving. You can add old and new reports (each keeps its own date).</div>
+                {uploadErr && <div style={{ fontFamily: "Inter", fontSize: 12, color: T.alert, marginBottom: 10, lineHeight: 1.45 }}>{uploadErr}</div>}
+              </>)}
+              {!addingReport ? <button onClick={() => setAddingReport(true)} style={{ width: "100%", background: T.saffron, border: "none", borderRadius: 10, padding: "10px 0", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5 }}>+ Add new report by hand</button> : (
                 <div>
                   <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 4 }}>Report date</div>
                   <input type="date" max={todayKey()} onChange={e => { const v = e.target.value; if (v) { const d = new Date(v + "T00:00:00"); setNewPeriodLabel(d.toLocaleDateString("en-IN", { month: "short", year: "numeric" })); } }} style={{ width: "100%", border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", fontFamily: "Inter", fontSize: 13.5, marginBottom: 10 }} />
@@ -4467,7 +4562,7 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
                   </div>
                 </div>
               )}
-              <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 14, lineHeight: 1.5 }}>Manual entry only — this app can't read an uploaded PDF/Excel file itself.</div>
+              <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 14, lineHeight: 1.5 }}>Tip: <b>📷 Upload report photo / PDF</b> reads the values for you (on the deployed web app). It always shows what it found for you to check before anything is saved — nothing is added automatically.</div>
             </div>
           )}
           {section === "supplements" && (
