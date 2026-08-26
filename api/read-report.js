@@ -50,8 +50,21 @@ module.exports = async (req, res) => {
     const body = { contents: [{ parts: parts }], generationConfig: { responseMimeType: "application/json", temperature: 0 } };
 
     const url = "https://generativelanguage.googleapis.com/v1beta/models/" + MODEL + ":generateContent?key=" + encodeURIComponent(key);
-    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    if (!r.ok) { const t = await r.text().catch(function () { return ""; }); return res.status(502).json({ error: "AI service error.", detail: String(t).slice(0, 400) }); }
+    // Gemini's flash models occasionally answer 503 "high demand" / 429 for a second — retry a couple
+    // of times with a short backoff so a momentary spike doesn't make the whole upload fail.
+    let r, lastText = "";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (r.ok) break;
+      lastText = await r.text().catch(function () { return ""; });
+      const transient = r.status === 503 || r.status === 429 || /overload|high demand|unavailable|try again/i.test(lastText);
+      if (!transient || attempt === 2) break;
+      await new Promise(function (done) { setTimeout(done, 800 * (attempt + 1)); }); // 0.8s, then 1.6s
+    }
+    if (!r.ok) {
+      const busy = r.status === 503 || r.status === 429 || /overload|high demand|unavailable/i.test(lastText);
+      return res.status(busy ? 503 : 502).json({ error: busy ? "The report reader is busy right now — please tap Upload again in a few seconds." : "AI service error.", detail: String(lastText).slice(0, 300) });
+    }
 
     const j = await r.json();
     const text = (j && j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts && j.candidates[0].content.parts[0] && j.candidates[0].content.parts[0].text) || "";
