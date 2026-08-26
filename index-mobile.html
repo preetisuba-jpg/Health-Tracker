@@ -1015,6 +1015,12 @@ function lifestyleGuidance(profile) {
   const active = f => f && f !== "none" && f !== "former"; // currently doing it
   const heavy = f => f === "weekly" || f === "daily";
   const ago = q => q && String(q).trim() ? ` (${String(q).trim()} ago)` : "";
+  // Strict, always-on must-do: a daily walk is the single highest-value lifestyle lever — shown first.
+  out.push({
+    tag: "⚠ Daily walk — a must",
+    tone: "avoid",
+    body: "A 30-minute walk every day is non-negotiable — it's the single biggest lever for your heart, cholesterol, weight and blood sugar. Make it a fixed daily habit, not an optional one. (After recent surgery or with a heart condition, build up to it at the pace your doctor has cleared.)"
+  });
   if (p.alcohol === "former") out.push({
     tag: "Alcohol",
     tone: "info",
