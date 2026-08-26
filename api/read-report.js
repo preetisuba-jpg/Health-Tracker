@@ -12,7 +12,7 @@
 //
 // The app downscales photos before sending, so requests stay small and fast.
 
-const MODEL = "gemini-2.0-flash"; // fast, free-tier friendly, reads images and PDFs
+const MODEL = "gemini-3.6-flash"; // fast, free-tier friendly, reads images and PDFs
 
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
