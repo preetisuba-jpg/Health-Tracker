@@ -800,17 +800,75 @@ function swapMeal(plan, dayIdx, slot, prefs) {
 // Diet types a person can follow, each with a macro split (fraction of calories) + a protein target
 // (g per kg body weight) + which conditions it may clash with (shown as a warning, never a block).
 // Per-dish filtering reuses the existing dietStyleAllows().
+// kind: "macro" (generator shapes grain+protein by macro split), "pattern" (macro + a food
+// restriction across all roles), "protocol" (a FIXED published plan — GM/Military — shown as-is).
+// mf = per-100g filter for the macro drivers. bestFor = tags the recommender scores. clash = a
+// condition list that triggers a "check with your doctor" warning (never a hard block).
 const GOAL_DIETS = [
-  { k: "balanced",      l: "Balanced",            carb: 0.50, fat: 0.30, protPerKg: 1.2, desc: "Well-rounded — grains, protein, veg, fruit", clash: [] },
-  { k: "highprotein",   l: "High-protein",        carb: 0.35, fat: 0.30, protPerKg: 1.6, desc: "Protein-forward — keeps you full while losing fat", clash: ["kidney", "ckd", "uric"] },
-  { k: "lowcarb",       l: "Low-carb",            carb: 0.25, fat: 0.42, protPerKg: 1.5, desc: "Fewer grains & sugar, more protein and veg", clash: [] },
-  { k: "keto",          l: "Keto",                carb: 0.08, fat: 0.70, protPerKg: 1.4, desc: "Very low carb, high fat", clash: ["cholesterol", "kidney", "ckd", "fatty liver", "pregnan"] },
-  { k: "mediterranean", l: "Mediterranean",       carb: 0.45, fat: 0.35, protPerKg: 1.2, desc: "Veg, legumes, olive oil, whole grains", clash: [] },
-  { k: "dash",          l: "DASH (low-salt)",     carb: 0.52, fat: 0.27, protPerKg: 1.2, desc: "Low sodium — best for blood pressure", clash: [] },
-  { k: "lowgi",         l: "Low-GI / Diabetic",   carb: 0.42, fat: 0.30, protPerKg: 1.3, desc: "Low sugar, high fibre, steady energy", clash: [] },
-  { k: "lowfat",        l: "Low-fat",             carb: 0.58, fat: 0.20, protPerKg: 1.2, desc: "Less oil and fat, lean cooking", clash: [] },
+  { k: "balanced",      l: "Balanced",          kind: "macro",   carb: 0.50, fat: 0.30, protPerKg: 1.2, desc: "Well-rounded — grains, protein, veg, fruit. Safe for almost everyone.", clash: [], bestFor: ["general"] },
+  { k: "highprotein",   l: "High-protein",      kind: "macro",   carb: 0.35, fat: 0.30, protPerKg: 1.6, desc: "Protein-forward — keeps you full while losing fat.", clash: ["kidney", "ckd", "uric"], bestFor: ["weightloss", "muscle"], mf: p => p.protein_g >= 8 || (p.protein_g * 4 / p.kcal) >= 0.25 },
+  { k: "lowcarb",       l: "Low-carb",          kind: "macro",   carb: 0.25, fat: 0.42, protPerKg: 1.5, desc: "Fewer grains & sugar, more protein and veg.", clash: [], bestFor: ["weightloss", "diabetes", "tg"], mf: p => p.carb_g <= 25 },
+  { k: "keto",          l: "Keto",              kind: "macro",   carb: 0.08, fat: 0.70, protPerKg: 1.4, desc: "Very low carb, high fat. Vegetarian keto can't go truly strict.", clash: ["cholesterol", "kidney", "ckd", "fatty liver", "pregnan"], bestFor: ["weightloss"], mf: p => p.carb_g <= 12 },
+  { k: "atkins",        l: "Atkins",            kind: "macro",   carb: 0.10, fat: 0.60, protPerKg: 1.5, desc: "Phased very-low-carb, high protein & fat.", clash: ["cholesterol", "kidney", "ckd"], bestFor: ["weightloss"], mf: p => p.carb_g <= 15 },
+  { k: "zone",          l: "Zone (40/30/30)",   kind: "macro",   carb: 0.40, fat: 0.30, protPerKg: 1.5, desc: "40% carbs, 30% protein, 30% fat at every meal.", clash: [], bestFor: ["weightloss", "general"] },
+  { k: "lowfat",        l: "Low-fat",           kind: "macro",   carb: 0.58, fat: 0.20, protPerKg: 1.2, desc: "Less oil and fat, lean cooking.", clash: [], bestFor: ["cholesterol"] },
+  { k: "mediterranean", l: "Mediterranean",     kind: "pattern", carb: 0.45, fat: 0.35, protPerKg: 1.2, desc: "Veg, legumes, olive oil, whole grains, fish. Gold-standard for the heart.", clash: [], bestFor: ["heart", "cholesterol", "tg", "diabetes", "general"] },
+  { k: "dash",          l: "DASH (low-salt)",   kind: "pattern", carb: 0.52, fat: 0.27, protPerKg: 1.2, desc: "Low sodium, potassium-rich — best for blood pressure.", clash: [], bestFor: ["bp"] },
+  { k: "lowgi",         l: "Low-GI / Diabetic", kind: "pattern", carb: 0.42, fat: 0.30, protPerKg: 1.3, desc: "Low sugar, high fibre, steady energy.", clash: [], bestFor: ["diabetes", "tg", "pcos"], mf: p => p.free_sugar_g <= 6 && p.fibre_g >= 1.5 },
+  { k: "vegetarian",    l: "Vegetarian",        kind: "pattern", carb: 0.50, fat: 0.30, protPerKg: 1.2, desc: "No meat or fish; dairy & eggs allowed.", clash: [], bestFor: ["heart", "general"] },
+  { k: "vegan",         l: "Vegan",             kind: "pattern", carb: 0.52, fat: 0.28, protPerKg: 1.2, desc: "No animal products at all. (Watch B12.)", clash: [], bestFor: ["heart", "cholesterol"] },
+  { k: "flexitarian",   l: "Flexitarian",       kind: "pattern", carb: 0.48, fat: 0.30, protPerKg: 1.2, desc: "Mostly plants, occasional meat or fish.", clash: [], bestFor: ["general", "heart"] },
+  { k: "paleo",         l: "Paleo",             kind: "pattern", carb: 0.30, fat: 0.40, protPerKg: 1.4, desc: "Whole foods; no grains, legumes, dairy or sugar.", clash: ["kidney", "ckd"], bestFor: ["weightloss"] },
+  { k: "whole30",       l: "Whole30",           kind: "pattern", carb: 0.32, fat: 0.38, protPerKg: 1.4, desc: "30-day elimination: no grains, legumes, dairy, sugar or alcohol.", clash: ["kidney"], bestFor: ["reset"] },
+  { k: "glutenfree",    l: "Gluten-free",       kind: "pattern", carb: 0.50, fat: 0.30, protPerKg: 1.2, desc: "No wheat, barley or rye — essential for celiac.", clash: [], bestFor: ["celiac"] },
+  { k: "gm",            l: "GM diet (7-day)",   kind: "protocol", desc: "A fixed 7-day plan (fruit day, veg day…). A short-term fad — not balanced, not for ongoing use or medical conditions.", clash: ["diabet", "kidney", "ckd", "pregnan", "cholesterol", "triglyceride", "fatty liver", "blood pressure"], bestFor: [] },
+  { k: "military",      l: "Military (3-day)",  kind: "protocol", desc: "A fixed 3-day very-low-calorie plan, repeated weekly. Short-term fad — not for medical conditions.", clash: ["diabet", "kidney", "ckd", "pregnan"], bestFor: [] },
 ];
 const GOAL_DIET_LABEL = Object.fromEntries(GOAL_DIETS.map(d => [d.k, d.l]));
+const goalDietOf = k => GOAL_DIETS.find(d => d.k === k) || GOAL_DIETS[0];
+// The published fixed protocols (shown verbatim for protocol-kind diets, never auto-generated).
+const DIET_PROTOCOLS = {
+  gm: { note: "Vegetarian GM diet — drink plenty of water daily. A short-term (7-day) fad plan; it is not nutritionally balanced. Skip it if you have diabetes, kidney, liver, heart or BP issues, or are pregnant — check with your doctor.",
+    days: [
+      ["Day 1 — Fruit", "All fruits except banana (melon, apple, papaya, orange, guava). Nothing else."],
+      ["Day 2 — Vegetables", "All vegetables raw or boiled, no oil. One boiled potato with a little salt at breakfast for energy."],
+      ["Day 3 — Fruit + Veg", "Mix of fruits and vegetables (no banana, no potato)."],
+      ["Day 4 — Banana + Milk", "6 bananas + 3 glasses of milk (or a bowl of vegetable soup) through the day."],
+      ["Day 5 — Protein + Tomato", "A protein bowl — paneer/tofu/sprouts (or cottage cheese) + 6 tomatoes. Extra water."],
+      ["Day 6 — Protein + Veg", "Paneer/tofu/sprouts + unlimited vegetables (no potato)."],
+      ["Day 7 — Rice + Fruit + Veg", "A cup of brown rice + vegetables + fruit juice."],
+    ] },
+  military: { note: "3 low-calorie days, then 4 normal (but sensible) days, repeated weekly. A short-term fad — swap the non-veg items for paneer/tofu/beans. Not for medical conditions.",
+    days: [
+      ["Day 1", "Breakfast: toast + 2 tbsp peanut butter + ½ grapefruit. Lunch: toast + paneer/egg. Dinner: paneer/tofu + green beans + ½ banana + small apple."],
+      ["Day 2", "Breakfast: toast + 1 egg/paneer + ½ banana. Lunch: cottage cheese/paneer + toast. Dinner: hot dog→veg sausage/paneer + broccoli + carrots + ½ banana."],
+      ["Day 3", "Breakfast: cheese + small apple. Lunch: toast + egg/paneer. Dinner: paneer/tofu + vegetables."],
+      ["Days 4–7", "Return to normal, balanced meals — keep portions sensible (roughly your maintenance)."],
+    ] },
+};
+// Recommend the best-fit diet(s) for this person from their conditions & goal. Returns primary +
+// secondary keys with a plain reason, plus a list to be cautious about. Evidence-aligned defaults.
+function recommendDiets(profile) {
+  const conds = (((profile && profile.conditions) || []).join(" ")).toLowerCase();
+  const goals = (((profile && profile.goals) || []).join(" ")).toLowerCase();
+  const has = s => conds.includes(s);
+  const wantsLoss = /lose weight|weight loss|fat loss|reduce belly/.test(goals) || has("obes");
+  const why = { dash: "lowers sodium for your blood pressure", lowgi: "low-GI, high-fibre food keeps blood sugar / triglycerides steady", mediterranean: "balanced, heart-healthy and easy to sustain long-term", lowfat: "keeps fat & protein moderate — gentle on cholesterol and kidneys", highprotein: "protein keeps you full so a calorie deficit is easier", balanced: "a well-rounded plate that suits almost everyone", vegetarian: "plant-forward and heart-friendly" };
+  // Condition-driven primary (safety first), else goal-driven.
+  let primary;
+  if (has("blood pressure")) primary = "dash";
+  else if (has("diabet") || has("blood sugar") || has("prediab") || has("pcos")) primary = "lowgi";
+  else if (has("triglyceride") || has("fatty liver")) primary = "lowgi";
+  else if (has("cholesterol")) primary = "mediterranean";
+  else if (has("kidney") || has("ckd")) primary = "lowfat";
+  else if (wantsLoss) primary = "highprotein";
+  else primary = "balanced";
+  // Secondary = the safe all-rounder, or a second condition match if the primary already is it.
+  let secondary = "mediterranean";
+  if (primary === "mediterranean") secondary = has("blood pressure") ? "dash" : "lowgi";
+  const caution = GOAL_DIETS.filter(d => dietConflicts(d.k, profile).length || d.kind === "protocol").map(d => d.k);
+  return { primary: { k: primary, why: why[primary] }, secondary: { k: secondary, why: why[secondary] }, caution };
+}
 // Which of a person's conditions clash with a chosen diet — returned as readable labels for the warning.
 function dietConflicts(dietKey, profile) {
   const d = GOAL_DIETS.find(x => x.k === dietKey); if (!d || !d.clash.length) return [];
@@ -848,14 +906,15 @@ function validateWeightGoal(profile, targetWeight, weeks) {
 // Daily macro targets from the plan calories + chosen diet + conditions. Protein is body-weight based
 // (protects muscle while losing fat); the rest of the calories split into carb/fat by the diet ratio.
 function goalMacros(calories, weightKg, dietKey, profile) {
-  const d = GOAL_DIETS.find(x => x.k === dietKey) || GOAL_DIETS[0];
+  const d = goalDietOf(dietKey);
+  const carbFrac = d.carb || 0.5, fatFrac = d.fat || 0.3, protPerKg = d.protPerKg || 1.2;
   const conds = (((profile && profile.conditions) || []).join(" ")).toLowerCase();
   const hasC = s => conds.includes(s);
-  const protein = Math.round(weightKg * d.protPerKg);
+  const protein = Math.round(weightKg * protPerKg);
   const rest = Math.max(0, calories - protein * 4);
-  const denom = (d.carb + d.fat) || 1;
-  const carbs = Math.round((rest * (d.carb / denom)) / 4);
-  const fat = Math.round((rest * (d.fat / denom)) / 9);
+  const denom = (carbFrac + fatFrac) || 1;
+  const carbs = Math.round((rest * (carbFrac / denom)) / 4);
+  const fat = Math.round((rest * (fatFrac / denom)) / 9);
   let sugar = 25, sodium = 2000, fibre = 30;
   if (hasC("triglyceride") || hasC("diabet") || hasC("blood sugar") || hasC("fatty liver")) { sugar = 15; fibre = 35; }
   if (hasC("cholesterol")) fibre = Math.max(fibre, 35);
@@ -926,15 +985,31 @@ const FC = [
 function fcPer100(x) { const k = 100 / x.q; return { kcal: x.cal * k, protein_g: x.p * k, carb_g: x.c * k, fat_g: x.f * k, fibre_g: x.fib * k, free_sugar_g: x.sug * k, sodium_mg: x.sod * k }; }
 // Non-veg predicate reused conceptually: which nv types a person eats.
 function nvOk(prefs, nv) { if (!nv) return true; if (prefs.nonveg) return true; if (prefs.pescatarian) return nv === "fish" || nv === "egg"; if (prefs.eggOk) return nv === "egg"; return false; }
-// Diet/allergy fit (HARD — never relaxed). The diet macro filter (keto/low-carb/high-protein…)
+// Food restrictions for PATTERN diets (applied across all roles): return false to exclude.
+function dietRestrictName(x, dietKey) {
+  const n = x.n.toLowerCase();
+  switch (dietKey) {
+    case "paleo": case "whole30": return !/roti|rice|oats|poha|quinoa|idli|chilla|toast|dal|chana|rajma|chole|kala|moong|curd|raita|buttermilk|coconut water/.test(n); // no grains, legumes, dairy
+    case "vegan": return !/paneer|curd|raita|buttermilk|\bmilk\b|\begg\b/.test(n);
+    case "glutenfree": return !/roti|toast|wheat|bread/.test(n);
+    case "raw": return /salad|sprout|fruit|apple|guava|papaya|orange|berr|curd|coconut water|almond/.test(n);
+    case "carnivore": return !x.veg;
+    default: return true;
+  }
+}
+// Diet/allergy fit (HARD — never relaxed). The macro filter (keto/low-carb/high-protein/low-GI…)
 // only shapes the GRAIN and PROTEIN — the macro drivers — plus fruit on low-carb diets. Veg, salad
-// and dairy are balance components and always stay on the plate regardless of diet type.
+// and dairy are balance components and always stay on the plate. Pattern diets add a food restriction.
 function compDietOk(x, prefs, dietKey) {
   if (!x.veg && !nvOk(prefs, x.nv)) return false;
-  if (!mealAllowed(x.n, prefs)) return false;                 // allergies / vegan / jain / gluten
-  const macroRole = x.r === "grain" || x.r === "protein";
-  const lowCarb = dietKey === "keto" || dietKey === "lowcarb";
-  if ((macroRole || (lowCarb && x.r === "fruit")) && !dietStyleAllows(fcPer100(x), x.n, dietKey)) return false;
+  if (!mealAllowed(x.n, prefs)) return false;                 // allergies / vegan / jain / gluten from profile
+  const diet = goalDietOf(dietKey);
+  if (diet.mf) {
+    const macroRole = x.r === "grain" || x.r === "protein";
+    const lowCarb = dietKey === "keto" || dietKey === "lowcarb" || dietKey === "atkins";
+    if ((macroRole || (lowCarb && x.r === "fruit")) && !diet.mf(fcPer100(x))) return false;
+  }
+  if (!dietRestrictName(x, dietKey)) return false;
   return true;
 }
 // Condition fit (SOFT — relaxed only if it would otherwise leave a role with no options).
@@ -1004,6 +1079,8 @@ function assembleMeal(slot, macros, prefs, dietKey, conds, seed, dayUsed) {
 }
 // Generate a full week. nonce lets the UI refresh a meal/day/week (changes the seed for just that part).
 function generateGoalPlan(profile, macros, dietKey, week, nonces) {
+  const diet = goalDietOf(dietKey);
+  if (diet.kind === "protocol") return { kind: "protocol", diet: dietKey, protocol: DIET_PROTOCOLS[dietKey] };
   const prefs = mealPrefs(profile);
   const conds = (((profile && profile.conditions) || []).join(" ")).toLowerCase();
   const N = nonces || {};
@@ -4065,6 +4142,107 @@ function groceryFromPlan(plan) {
   const out = []; GROCERY_MAP.forEach(([re, item]) => { if (re.test(text) && !out.includes(item)) out.push(item); });
   return out;
 }
+// The EDITABLE weekly meal plan, moved into its own clean full-screen sheet (day tabs) — same
+// features as before: search-&-place your own dish (+ Add), remove (×), shuffle (↻), plate ticks,
+// regenerate. Just presented one day at a time so it isn't a long inline scroll.
+function WeeklyPlanSheet({ weeklyPlan, profile, advice, onRegeneratePlan, onSwapMeal, onAddPlanItem, onRemovePlanItem, onClose }) {
+  const [dayIdx, setDayIdx] = useState(new Date().getDay() === 0 ? 6 : new Date().getDay() - 1);
+  const [picker, setPicker] = useState(null);
+  const [pQuery, setPQuery] = useState("");
+  const [pCuisine, setPCuisine] = useState("All");
+  const [pNV, setPNV] = useState("all");
+  const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const vMeta = (dish) => verdictMetaMap()[demoVerdictFor(dish)] || verdictMetaMap().moderate;
+  if (!weeklyPlan || !weeklyPlan.days) return null;
+  const d = weeklyPlan.days[dayIdx] || weeklyPlan.days[0];
+  const slotRow = (slot) => {
+    const items = Array.isArray(d[slot]) ? d[slot] : (d[slot] ? [d[slot]] : []);
+    const tk = plateTicks(items);
+    return (
+      <div key={slot} style={{ marginBottom: 12, background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: "10px 12px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+          <span style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12, letterSpacing: 0.4, color: T.teal, textTransform: "uppercase" }}>{slot}</span>
+          <span style={{ display: "flex", gap: 5, fontSize: 14 }}>{[["veg", "🥬"], ["protein", "💪"], ["grain", "🌾"], ["fruit", "🍎"]].map(([k, emo]) => <span key={k} title={k} style={{ opacity: tk[k] ? 1 : 0.22, filter: tk[k] ? "none" : "grayscale(1)" }}>{emo}</span>)}</span>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+          {items.length === 0 && <span style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, fontStyle: "italic" }}>nothing yet</span>}
+          {items.map((it, j) => (
+            <span key={j} style={{ display: "inline-flex", alignItems: "center", gap: 5, maxWidth: "100%", background: T.creamDeep, borderRadius: 14, padding: "4px 5px 4px 10px", fontFamily: "Inter", fontSize: 13, color: T.ink }}>
+              <span style={{ width: 7, height: 7, borderRadius: 4, background: vMeta(it).fg, flexShrink: 0 }} />
+              <span style={{ minWidth: 0, overflowWrap: "anywhere", lineHeight: 1.3 }}>{it}</span>
+              <button onClick={() => onRemovePlanItem(dayIdx, slot, j)} aria-label="Remove" style={{ background: "none", border: "none", cursor: "pointer", color: T.inkSoft, fontSize: 16, lineHeight: 1, padding: "0 3px", flexShrink: 0 }}>×</button>
+            </span>
+          ))}
+          <button onClick={() => { setPicker({ dayIdx, slot }); setPQuery(""); }} style={{ background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 999, padding: "4px 11px", fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.teal, cursor: "pointer" }}>+ Add</button>
+          {items.length > 0 && slot !== "snack" && <button onClick={() => onSwapMeal(dayIdx, slot)} aria-label={"Shuffle " + slot} title="Shuffle" style={{ background: "none", border: "none", cursor: "pointer", color: T.saffron, fontSize: 16, padding: "0 2px" }}>↻</button>}
+        </div>
+      </div>
+    );
+  };
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 55, background: T.creamDeep, display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "calc(12px + env(safe-area-inset-top,0px)) 16px 12px", borderBottom: `1px solid ${T.border}`, background: T.cream }}>
+        <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 16, color: T.teal }}>🍽️ This week's meals</div>
+        <button onClick={onClose} aria-label="Close" style={{ background: T.creamDeep, border: `1px solid ${T.border}`, borderRadius: 999, width: 32, height: 32, cursor: "pointer", fontSize: 16, color: T.ink }}>✕</button>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: 16, maxWidth: 480, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+          <button onClick={onRegeneratePlan} style={{ background: T.tealPale, border: "none", borderRadius: 8, padding: "6px 12px", fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.teal, cursor: "pointer" }}>↻ Regenerate week</button>
+        </div>
+        <div style={{ display: "flex", gap: 14, alignItems: "center", background: T.tealPale, borderRadius: 12, padding: "12px 14px", marginBottom: 12 }}>
+          <div style={{ width: 66, height: 66, borderRadius: "50%", flexShrink: 0, background: "conic-gradient(#3FA46A 0 50%, #E08A3C 50% 75%, #CDA52A 75% 100%)", boxShadow: `inset 0 0 0 4px ${T.white}` }} />
+          <div>
+            <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12.5, color: T.teal, marginBottom: 5 }}>Build every meal like this</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 3, fontFamily: "Inter", fontSize: 12.5, color: T.ink }}>
+              <div><span style={{ color: "#3FA46A", fontWeight: 800 }}>½</span> vegetables &amp; salad</div>
+              <div><span style={{ color: "#E08A3C", fontWeight: 800 }}>¼</span> protein — dal, paneer, egg, fish</div>
+              <div><span style={{ color: "#CDA52A", fontWeight: 800 }}>¼</span> whole grain — roti, millet, brown rice</div>
+            </div>
+          </div>
+        </div>
+        <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 10, lineHeight: 1.5 }}>Tap <b>+ Add</b> to search &amp; place your own dish; <b>×</b> removes; <b>↻</b> shuffles. Ticks show the plate — 🥬 veg · 💪 protein · 🌾 grain · 🍎 fruit.</div>
+        <div style={{ display: "flex", gap: 4, overflowX: "auto", marginBottom: 12 }}>{dayNames.map((dn, i) => <button key={i} onClick={() => setDayIdx(i)} style={{ flexShrink: 0, background: dayIdx === i ? T.teal : T.white, color: dayIdx === i ? "#fff" : T.ink, border: `1px solid ${dayIdx === i ? T.teal : T.border}`, borderRadius: 8, padding: "6px 11px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>{dn}</button>)}</div>
+        {["breakfast", "lunch", "snack", "dinner"].map(slotRow)}
+        <div style={{ background: T.tealPale, borderRadius: 10, padding: "9px 11px", marginTop: 6, marginBottom: 20, fontFamily: "Inter", fontSize: 12, color: T.ink, lineHeight: 1.5 }}>🍎 <b>Fruit:</b> 1–2 servings a day (one fruit or a cup cut), best mid-morning or as an evening snack. {(advice.flaggedKeys || []).some(k => /tg|chol|sugar|glucose|hba1c/i.test(k)) ? "As your sugar/triglycerides run high, prefer lower-sugar fruit (guava, apple, pear, papaya, berries), keep mango/banana/grapes small, and pair with a few nuts." : "Rotate seasonal fruit for variety."}</div>
+      </div>
+      {picker && (() => {
+        const slot = picker.slot;
+        const q = pQuery.trim().toLowerCase();
+        let list = q ? searchDishPool(q, profile.dietStyle) : pickerDishes(slot, {});
+        if (pNV === "veg") list = list.filter(x => !x.nv); else if (pNV === "nonveg") list = list.filter(x => x.nv);
+        if (pCuisine !== "All") list = list.filter(x => !x.cuisine || x.cuisine === pCuisine);
+        const seen = new Set(); list = list.filter(x => { const k = x.name.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 80);
+        const cuisineOpts = ["All", ...Object.keys(CUISINE_MEALS)];
+        const add = (name) => onAddPlanItem(picker.dayIdx, slot, name);
+        return (
+          <div onClick={() => setPicker(null)} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.45)", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: T.cream, borderTopLeftRadius: 18, borderTopRightRadius: 18, maxHeight: "82vh", display: "flex", flexDirection: "column", width: "100%", maxWidth: 460, margin: "0 auto" }}>
+              <div style={{ padding: "14px 16px 10px", borderBottom: `1px solid ${T.border}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, color: T.teal }}>Add to {dayNames[picker.dayIdx]} · <span style={{ textTransform: "capitalize" }}>{slot}</span></div>
+                  <button onClick={() => setPicker(null)} style={{ background: "none", border: "none", fontSize: 22, color: T.inkSoft, cursor: "pointer", lineHeight: 1 }}>×</button>
+                </div>
+                <input autoFocus value={pQuery} onChange={e => setPQuery(e.target.value)} placeholder="Search a dish…" style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", fontFamily: "Inter", fontSize: 14, background: T.white, color: T.ink }} onKeyDown={e => { if (e.key === "Enter" && pQuery.trim()) { add(pQuery.trim()); setPicker(null); } }} />
+                <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>{[["all", "All"], ["veg", "Veg"], ["nonveg", "Non-veg"]].map(([k, l]) => <button key={k} onClick={() => setPNV(k)} style={{ background: pNV === k ? T.teal : T.white, color: pNV === k ? "#fff" : T.ink, border: `1px solid ${pNV === k ? T.teal : T.border}`, borderRadius: 999, padding: "4px 11px", fontFamily: "Inter", fontSize: 13, cursor: "pointer" }}>{l}</button>)}</div>
+                {slot !== "snack" && <div style={{ display: "flex", gap: 6, marginTop: 6, overflowX: "auto", paddingBottom: 2 }}>{cuisineOpts.map(c => <button key={c} onClick={() => setPCuisine(c)} style={{ whiteSpace: "nowrap", background: pCuisine === c ? T.saffron : T.white, color: pCuisine === c ? "#fff" : T.inkSoft, border: `1px solid ${pCuisine === c ? T.saffron : T.border}`, borderRadius: 999, padding: "4px 10px", fontFamily: "Inter", fontSize: 12.5, cursor: "pointer" }}>{c}</button>)}</div>}
+              </div>
+              <div style={{ overflowY: "auto", padding: "8px 12px 20px" }}>
+                {q && profile.dietStyle && profile.dietStyle !== "balanced" && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.teal, marginBottom: 6 }}>Showing {DIET_STYLE_LABEL[profile.dietStyle] || profile.dietStyle}-friendly dishes only (change in ⚙️ Profile).</div>}
+                {pQuery.trim() && <button onClick={() => { add(pQuery.trim()); setPicker(null); }} style={{ width: "100%", textAlign: "left", background: T.tealPale, border: `1px dashed ${T.teal}`, borderRadius: 10, padding: "10px 12px", marginBottom: 8, fontFamily: "Inter", fontSize: 13, color: T.teal, cursor: "pointer" }}>+ Add “{pQuery.trim()}” (my own)</button>}
+                {list.length === 0 && !pQuery.trim() && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, padding: 10 }}>No matches — type your own above.</div>}
+                {list.map((x, i) => (
+                  <button key={i} onClick={() => { add(x.name); setPicker(null); }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", textAlign: "left", background: "none", border: "none", borderBottom: `1px solid ${T.creamDeep}`, padding: "10px 4px", fontFamily: "Inter", fontSize: 13.5, color: T.ink, cursor: "pointer" }}>
+                    <span>{x.name}</span><span style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginLeft: 8, flexShrink: 0 }}>{x.cuisine !== "Any" ? x.cuisine : ""}{x.nv ? " · non-veg" : ""}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
 // Goal-based diet plan — app-chosen, quantified, refresh-only. Opens as a full-screen sheet so the
 // long day-by-day plan lives in its own scroll (not stacked inline on the Plan tab).
 function GoalDietSheet({ profile, goalDiet, onSave, onClose }) {
@@ -4083,7 +4261,9 @@ function GoalDietSheet({ profile, goalDiet, onSave, onClose }) {
   const macros = goalMacros(v.calories, profile.weight || 60, diet, profile);
   const plan = generateGoalPlan(profile, macros, diet, weekNumber(), nonces);
   const conflicts = dietConflicts(diet, profile);
-  const day = plan.days[dayIdx] || plan.days[0];
+  const rec = recommendDiets(profile);
+  const isProtocol = plan.kind === "protocol";
+  const day = (plan.days && (plan.days[dayIdx] || plan.days[0])) || { totals: { cal: 0, p: 0, c: 0, f: 0 } };
   const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const slotName = { breakfast: "Breakfast", lunch: "Lunch", snack: "Snack", dinner: "Dinner" };
   const inS = { width: 70, border: `1px solid ${T.border}`, borderRadius: 8, padding: "7px 9px", fontFamily: "Manrope", fontWeight: 700, fontSize: 15, textAlign: "center", background: T.white, color: T.ink };
@@ -4120,13 +4300,30 @@ function GoalDietSheet({ profile, goalDiet, onSave, onClose }) {
           </div>
           <div style={{ marginTop: 10, background: v.ok === false ? T.amberPale : T.forestPale, borderRadius: 10, padding: "9px 11px", fontFamily: "Inter", fontSize: 12.5, color: v.ok === false ? T.amber : T.forest, lineHeight: 1.5 }}>{v.ok === false ? "⚠️ " : "✓ "}{v.message}</div>
         </div>
+        {/* Recommendation for this person */}
+        <div style={{ background: `linear-gradient(135deg, ${T.forestPale}, ${T.tealPale})`, border: `1px solid ${T.teal}`, borderRadius: 12, padding: "11px 13px", marginBottom: 12 }}>
+          <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12, color: T.forest, letterSpacing: 0.3, marginBottom: 4 }}>★ BEST DIET FOR YOU</div>
+          <div style={{ fontFamily: "Inter", fontSize: 13, color: T.ink, lineHeight: 1.5 }}><b>{GOAL_DIET_LABEL[rec.primary.k]}</b> (primary) — {rec.primary.why}.{rec.secondary.k !== rec.primary.k ? <> Also good: <b>{GOAL_DIET_LABEL[rec.secondary.k]}</b> — {rec.secondary.why}.</> : ""}</div>
+          {diet !== rec.primary.k && <button onClick={() => setD(rec.primary.k)} style={{ marginTop: 8, background: T.tealSolid, border: "none", borderRadius: 8, padding: "6px 13px", color: "#fff", fontFamily: "Manrope", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>Use {GOAL_DIET_LABEL[rec.primary.k]}</button>}
+        </div>
         {/* Diet picker */}
-        <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12.5, color: T.teal, marginBottom: 6, letterSpacing: 0.3 }}>DIET TO FOLLOW</div>
+        <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12.5, color: T.teal, marginBottom: 6, letterSpacing: 0.3 }}>OR PICK ANY DIET (★ = recommended for you)</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 8 }}>
-          {GOAL_DIETS.map(d => <button key={d.k} onClick={() => setD(d.k)} style={{ background: diet === d.k ? T.tealSolid : T.white, color: diet === d.k ? "#fff" : T.ink, border: `1px solid ${diet === d.k ? T.tealSolid : T.border}`, borderRadius: 999, padding: "6px 12px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>{d.l}</button>)}
+          {GOAL_DIETS.map(d => { const star = d.k === rec.primary.k || d.k === rec.secondary.k; const warn = rec.caution.includes(d.k); return <button key={d.k} onClick={() => setD(d.k)} style={{ background: diet === d.k ? T.tealSolid : T.white, color: diet === d.k ? "#fff" : T.ink, border: `1px solid ${diet === d.k ? T.tealSolid : (star ? T.teal : T.border)}`, borderRadius: 999, padding: "6px 12px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>{star ? "★ " : ""}{d.l}{warn ? " ⚠️" : ""}</button>; })}
         </div>
         <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 8, lineHeight: 1.45 }}>{(GOAL_DIETS.find(d => d.k === diet) || {}).desc}{diet === "keto" ? " · Vegetarian keto can't go truly strict — this is low-carb-leaning; watch the daily carb total below." : ""}</div>
         {conflicts.length > 0 && <div style={{ background: T.alertPale, border: `1px solid ${T.alert}`, borderRadius: 10, padding: "9px 11px", marginBottom: 10, fontFamily: "Inter", fontSize: 12.5, color: T.alert, lineHeight: 1.5 }}>⚠️ {GOAL_DIET_LABEL[diet]} isn't ideal for your <b>{conflicts.join(", ")}</b> — please check with your doctor before following it.</div>}
+        {isProtocol ? (
+          <div>
+            <div style={{ background: T.amberPale, border: `1px solid ${T.amber}`, borderRadius: 10, padding: "10px 12px", marginBottom: 12, fontFamily: "Inter", fontSize: 12.5, color: T.amber, lineHeight: 1.5 }}>⚠️ {plan.protocol.note}</div>
+            {plan.protocol.days.map((row, i) => (
+              <div key={i} style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: "10px 12px", marginBottom: 10 }}>
+                <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 13, color: T.teal, marginBottom: 4 }}>{row[0]}</div>
+                <div style={{ fontFamily: "Inter", fontSize: 13, color: T.ink, lineHeight: 1.5 }}>{row[1]}</div>
+              </div>
+            ))}
+          </div>
+        ) : (<>
         {/* Macro targets */}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", background: T.tealPale, borderRadius: 12, padding: "10px 12px", marginBottom: 14 }}>
           {[["kcal", macros.calories], ["protein", macros.protein + "g"], ["carbs", macros.carbs + "g"], ["fat", macros.fat + "g"]].map(([l, x]) => <div key={l} style={{ flex: 1, minWidth: 60 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 16 }}>{x}</div><div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft }}>{l}/day</div></div>)}
@@ -4143,6 +4340,7 @@ function GoalDietSheet({ profile, goalDiet, onSave, onClose }) {
           </div>
         </div>
         {["breakfast", "lunch", "snack", "dinner"].map(mealBlock)}
+        </>)}
         <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginTop: 6, marginBottom: 20, lineHeight: 1.5 }}>
           Meals are chosen for you from your cuisine, diet pattern, allergies and conditions — tap 🔄 to reshuffle a meal, a day, or the week. Quantities are careful estimates from standard household measures, for steady progress without starving. This is general wellness guidance, not medical advice — for weight loss with medical conditions, confirm with your doctor.
         </div>
