@@ -796,6 +796,232 @@ function swapMeal(plan, dayIdx, slot, prefs) {
   return { ...plan, days: plan.days.map((dy, i) => i === dayIdx ? { ...dy, [slot]: [chosen] } : dy) };
 }
 
+/* ================= GOAL-BASED DIET PLAN (quantified, app-chosen) — #Plan upgrade ================= */
+// Diet types a person can follow, each with a macro split (fraction of calories) + a protein target
+// (g per kg body weight) + which conditions it may clash with (shown as a warning, never a block).
+// Per-dish filtering reuses the existing dietStyleAllows().
+const GOAL_DIETS = [
+  { k: "balanced",      l: "Balanced",            carb: 0.50, fat: 0.30, protPerKg: 1.2, desc: "Well-rounded — grains, protein, veg, fruit", clash: [] },
+  { k: "highprotein",   l: "High-protein",        carb: 0.35, fat: 0.30, protPerKg: 1.6, desc: "Protein-forward — keeps you full while losing fat", clash: ["kidney", "ckd", "uric"] },
+  { k: "lowcarb",       l: "Low-carb",            carb: 0.25, fat: 0.42, protPerKg: 1.5, desc: "Fewer grains & sugar, more protein and veg", clash: [] },
+  { k: "keto",          l: "Keto",                carb: 0.08, fat: 0.70, protPerKg: 1.4, desc: "Very low carb, high fat", clash: ["cholesterol", "kidney", "ckd", "fatty liver", "pregnan"] },
+  { k: "mediterranean", l: "Mediterranean",       carb: 0.45, fat: 0.35, protPerKg: 1.2, desc: "Veg, legumes, olive oil, whole grains", clash: [] },
+  { k: "dash",          l: "DASH (low-salt)",     carb: 0.52, fat: 0.27, protPerKg: 1.2, desc: "Low sodium — best for blood pressure", clash: [] },
+  { k: "lowgi",         l: "Low-GI / Diabetic",   carb: 0.42, fat: 0.30, protPerKg: 1.3, desc: "Low sugar, high fibre, steady energy", clash: [] },
+  { k: "lowfat",        l: "Low-fat",             carb: 0.58, fat: 0.20, protPerKg: 1.2, desc: "Less oil and fat, lean cooking", clash: [] },
+];
+const GOAL_DIET_LABEL = Object.fromEntries(GOAL_DIETS.map(d => [d.k, d.l]));
+// Which of a person's conditions clash with a chosen diet — returned as readable labels for the warning.
+function dietConflicts(dietKey, profile) {
+  const d = GOAL_DIETS.find(x => x.k === dietKey); if (!d || !d.clash.length) return [];
+  const text = (((profile && profile.conditions) || []).join(" ") + " " + ((profile && profile.pregnant) ? "pregnant" : "")).toLowerCase();
+  const nice = { cholesterol: "high cholesterol", kidney: "kidney health", ckd: "kidney health", uric: "high uric acid / gout", "fatty liver": "fatty liver", pregnan: "pregnancy" };
+  const seen = new Set(), out = [];
+  d.clash.forEach(term => { if (text.includes(term)) { const n = nice[term] || term; if (!seen.has(n)) { seen.add(n); out.push(n); } } });
+  return out;
+}
+
+// Evidence-based weight-loss goal check. 1 kg body fat ~ 7700 kcal; safe pace 0.5–1 kg/week; never
+// plan below the floor (1200 F / 1500 M, and not below ~BMR). Returns a plan + an honest message.
+function validateWeightGoal(profile, targetWeight, weeks) {
+  const cur = (profile && profile.weight) || 70;
+  const female = /female|woman/i.test((profile && profile.gender) || "");
+  const t = computeTargets(cur, [], profile); // uses maintenance + bmr (computed before any goal logic)
+  const floor = Math.max(female ? 1200 : 1500, Math.round(t.bmr * 0.95));
+  const toLose = +(cur - (targetWeight || cur)).toFixed(1);
+  if (toLose <= 0) return { ok: true, none: toLose === 0, toLose, maintenance: t.maintenance, calories: t.maintenance, weeklyKg: 0,
+    message: toLose === 0 ? "You're already at your target — this plan keeps you steady." : "Your target is above your current weight — this is a gentle, balanced maintenance plan." };
+  const days = Math.max(7, (weeks || 12) * 7);
+  const reqDeficit = Math.round(toLose * 7700 / days);
+  const maxDeficit = Math.min(1000, t.maintenance - floor); // 1000 kcal/day ≈ 1 kg/week ceiling
+  const safe = reqDeficit <= maxDeficit;
+  const deficit = Math.max(0, Math.min(reqDeficit, maxDeficit));
+  const calories = Math.max(floor, t.maintenance - deficit);
+  const weeklyKg = +((deficit * 7) / 7700).toFixed(2);
+  const fastestWeeks = Math.ceil(toLose * 7700 / (7 * Math.max(1, maxDeficit)));
+  return { ok: safe, toLose, reqDeficit, deficit, calories, maintenance: t.maintenance, weeklyKg, fastestWeeks, floor,
+    message: safe
+      ? `Plan: eat ~${calories} kcal/day (${deficit} below your ${t.maintenance} maintenance) — about ${weeklyKg} kg/week, reaching your target in ~${weeks} weeks. Safe and steady.`
+      : `Losing ${toLose} kg in ${weeks} weeks would mean eating below a safe minimum. I've set a safe pace instead: ~${calories} kcal/day (~${weeklyKg} kg/week), reaching your target in about ${fastestWeeks} weeks. Crash diets rebound — steady wins.` };
+}
+
+// Daily macro targets from the plan calories + chosen diet + conditions. Protein is body-weight based
+// (protects muscle while losing fat); the rest of the calories split into carb/fat by the diet ratio.
+function goalMacros(calories, weightKg, dietKey, profile) {
+  const d = GOAL_DIETS.find(x => x.k === dietKey) || GOAL_DIETS[0];
+  const conds = (((profile && profile.conditions) || []).join(" ")).toLowerCase();
+  const hasC = s => conds.includes(s);
+  const protein = Math.round(weightKg * d.protPerKg);
+  const rest = Math.max(0, calories - protein * 4);
+  const denom = (d.carb + d.fat) || 1;
+  const carbs = Math.round((rest * (d.carb / denom)) / 4);
+  const fat = Math.round((rest * (d.fat / denom)) / 9);
+  let sugar = 25, sodium = 2000, fibre = 30;
+  if (hasC("triglyceride") || hasC("diabet") || hasC("blood sugar") || hasC("fatty liver")) { sugar = 15; fibre = 35; }
+  if (hasC("cholesterol")) fibre = Math.max(fibre, 35);
+  if (hasC("blood pressure") || dietKey === "dash") sodium = 1500;
+  return { calories, protein, carbs, fat, sugar, sodium, fibre };
+}
+
+// ---- Component food library (role-tagged, per household portion). Values are standard IFCT/USDA
+// per-portion estimates — good day-to-day guidance, not lab-exact. r=role, q=portion grams, u=unit
+// label, cal/p/c/f/fib/sug/sod per that portion, veg, nv=non-veg type, flex=quantity scales to hit
+// the calorie target (staples), max=max servings. Cuisine-agnostic staples the generator assembles. ----
+const FC = [
+  // GRAINS (flex staples)
+  { n: "Multigrain roti", r: "grain", q: 35, u: "roti", cal: 90, p: 3, c: 18, f: 1.5, fib: 2.5, sug: 0, sod: 100, veg: 1, flex: 1, max: 4, plural: 1 },
+  { n: "Bajra roti", r: "grain", q: 40, u: "roti", cal: 97, p: 3, c: 19, f: 2, fib: 3, sug: 0, sod: 90, veg: 1, flex: 1, max: 4, plural: 1 },
+  { n: "Jowar roti", r: "grain", q: 40, u: "roti", cal: 100, p: 3, c: 20, f: 1.5, fib: 3, sug: 0, sod: 90, veg: 1, flex: 1, max: 4, plural: 1 },
+  { n: "Brown rice", r: "grain", q: 150, u: "cup", cal: 165, p: 3.5, c: 34, f: 1.3, fib: 2.5, sug: 0, sod: 5, veg: 1, flex: 1, max: 2 },
+  { n: "Cooked oats", r: "grain", q: 200, u: "bowl", cal: 150, p: 5, c: 27, f: 3, fib: 4, sug: 1, sod: 5, veg: 1, flex: 1, max: 2 },
+  { n: "Vegetable poha", r: "grain", q: 150, u: "bowl", cal: 210, p: 4, c: 40, f: 5, fib: 2, sug: 1, sod: 250, veg: 1, flex: 1, max: 2 },
+  { n: "Quinoa", r: "grain", q: 150, u: "cup", cal: 180, p: 6, c: 31, f: 3, fib: 3.5, sug: 0, sod: 10, veg: 1, flex: 1, max: 2 },
+  { n: "Idli", r: "grain", q: 40, u: "piece", cal: 58, p: 2, c: 12, f: 0.3, fib: 0.6, sug: 0, sod: 100, veg: 1, flex: 1, max: 5, plural: 1 },
+  { n: "Moong dal chilla", r: "grain", q: 60, u: "piece", cal: 120, p: 7, c: 14, f: 3, fib: 3, sug: 0, sod: 180, veg: 1, flex: 1, max: 3, plural: 1 },
+  { n: "Whole-wheat toast", r: "grain", q: 30, u: "slice", cal: 75, p: 3, c: 13, f: 1, fib: 2, sug: 1.5, sod: 130, veg: 1, flex: 1, max: 3, plural: 1 },
+  // PROTEINS
+  { n: "Moong dal", r: "protein", q: 150, u: "bowl", cal: 155, p: 11, c: 22, f: 1, fib: 7, sug: 1, sod: 300, veg: 1 },
+  { n: "Toor dal", r: "protein", q: 150, u: "bowl", cal: 165, p: 9, c: 25, f: 2, fib: 6, sug: 1, sod: 300, veg: 1 },
+  { n: "Chole (chickpea) curry", r: "protein", q: 150, u: "bowl", cal: 210, p: 10, c: 30, f: 5, fib: 9, sug: 2, sod: 400, veg: 1 },
+  { n: "Rajma", r: "protein", q: 150, u: "bowl", cal: 200, p: 11, c: 30, f: 3, fib: 10, sug: 1, sod: 380, veg: 1 },
+  { n: "Kala chana", r: "protein", q: 150, u: "bowl", cal: 190, p: 11, c: 28, f: 3, fib: 9, sug: 1, sod: 350, veg: 1 },
+  { n: "Sprouted moong salad", r: "protein", q: 100, u: "bowl", cal: 100, p: 7, c: 16, f: 0.7, fib: 5, sug: 2, sod: 50, veg: 1 },
+  { n: "Tofu bhurji", r: "protein", q: 100, u: "bowl", cal: 110, p: 11, c: 3, f: 6, fib: 1, sug: 1, sod: 20, veg: 1 },
+  { n: "Paneer sabji", r: "protein", q: 100, u: "bowl", cal: 260, p: 15, c: 8, f: 19, fib: 1, sug: 2, sod: 400, veg: 1 },
+  { n: "Palak paneer (light)", r: "protein", q: 150, u: "bowl", cal: 230, p: 12, c: 10, f: 16, fib: 3, sug: 2, sod: 400, veg: 1 },
+  { n: "Boiled egg", r: "protein", q: 50, u: "egg", cal: 78, p: 6, c: 0.6, f: 5, fib: 0, sug: 0, sod: 62, veg: 0, nv: "egg", plural: 1 },
+  { n: "Egg bhurji", r: "protein", q: 120, u: "bowl", cal: 180, p: 13, c: 3, f: 13, fib: 0, sug: 1, sod: 300, veg: 0, nv: "egg" },
+  { n: "Grilled chicken", r: "protein", q: 120, u: "serving", cal: 195, p: 30, c: 0, f: 8, fib: 0, sug: 0, sod: 320, veg: 0, nv: "meat" },
+  { n: "Chicken curry (light)", r: "protein", q: 150, u: "bowl", cal: 220, p: 22, c: 6, f: 12, fib: 1, sug: 1, sod: 400, veg: 0, nv: "meat" },
+  { n: "Fish curry (light)", r: "protein", q: 150, u: "bowl", cal: 200, p: 22, c: 5, f: 10, fib: 1, sug: 1, sod: 350, veg: 0, nv: "fish" },
+  { n: "Grilled fish", r: "protein", q: 120, u: "serving", cal: 170, p: 26, c: 0, f: 7, fib: 0, sug: 0, sod: 250, veg: 0, nv: "fish" },
+  // VEG (sabji / greens)
+  { n: "Mixed veg sabji", r: "veg", q: 100, u: "katori", cal: 90, p: 3, c: 10, f: 4, fib: 4, sug: 3, sod: 300, veg: 1 },
+  { n: "Palak sabji", r: "veg", q: 100, u: "katori", cal: 70, p: 3, c: 7, f: 3, fib: 3, sug: 1, sod: 250, veg: 1 },
+  { n: "Bhindi sabji", r: "veg", q: 100, u: "katori", cal: 95, p: 2, c: 9, f: 5, fib: 4, sug: 2, sod: 300, veg: 1 },
+  { n: "Baingan bharta", r: "veg", q: 100, u: "katori", cal: 85, p: 2, c: 8, f: 5, fib: 4, sug: 3, sod: 300, veg: 1 },
+  { n: "Lauki sabji", r: "veg", q: 100, u: "katori", cal: 60, p: 2, c: 7, f: 3, fib: 3, sug: 2, sod: 250, veg: 1 },
+  { n: "Steamed vegetables", r: "veg", q: 100, u: "cup", cal: 45, p: 2, c: 8, f: 0.3, fib: 3, sug: 3, sod: 20, veg: 1 },
+  { n: "Beans poriyal", r: "veg", q: 100, u: "katori", cal: 80, p: 3, c: 9, f: 3, fib: 4, sug: 2, sod: 250, veg: 1 },
+  // DAIRY
+  { n: "Curd", r: "dairy", q: 100, u: "katori", cal: 60, p: 3.5, c: 5, f: 3, fib: 0, sug: 4, sod: 45, veg: 1 },
+  { n: "Cucumber raita", r: "dairy", q: 100, u: "katori", cal: 70, p: 3, c: 6, f: 4, fib: 1, sug: 4, sod: 200, veg: 1 },
+  { n: "Buttermilk", r: "dairy", q: 200, u: "glass", cal: 40, p: 2, c: 4, f: 1.5, fib: 0, sug: 3, sod: 200, veg: 1 },
+  // FRUIT
+  { n: "Apple", r: "fruit", q: 120, u: "fruit", cal: 62, p: 0.3, c: 16, f: 0.2, fib: 3, sug: 12, sod: 1, veg: 1 },
+  { n: "Guava", r: "fruit", q: 120, u: "fruit", cal: 80, p: 3, c: 17, f: 1, fib: 6, sug: 10, sod: 2, veg: 1 },
+  { n: "Papaya", r: "fruit", q: 140, u: "cup", cal: 60, p: 0.7, c: 15, f: 0.2, fib: 3, sug: 11, sod: 11, veg: 1 },
+  { n: "Orange", r: "fruit", q: 130, u: "fruit", cal: 62, p: 1, c: 15, f: 0.2, fib: 3, sug: 12, sod: 0, veg: 1 },
+  { n: "Mixed berries", r: "fruit", q: 120, u: "cup", cal: 60, p: 1, c: 14, f: 0.4, fib: 5, sug: 8, sod: 1, veg: 1 },
+  // SALAD
+  { n: "Kachumber salad", r: "salad", q: 100, u: "bowl", cal: 35, p: 1.5, c: 6, f: 0.3, fib: 2, sug: 3, sod: 10, veg: 1 },
+  { n: "Green salad", r: "salad", q: 80, u: "bowl", cal: 25, p: 1, c: 4, f: 0.2, fib: 2, sug: 2, sod: 10, veg: 1 },
+  // SNACK / soup / nuts
+  { n: "Almonds", r: "snack", q: 12, u: "handful", cal: 70, p: 2.6, c: 2.6, f: 6, fib: 1.5, sug: 0.5, sod: 0, veg: 1 },
+  { n: "Roasted chana", r: "snack", q: 30, u: "handful", cal: 110, p: 6, c: 18, f: 2, fib: 5, sug: 1, sod: 50, veg: 1 },
+  { n: "Sprouts chaat", r: "snack", q: 100, u: "bowl", cal: 120, p: 6, c: 18, f: 2, fib: 5, sug: 2, sod: 100, veg: 1 },
+  { n: "Vegetable soup", r: "snack", q: 200, u: "bowl", cal: 70, p: 3, c: 11, f: 2, fib: 2, sug: 4, sod: 400, veg: 1 },
+  { n: "Coconut water", r: "snack", q: 200, u: "glass", cal: 40, p: 0.5, c: 9, f: 0, fib: 0, sug: 6, sod: 50, veg: 1 },
+];
+function fcPer100(x) { const k = 100 / x.q; return { kcal: x.cal * k, protein_g: x.p * k, carb_g: x.c * k, fat_g: x.f * k, fibre_g: x.fib * k, free_sugar_g: x.sug * k, sodium_mg: x.sod * k }; }
+// Non-veg predicate reused conceptually: which nv types a person eats.
+function nvOk(prefs, nv) { if (!nv) return true; if (prefs.nonveg) return true; if (prefs.pescatarian) return nv === "fish" || nv === "egg"; if (prefs.eggOk) return nv === "egg"; return false; }
+// Diet/allergy fit (HARD — never relaxed). The diet macro filter (keto/low-carb/high-protein…)
+// only shapes the GRAIN and PROTEIN — the macro drivers — plus fruit on low-carb diets. Veg, salad
+// and dairy are balance components and always stay on the plate regardless of diet type.
+function compDietOk(x, prefs, dietKey) {
+  if (!x.veg && !nvOk(prefs, x.nv)) return false;
+  if (!mealAllowed(x.n, prefs)) return false;                 // allergies / vegan / jain / gluten
+  const macroRole = x.r === "grain" || x.r === "protein";
+  const lowCarb = dietKey === "keto" || dietKey === "lowcarb";
+  if ((macroRole || (lowCarb && x.r === "fruit")) && !dietStyleAllows(fcPer100(x), x.n, dietKey)) return false;
+  return true;
+}
+// Condition fit (SOFT — relaxed only if it would otherwise leave a role with no options).
+function compCondOk(x, conds) {
+  const has = s => conds.includes(s);
+  if (has("blood pressure") && x.sod > 350 && x.r !== "protein") return false;         // keep sodium down for BP
+  if ((has("diabet") || has("blood sugar")) && x.r === "fruit" && x.sug > 14) return false; // high-sugar fruit
+  if (has("cholesterol") && (x.f * 100 / x.q) > 15 && x.r === "protein") return false;  // very high-fat protein (paneer)
+  return true;
+}
+// Pick one component for a role. lowCal drops the heaviest proteins so a small target isn't blown.
+// Returns null when nothing fits (e.g. no keto-legal grain) — the caller then simply omits that role.
+function pickComp(role, prefs, dietKey, conds, seed, used, lowCal) {
+  const heavyOk = x => !(lowCal && x.r === "protein" && x.cal > 230);
+  let pool = FC.filter(x => x.r === role && heavyOk(x) && compDietOk(x, prefs, dietKey) && compCondOk(x, conds));
+  if (!pool.length) pool = FC.filter(x => x.r === role && compDietOk(x, prefs, dietKey)); // relax CONDITIONS only, never the diet
+  if (!pool.length) return null;
+  let cands = pool.filter(x => !used.has(x.n));
+  if (!cands.length) cands = pool;
+  return cands[Math.floor(seededRand(seed) * cands.length) % cands.length];
+}
+const fmtQty = q => (Math.round(q * 2) / 2).toString().replace(/\.0$/, "");
+function mealItem(x, qty) {
+  const q = Math.max(0.5, Math.round(qty * 2) / 2);
+  const unit = x.plural && q > 1 ? x.u + "s" : x.u;
+  return { name: x.n, qty: q, label: `${x.n} — ${fmtQty(q)} ${unit}`,
+    cal: Math.round(x.cal * q), p: +(x.p * q).toFixed(1), c: +(x.c * q).toFixed(1), f: +(x.f * q).toFixed(1), fib: +(x.fib * q).toFixed(1), sug: +(x.sug * q).toFixed(1), sod: Math.round(x.sod * q) };
+}
+// Assemble one meal: pick components per the plate rules for the slot, then scale the GRAIN quantity
+// to land near the meal's calorie share (protein/veg/dairy/fruit stay ~1 portion). Dinner is lighter.
+const SLOT_SHARE = { breakfast: 0.25, lunch: 0.35, snack: 0.10, dinner: 0.30 };
+function assembleMeal(slot, macros, prefs, dietKey, conds, seed, dayUsed) {
+  const target = macros.calories * SLOT_SHARE[slot];
+  const lowCal = macros.calories <= 1400;
+  const used = new Set(dayUsed);   // avoid repeating today's grains/proteins across meals
+  const chosen = [];
+  const add = (role, s) => { const x = pickComp(role, prefs, dietKey, conds, s, used, lowCal); if (x) { used.add(x.n); if (role === "grain" || role === "protein") dayUsed.add(x.n); chosen.push(x); } return x; };
+  const lowCarb = dietKey === "keto" || dietKey === "lowcarb";
+  if (slot === "breakfast") {
+    if (lowCarb) { add("protein", seed + 2); add("veg", seed + 3); add("snack", seed + 4); }   // eggs/paneer + veg + nuts
+    else { add("grain", seed + 1); add("protein", seed + 2); add("fruit", seed + 3); }
+  }
+  else if (slot === "lunch") { add("grain", seed + 1); add("protein", seed + 2); add("veg", seed + 3); add("dairy", seed + 4); add("salad", seed + 5); }
+  else if (slot === "snack") {
+    // one item from a combined snack/dairy/fruit pool — always non-empty (unlike a single random role)
+    let pool = FC.filter(x => (x.r === "snack" || x.r === "dairy" || (x.r === "fruit" && !lowCarb)) && compDietOk(x, prefs, dietKey) && compCondOk(x, conds));
+    if (!pool.length) pool = FC.filter(x => (x.r === "snack" || x.r === "dairy") && compDietOk(x, prefs, dietKey));
+    if (pool.length) { const x = pool[Math.floor(seededRand(seed + 6) * pool.length) % pool.length]; used.add(x.n); chosen.push(x); }
+  }
+  else { /* dinner — lighter: protein + veg + salad, a small grain only if not low-carb */ add("protein", seed + 2); add("veg", seed + 3); if (!lowCarb) add("grain", seed + 1); add("salad", seed + 5); }
+  // Scale ONE staple to hit the meal's calorie share: the grain if there is one, else the protein
+  // (so no-grain low-carb/keto meals still fill up, and protein-forward days get more protein).
+  const flex = chosen.find(x => x.r === "grain" && x.flex) || chosen.find(x => x.r === "protein");
+  const isGrain = flex && flex.r === "grain";
+  const fixedCal = chosen.reduce((s, x) => s + (x === flex ? 0 : x.cal), 0);
+  let items;
+  if (flex) {
+    let q = (target - fixedCal) / flex.cal;
+    const cap = isGrain ? (slot === "dinner" ? Math.min(flex.max || 3, 2) : (flex.max || 3)) : 2.5; // dinner grain small; protein flex ≤2.5
+    q = Math.max(isGrain ? 0.5 : 1, Math.min(cap, Math.round(q * 2) / 2));
+    items = chosen.map(x => mealItem(x, x === flex ? q : 1));
+  } else {
+    items = chosen.map(x => mealItem(x, 1));
+  }
+  const totals = items.reduce((a, it) => ({ cal: a.cal + it.cal, p: +(a.p + it.p).toFixed(1), c: +(a.c + it.c).toFixed(1), f: +(a.f + it.f).toFixed(1), fib: +(a.fib + it.fib).toFixed(1), sug: +(a.sug + it.sug).toFixed(1), sod: a.sod + it.sod }), { cal: 0, p: 0, c: 0, f: 0, fib: 0, sug: 0, sod: 0 });
+  return { items, totals };
+}
+// Generate a full week. nonce lets the UI refresh a meal/day/week (changes the seed for just that part).
+function generateGoalPlan(profile, macros, dietKey, week, nonces) {
+  const prefs = mealPrefs(profile);
+  const conds = (((profile && profile.conditions) || []).join(" ")).toLowerCase();
+  const N = nonces || {};
+  const slots = ["breakfast", "lunch", "snack", "dinner"];
+  const days = [0, 1, 2, 3, 4, 5, 6].map(d => {
+    const day = {};
+    const dayUsed = new Set();
+    slots.forEach((slot, si) => {
+      const nonce = (N[`${d}:${slot}`] || 0) + (N[`day:${d}`] || 0) + (N.week || 0);
+      const seed = week * 1000 + d * 37 + si * 101 + nonce * 7.13 + 0.5;
+      day[slot] = assembleMeal(slot, macros, prefs, dietKey, conds, seed, dayUsed);
+    });
+    day.totals = slots.reduce((a, s) => ({ cal: a.cal + day[s].totals.cal, p: +(a.p + day[s].totals.p).toFixed(0), c: +(a.c + day[s].totals.c).toFixed(0), f: +(a.f + day[s].totals.f).toFixed(0) }), { cal: 0, p: 0, c: 0, f: 0 });
+    return day;
+  });
+  return { week, diet: dietKey, days };
+}
+
 const MEAL_SLOTS = ["Breakfast", "Lunch", "Snack", "Dinner", "After Dinner"];
 
 // Real meal rotation from her Weekly Menu sheet — used to seed demo history, cycled
@@ -3839,7 +4065,93 @@ function groceryFromPlan(plan) {
   const out = []; GROCERY_MAP.forEach(([re, item]) => { if (re.test(text) && !out.includes(item)) out.push(item); });
   return out;
 }
-function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegeneratePlan, onSwapMeal, onAddPlanItem, onRemovePlanItem, cycleLog, onLogPeriod }) {
+// Goal-based diet plan — app-chosen, quantified, refresh-only. Opens as a full-screen sheet so the
+// long day-by-day plan lives in its own scroll (not stacked inline on the Plan tab).
+function GoalDietSheet({ profile, goalDiet, onSave, onClose }) {
+  const defTarget = (computeTargets(profile.weight || 60, [], profile) || {}).targetWeight || Math.max(45, Math.round((profile.weight || 60) - 3));
+  const [targetWeight, setTargetWeight] = useState((goalDiet && goalDiet.targetWeight) || defTarget);
+  const [weeks, setWeeks] = useState((goalDiet && goalDiet.weeks) || 12);
+  const [diet, setDiet] = useState((goalDiet && goalDiet.diet) || "balanced");
+  const [nonces, setNonces] = useState((goalDiet && goalDiet.nonces) || {});
+  const [dayIdx, setDayIdx] = useState(new Date().getDay() === 0 ? 6 : new Date().getDay() - 1);
+  const persist = (patch) => { const next = { targetWeight, weeks, diet, nonces, ...patch }; onSave(next); };
+  const setT = v => { setTargetWeight(v); persist({ targetWeight: v }); };
+  const setW = v => { setWeeks(v); persist({ weeks: v }); };
+  const setD = v => { setDiet(v); persist({ diet: v }); };
+  const bumpNonce = (key) => { const nx = { ...nonces, [key]: (nonces[key] || 0) + 1 }; setNonces(nx); persist({ nonces: nx }); };
+  const v = validateWeightGoal(profile, Number(targetWeight) || profile.weight, Number(weeks) || 12);
+  const macros = goalMacros(v.calories, profile.weight || 60, diet, profile);
+  const plan = generateGoalPlan(profile, macros, diet, weekNumber(), nonces);
+  const conflicts = dietConflicts(diet, profile);
+  const day = plan.days[dayIdx] || plan.days[0];
+  const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const slotName = { breakfast: "Breakfast", lunch: "Lunch", snack: "Snack", dinner: "Dinner" };
+  const inS = { width: 70, border: `1px solid ${T.border}`, borderRadius: 8, padding: "7px 9px", fontFamily: "Manrope", fontWeight: 700, fontSize: 15, textAlign: "center", background: T.white, color: T.ink };
+  const mealBlock = (slot) => {
+    const m = day[slot]; if (!m) return null;
+    return (
+      <div key={slot} style={{ marginBottom: 12, background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: "10px 12px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <span style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 13, color: T.teal }}>{slotName[slot]} <span style={{ color: T.inkSoft, fontWeight: 600 }}>· {m.totals.cal} kcal</span></span>
+          <button onClick={() => bumpNonce(`${dayIdx}:${slot}`)} aria-label="Refresh meal" style={{ background: T.tealPale, border: "none", borderRadius: 8, padding: "4px 9px", color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🔄</button>
+        </div>
+        {m.items.length === 0 ? <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, fontStyle: "italic" }}>—</div> :
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>{m.items.map((it, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "baseline", gap: 6, fontFamily: "Inter", fontSize: 13, color: T.ink }}>
+              <span style={{ color: T.teal, fontWeight: 800 }}>•</span><span>{it.name} — <b>{it.label.split(" — ")[1] || (fmtQty(it.qty))}</b></span>
+            </div>
+          ))}</div>}
+      </div>
+    );
+  };
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 55, background: T.creamDeep, display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "calc(12px + env(safe-area-inset-top,0px)) 16px 12px", borderBottom: `1px solid ${T.border}`, background: T.cream }}>
+        <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 16, color: T.teal }}>🥗 Diet for your goal</div>
+        <button onClick={onClose} aria-label="Close" style={{ background: T.creamDeep, border: `1px solid ${T.border}`, borderRadius: 999, width: 32, height: 32, cursor: "pointer", fontSize: 16, color: T.ink }}>✕</button>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: 16, maxWidth: 480, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
+        {/* Goal inputs */}
+        <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
+          <div style={{ display: "flex", gap: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <div><div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 4 }}>Now</div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15 }}>{profile.weight || "—"} kg</div></div>
+            <div><div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 4 }}>Goal weight</div><input type="number" inputMode="decimal" value={targetWeight} onChange={e => setT(e.target.value)} style={inS} /></div>
+            <div><div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginBottom: 4 }}>Reach in (weeks)</div><input type="number" inputMode="numeric" value={weeks} onChange={e => setW(e.target.value)} style={inS} /></div>
+          </div>
+          <div style={{ marginTop: 10, background: v.ok === false ? T.amberPale : T.forestPale, borderRadius: 10, padding: "9px 11px", fontFamily: "Inter", fontSize: 12.5, color: v.ok === false ? T.amber : T.forest, lineHeight: 1.5 }}>{v.ok === false ? "⚠️ " : "✓ "}{v.message}</div>
+        </div>
+        {/* Diet picker */}
+        <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12.5, color: T.teal, marginBottom: 6, letterSpacing: 0.3 }}>DIET TO FOLLOW</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 8 }}>
+          {GOAL_DIETS.map(d => <button key={d.k} onClick={() => setD(d.k)} style={{ background: diet === d.k ? T.tealSolid : T.white, color: diet === d.k ? "#fff" : T.ink, border: `1px solid ${diet === d.k ? T.tealSolid : T.border}`, borderRadius: 999, padding: "6px 12px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>{d.l}</button>)}
+        </div>
+        <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginBottom: 8, lineHeight: 1.45 }}>{(GOAL_DIETS.find(d => d.k === diet) || {}).desc}{diet === "keto" ? " · Vegetarian keto can't go truly strict — this is low-carb-leaning; watch the daily carb total below." : ""}</div>
+        {conflicts.length > 0 && <div style={{ background: T.alertPale, border: `1px solid ${T.alert}`, borderRadius: 10, padding: "9px 11px", marginBottom: 10, fontFamily: "Inter", fontSize: 12.5, color: T.alert, lineHeight: 1.5 }}>⚠️ {GOAL_DIET_LABEL[diet]} isn't ideal for your <b>{conflicts.join(", ")}</b> — please check with your doctor before following it.</div>}
+        {/* Macro targets */}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", background: T.tealPale, borderRadius: 12, padding: "10px 12px", marginBottom: 14 }}>
+          {[["kcal", macros.calories], ["protein", macros.protein + "g"], ["carbs", macros.carbs + "g"], ["fat", macros.fat + "g"]].map(([l, x]) => <div key={l} style={{ flex: 1, minWidth: 60 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 16 }}>{x}</div><div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft }}>{l}/day</div></div>)}
+        </div>
+        {/* Day tabs + refresh */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <div style={{ display: "flex", gap: 4, overflowX: "auto" }}>{dayNames.map((d, i) => <button key={i} onClick={() => setDayIdx(i)} style={{ flexShrink: 0, background: dayIdx === i ? T.teal : T.white, color: dayIdx === i ? "#fff" : T.ink, border: `1px solid ${dayIdx === i ? T.teal : T.border}`, borderRadius: 8, padding: "5px 9px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{d}</button>)}</div>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <span style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 13.5, color: T.ink }}>{dayNames[dayIdx]} · <span style={{ color: T.forest }}>{day.totals.cal} kcal</span> <span style={{ color: T.inkSoft, fontWeight: 600, fontSize: 12 }}>(P{day.totals.p} C{day.totals.c} F{day.totals.f})</span></span>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={() => bumpNonce(`day:${dayIdx}`)} style={{ background: T.saffron, border: "none", borderRadius: 8, padding: "5px 10px", color: "#fff", fontFamily: "Manrope", fontWeight: 700, fontSize: 11.5, cursor: "pointer" }}>🔄 Day</button>
+            <button onClick={() => bumpNonce("week")} style={{ background: T.creamDeep, border: `1px solid ${T.border}`, borderRadius: 8, padding: "5px 10px", color: T.ink, fontFamily: "Manrope", fontWeight: 700, fontSize: 11.5, cursor: "pointer" }}>🔄 Week</button>
+          </div>
+        </div>
+        {["breakfast", "lunch", "snack", "dinner"].map(mealBlock)}
+        <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginTop: 6, marginBottom: 20, lineHeight: 1.5 }}>
+          Meals are chosen for you from your cuisine, diet pattern, allergies and conditions — tap 🔄 to reshuffle a meal, a day, or the week. Quantities are careful estimates from standard household measures, for steady progress without starving. This is general wellness guidance, not medical advice — for weight loss with medical conditions, confirm with your doctor.
+        </div>
+      </div>
+    </div>
+  );
+}
+function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegeneratePlan, onSwapMeal, onAddPlanItem, onRemovePlanItem, cycleLog, onLogPeriod, goalDiet, onSaveGoalDiet }) {
+  const [goalSheetOpen, setGoalSheetOpen] = useState(false);
   const [picker, setPicker] = useState(null); // { dayIdx, slot }
   const [pQuery, setPQuery] = useState("");
   const [pCuisine, setPCuisine] = useState("All");
@@ -3911,6 +4223,14 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
   const avoidByCond = (guides || []).map(g => ({ label: g.label, strong: g.strong_no || [], less: g.eat_less || [] })).filter(x => x.strong.length || x.less.length);
   return (
     <div className="tabPane">
+      {goalSheetOpen && <GoalDietSheet profile={profile} goalDiet={goalDiet} onSave={onSaveGoalDiet} onClose={() => setGoalSheetOpen(false)} />}
+      <div onClick={() => setGoalSheetOpen(true)} style={{ marginBottom: 14, cursor: "pointer", background: `linear-gradient(135deg, ${T.teal}, ${T.tealSolid})`, borderRadius: 16, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <div>
+          <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, color: "#fff" }}>🥗 Diet for your goal</div>
+          <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "rgba(255,255,255,0.92)", marginTop: 3, lineHeight: 1.4 }}>{goalDiet && goalDiet.targetWeight ? `${GOAL_DIET_LABEL[goalDiet.diet] || "Balanced"} · goal ${goalDiet.targetWeight} kg — tap to view & refresh` : "A day-by-day plan with quantities, built for your weight goal, diet & conditions"}</div>
+        </div>
+        <span style={{ fontSize: 24, color: "#fff", flexShrink: 0, lineHeight: 1 }}>›</span>
+      </div>
       {targets && (
         <Card style={{ marginBottom: 14, background: `linear-gradient(180deg, ${T.tealPale}, ${T.white})` }}>
           <SectionLabel>Your plan targets</SectionLabel>
@@ -5055,6 +5375,7 @@ function App() {
   TOTAL_SUPPLEMENTS = supplements.length;
   const [customDishes, setCustomDishes] = useKV(pk("dishes:custom"), {});
   const [weeklyPlan, setWeeklyPlan] = useKV(pk("plan:weekly"), null);
+  const [goalDiet, setGoalDiet] = useKV(pk("plan:goaldiet"), null); // { targetWeight, weeks, diet, nonces } for the goal-based auto-plan
   const [cycleLog, setCycleLog] = useKV(pk("cycle:log"), []); // menstrual-cycle history (female): [{start, duration, symptoms, note}]
   const [corpusLoaded, setCorpusLoaded] = useState(false);
   useEffect(() => { loadDishCorpus().then(() => setCorpusLoaded(true)); }, []);
@@ -5323,7 +5644,7 @@ function App() {
         {tab === "health" && <MyHealthTab metrics={metrics} periods={periods} supplementsToday={supplementsToday} toggleSupplement={(id) => toggleSupplement(tk, id)} supplements={supplements} onAddReport={() => openSettings("reports")} advice={advice} selectedDate={selectedDate} setSelectedDate={setSelectedDate} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} activities={activities} targets={targets} demoCleared={demoCleared} clearDemo={clearDemo} />}
         {tab === "habits" && <HabitsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} habitsForDate={habitsForDate} toggleHabit={toggleHabit} weekHabits={weekHabits} weekFood={weekFood} weekSupplements={weekSupplements} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} advice={advice} weightKg={profile.weight} />}
         {tab === "supplements" && <SupplementsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} supplementsForDate={supplementsForDate} toggleSupplement={toggleSupplement} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} supplements={supplements} advice={advice} suggestedSupps={suggestedSupps} onAddSupplement={addSuggestedSupplement} />}
-        {tab === "plan" && <PlanTab weekFood={weekFood} advice={advice} profile={profile} targets={targets} weeklyPlan={weeklyPlan} onRegeneratePlan={regeneratePlan} onSwapMeal={swapPlanMeal} onAddPlanItem={addPlanItem} onRemovePlanItem={removePlanItem} cycleLog={cycleLog} onLogPeriod={logPeriod} />}
+        {tab === "plan" && <PlanTab weekFood={weekFood} advice={advice} profile={profile} targets={targets} weeklyPlan={weeklyPlan} onRegeneratePlan={regeneratePlan} onSwapMeal={swapPlanMeal} onAddPlanItem={addPlanItem} onRemovePlanItem={removePlanItem} cycleLog={cycleLog} onLogPeriod={logPeriod} goalDiet={goalDiet} onSaveGoalDiet={setGoalDiet} />}
         <div style={{ position: "fixed", bottom: 0, width: "100%", maxWidth: 460, background: T.tealSolid, display: "flex", alignItems: "center", justifyContent: "space-around", padding: "8px 8px 10px", zIndex: 30 }}>
           {NAV.map((t, i) => {
             if (t.center) return (
