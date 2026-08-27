@@ -4220,10 +4220,28 @@ const MARKER_TO_CONDITION = {
   creatinine: "ckd",
   urea: "ckd",
   hb: "anaemia",
+  hgb: "anaemia",
+  hemoglobin: "anaemia",
   vitd: "osteoporosis",
   calcium: "osteoporosis",
   weight: "weight"
 };
+// Map the plain-language conditions a person SELECTS (not just lab markers) to a guidance id, so
+// their stated history drives the plan even when a marker wasn't in the latest report.
+const CONDITION_TEXT_TO_GUIDANCE = [[/coronary|bypass|cabg|cardiac|angina|stent|heart attack|heart disease|\bcad\b|ischaem|ischem|atrial|arrhythm/i, "heart"], [/triglyceride/i, "triglycerides"], [/ldl|cholesterol|\bhdl\b|dyslipid|lipid/i, "cholesterol"], [/fatty liver|nafld|masld|hepatic|\bggt\b/i, "fatty_liver"], [/thyroid|hypothyroid|hyperthyroid|\btsh\b|hashimoto/i, "thyroid"], [/diabet|blood sugar|hba1c|pre-?diab/i, "diabetes"], [/hypertension|blood pressure|\bbp\b/i, "hypertension"], [/anaem|anemia|\biron\b|haemoglobin|hemoglobin/i, "anaemia"], [/vitamin ?d|\bvit ?d\b|osteo|bone health|calcium/i, "osteoporosis"], [/kidney|renal|\bckd\b|creatinine|nephro/i, "ckd"], [/obesity|overweight/i, "weight"]];
+// Guidance blocks not yet in the shared condition_guidance.json — kept in code so they survive that file regenerating.
+const EXTRA_GUIDANCE = {
+  heart: {
+    label: "Heart / post-bypass",
+    improves: "heart health, arteries, recovery after bypass",
+    eat_more: ["Omega-3 — fatty fish, flaxseed, walnuts", "Soluble fibre — oats, beans, isabgol", "Fruits & vegetables (potassium, antioxidants)", "Whole grains & millets", "Unsalted nuts & seeds", "Olive oil / healthy fats in moderation"],
+    eat_less: ["Salt & very salty food (papad, pickle, namkeen)", "Full-fat dairy, butter & ghee", "Red & processed meat"],
+    strong_no: ["Deep-fried & fast food", "Trans fats — vanaspati, bakery items", "Sugary drinks & sweets", "Smoking / tobacco"],
+    lifestyle: ["Walk / do cardio daily — build up only at the pace your cardiologist has cleared", "Take your heart & cholesterol medicines exactly as prescribed — never stop on your own", "Keep LDL low (post-bypass target is usually under 55), plus blood pressure and weight in check", "Manage stress and get 7–8 h sleep", "Keep your regular cardiology follow-ups"],
+    home_remedies: ["Arjun bark tea (traditional)", "Ground flaxseed daily", "Raw garlic", "Amla", "Regular brisk walking (with clearance)"]
+  }
+};
+const guidanceFor = c => GUIDANCE_DB && GUIDANCE_DB.conditions && GUIDANCE_DB.conditions[c] || EXTRA_GUIDANCE[c] || null;
 // Dietitian + lifestyle-coach guidance (condition_guidance.json), personalised by profile.
 let GUIDANCE_DB = null;
 async function loadGuidance() {
@@ -4246,34 +4264,40 @@ async function loadGuidance() {
   }
   return GUIDANCE_DB;
 }
-// the person's conditions (from flagged markers + weight goal) -> their guidance objects
-function personGuidance(flaggedKeys, weightGoal) {
-  if (!GUIDANCE_DB || !GUIDANCE_DB.conditions) return [];
-  const map = GUIDANCE_DB.marker_map || {};
-  const conds = new Set();
-  (flaggedKeys || []).forEach(k => {
-    const c = map[k] || MARKER_TO_CONDITION[k];
-    if (c) conds.add(c);
-  });
-  if (weightGoal) conds.add("weight");
-  return [...conds].filter(c => GUIDANCE_DB.conditions[c]).map(c => ({
-    id: c,
-    ...GUIDANCE_DB.conditions[c]
-  }));
-}
-// the set of condition IDs a person has (markers + weight goal)
-function personConditions(flaggedKeys, weightGoal) {
+// Guidance condition IDs from BOTH stated conditions and flagged lab markers. ALT/AST alone don't
+// assert fatty liver (needs GGT or a stated diagnosis) so a statin/other ALT rise isn't mislabelled.
+function conditionIdsFor(flaggedKeys, weightGoal, profile) {
   const map = GUIDANCE_DB && GUIDANCE_DB.marker_map || {};
-  const conds = new Set();
+  const ids = new Set();
+  (profile && profile.conditions || []).forEach(txt => CONDITION_TEXT_TO_GUIDANCE.forEach(([re, id]) => {
+    if (re.test(txt)) ids.add(id);
+  }));
   (flaggedKeys || []).forEach(k => {
     const c = map[k] || MARKER_TO_CONDITION[k];
-    if (c) conds.add(c);
+    if (!c) return;
+    if ((k === "sgot" || k === "sgpt") && c === "fatty_liver" && !ids.has("fatty_liver")) return;
+    ids.add(c);
   });
-  if (weightGoal) conds.add("weight");
-  return [...conds];
+  if (weightGoal) ids.add("weight");
+  return [...ids];
+}
+// the person's conditions -> their guidance objects (stated conditions + flagged markers)
+function personGuidance(flaggedKeys, weightGoal, profile) {
+  return conditionIdsFor(flaggedKeys, weightGoal, profile).map(c => {
+    const g = guidanceFor(c);
+    return g ? {
+      id: c,
+      ...g
+    } : null;
+  }).filter(Boolean);
+}
+// the set of condition IDs a person has (stated + markers), limited to ones we have guidance for
+function personConditions(flaggedKeys, weightGoal, profile) {
+  return conditionIdsFor(flaggedKeys, weightGoal, profile).filter(c => guidanceFor(c));
 }
 function condLabel(c) {
-  return GUIDANCE_DB && GUIDANCE_DB.conditions[c] && GUIDANCE_DB.conditions[c].label || c;
+  const g = guidanceFor(c);
+  return g && g.label || c;
 }
 // CROSS-CONDITION reconciliation: when a person has several conditions, a food can be good for
 // one but bad for another (banana: good BP, bad kidney). Resolve against THEIR conditions only,
@@ -11200,8 +11224,9 @@ function PlanTab({
     n.has(g) ? n.delete(g) : n.add(g);
     return n;
   });
-  const guides = personGuidance(advice.flaggedKeys, advice.weightGoal); // dietitian + lifestyle guidance for their conditions
-  const myConds = personConditions(advice.flaggedKeys, advice.weightGoal);
+  const guides = personGuidance(advice.flaggedKeys, advice.weightGoal, profile); // dietitian + lifestyle guidance for their conditions
+  const myConds = personConditions(advice.flaggedKeys, advice.weightGoal, profile);
+  const suggestedSupps = suggestSupplements(profile); // supplement ideas from their conditions
   const reco = myConds.length >= 2 ? reconcileFoods(myConds) : null; // reconcile only matters with 2+ conditions
   const labels = arr => (arr || []).map(condLabel).join(", ");
   const fRow = (r, tint, i) => /*#__PURE__*/React.createElement("div", {
@@ -12529,7 +12554,48 @@ function PlanTab({
       color: T.ink,
       lineHeight: 1.35
     }
-  }, "\uD83C\uDF75 ", x)))))), frequentlyEaten.length > 0 && /*#__PURE__*/React.createElement(Collapsible, {
+  }, "\uD83C\uDF75 ", x)))))), suggestedSupps.length > 0 && /*#__PURE__*/React.createElement(Collapsible, {
+    title: "Suggested supplements",
+    emoji: "\uD83D\uDC8A",
+    subtitle: "General ideas from your conditions \u2014 discuss with your doctor"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 8
+    }
+  }, suggestedSupps.map((s, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      borderLeft: `3px solid ${T.teal}`,
+      paddingLeft: 11
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "Manrope",
+      fontWeight: 800,
+      fontSize: 12.5,
+      color: T.teal
+    }
+  }, s.name), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "Inter",
+      fontSize: 12.5,
+      color: T.ink,
+      lineHeight: 1.4,
+      marginTop: 1
+    }
+  }, s.why)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "Inter",
+      fontSize: 12,
+      color: T.inkSoft,
+      marginTop: 10,
+      borderTop: `1px solid ${T.border}`,
+      paddingTop: 8,
+      lineHeight: 1.5
+    }
+  }, "These are general wellness suggestions based on the conditions in your profile \u2014 not dosing or medical advice. Check with your doctor before starting anything, especially alongside prescribed medication.")), frequentlyEaten.length > 0 && /*#__PURE__*/React.createElement(Collapsible, {
     title: "What you've been eating this week",
     emoji: "\uD83C\uDF74"
   }, /*#__PURE__*/React.createElement("div", {
