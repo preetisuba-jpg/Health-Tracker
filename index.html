@@ -4142,6 +4142,50 @@ function groceryFromPlan(plan) {
   const out = []; GROCERY_MAP.forEach(([re, item]) => { if (re.test(text) && !out.includes(item)) out.push(item); });
   return out;
 }
+// Shopping list from the goal-based diet plan (items live in day[slot].items[].name).
+function goalPlanText(goalPlan) {
+  if (!goalPlan || !goalPlan.days) return "";
+  return goalPlan.days.map(d => ["breakfast", "lunch", "snack", "dinner"].map(s => ((d[s] && d[s].items) || []).map(i => i.name).join(" ")).join(" ")).join(" ");
+}
+function groceryFromGoalPlan(goalPlan) {
+  const text = goalPlanText(goalPlan); const out = [];
+  GROCERY_MAP.forEach(([re, item]) => { if (re.test(text) && !out.includes(item)) out.push(item); });
+  return out;
+}
+// ---- PDF export via the browser's print-to-PDF (works on the deployed web app). A clean formatted
+// document with the app name in the heading; the user picks "Save as PDF" in the print dialog. ----
+const PLAN_DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function weeklyPlanHTML(weeklyPlan) {
+  if (!weeklyPlan || !weeklyPlan.days) return "<div class='muted'>No plan yet.</div>";
+  return weeklyPlan.days.map((d, i) => "<div class='day'>" + PLAN_DAY_LABELS[i] + "</div>" + ["breakfast", "lunch", "snack", "dinner"].map(s => {
+    const items = Array.isArray(d[s]) ? d[s] : (d[s] ? [d[s]] : []);
+    return "<div class='meal'><span class='ml'>" + s + ":</span> " + (items.length ? esc(items.join(", ")) : "—") + "</div>";
+  }).join("")).join("");
+}
+function goalPlanHTML(goalPlan, macros, dietLabel) {
+  if (!goalPlan) return "";
+  if (goalPlan.kind === "protocol") return "<div class='muted'>" + esc(goalPlan.protocol.note) + "</div>" + goalPlan.protocol.days.map(r => "<div class='day'>" + esc(r[0]) + "</div><div class='it'>" + esc(r[1]) + "</div>").join("");
+  const head = "<div class='muted'>" + esc(dietLabel) + " · ~" + macros.calories + " kcal/day · P" + macros.protein + "g C" + macros.carbs + "g F" + macros.fat + "g</div>";
+  return head + goalPlan.days.map((d, i) => "<div class='day'>" + PLAN_DAY_LABELS[i] + " · " + d.totals.cal + " kcal</div>" + ["breakfast", "lunch", "snack", "dinner"].map(s => {
+    const its = ((d[s] && d[s].items) || []).map(it => esc(it.label)).join(", ");
+    return "<div class='meal'><span class='ml'>" + s + ":</span> " + (its || "—") + "</div>";
+  }).join("")).join("");
+}
+function shoppingHTML(list) { return list && list.length ? "<ul>" + list.map(g => "<li>" + esc(g) + "</li>").join("") + "</ul>" : "<div class='muted'>Nothing yet.</div>"; }
+function printPlanDoc(title, innerHTML) {
+  let w; try { w = window.open("", "_blank"); } catch (e) { }
+  if (!w) { try { alert("Please allow pop-ups for this site to export the PDF, then tap Export again."); } catch (e) { } return; }
+  const css = "body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#22302d;margin:0;padding:26px;max-width:760px;margin-left:auto;margin-right:auto}"
+    + ".hd{border-bottom:3px solid #12695C;padding-bottom:8px;margin-bottom:14px}.app{color:#12695C;font-weight:800;font-size:12px;letter-spacing:1px}"
+    + "h1{font-size:21px;margin:3px 0 0}h2{font-size:15px;color:#12695C;margin:22px 0 8px;border-bottom:1px solid #d9e6e2;padding-bottom:4px}"
+    + ".day{font-weight:800;color:#0f5132;margin:11px 0 3px;font-size:13px}.meal{margin:0 0 5px;font-size:13px}.ml{font-weight:700;font-size:11px;color:#7a8a86;text-transform:uppercase}"
+    + ".it{font-size:13px;margin:1px 0}.muted{color:#7a8a86;font-size:12px;margin:2px 0 6px}ul{margin:4px 0;padding-left:20px}li{font-size:13px;margin:2px 0}@media print{body{padding:4px}h2{page-break-after:avoid}}";
+  w.document.write("<!doctype html><html><head><meta charset='utf-8'><title>" + esc(title) + "</title><style>" + css + "</style></head><body>"
+    + "<div class='hd'><div class='app'>🌿 HEALTH COMPANION</div><h1>" + esc(title) + "</h1><div class='muted'>" + new Date().toDateString() + "</div></div>"
+    + innerHTML + "<scr" + "ipt>window.onload=function(){setTimeout(function(){window.print();},400);};</scr" + "ipt></body></html>");
+  w.document.close();
+}
 // The EDITABLE weekly meal plan, moved into its own clean full-screen sheet (day tabs) — same
 // features as before: search-&-place your own dish (+ Add), remove (×), shuffle (↻), plate ticks,
 // regenerate. Just presented one day at a time so it isn't a long inline scroll.
@@ -4348,7 +4392,7 @@ function GoalDietSheet({ profile, goalDiet, onSave, onClose }) {
     </div>
   );
 }
-function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegeneratePlan, onSwapMeal, onAddPlanItem, onRemovePlanItem, cycleLog, onLogPeriod, goalDiet, onSaveGoalDiet }) {
+function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegeneratePlan, onSwapMeal, onAddPlanItem, onRemovePlanItem, cycleLog, onLogPeriod, goalDiet, onSaveGoalDiet, activePlan, onSetActivePlan }) {
   const [goalSheetOpen, setGoalSheetOpen] = useState(false);
   const [weekSheetOpen, setWeekSheetOpen] = useState(false);
   const [picker, setPicker] = useState(null); // { dayIdx, slot }
@@ -4366,7 +4410,25 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
   const fastStatus = fastingOn ? fastingStatus(profile, new Date()) : null;
   const fastCautions = fastingOn ? fastingSafety(profile) : [];
   const cycleHistory = female ? [...(cycleLog || [])].filter(e => e && e.start).sort((a, b) => a.start < b.start ? 1 : -1) : [];
-  const grocery = groceryFromPlan(weeklyPlan);
+  // The goal-based plan (regenerated from stored inputs) — used for shopping / PDF when it's the active plan.
+  const goalPlanData = (() => {
+    if (!goalDiet || !goalDiet.targetWeight) return null;
+    const gv = validateWeightGoal(profile, Number(goalDiet.targetWeight) || profile.weight, Number(goalDiet.weeks) || 12);
+    const gm = goalMacros(gv.calories, profile.weight || 60, goalDiet.diet || "balanced", profile);
+    return { plan: generateGoalPlan(profile, gm, goalDiet.diet || "balanced", weekNumber(), goalDiet.nonces || {}), macros: gm, dietLabel: GOAL_DIET_LABEL[goalDiet.diet] || "Balanced" };
+  })();
+  const goalUsable = goalPlanData && goalPlanData.plan && goalPlanData.plan.days; // a real (non-protocol) goal plan exists
+  const usingGoal = activePlan === "goal" && goalUsable;
+  const grocery = usingGoal ? groceryFromGoalPlan(goalPlanData.plan) : groceryFromPlan(weeklyPlan);
+  const activePlanLabel = usingGoal ? `${goalPlanData.dietLabel} diet plan` : "weekly meal plan";
+  // PDF exports
+  const exportWeekly = () => printPlanDoc("Weekly Meal Plan", "<h2>This week's meals</h2>" + weeklyPlanHTML(weeklyPlan));
+  const exportGoal = () => goalPlanData && printPlanDoc("Diet Plan for Your Goal", "<h2>" + goalPlanData.dietLabel + " — diet for your goal</h2>" + goalPlanHTML(goalPlanData.plan, goalPlanData.macros, goalPlanData.dietLabel));
+  const exportShopping = () => printPlanDoc("Shopping List", "<h2>Shopping — from your " + activePlanLabel + "</h2>" + shoppingHTML(grocery));
+  const exportAll = () => printPlanDoc("Your Weekly Plan", (targets ? "<h2>Your plan targets</h2><div class='it'>" + targets.calories + " kcal/day · " + targets.protein + "g protein · " + targets.fiber + "g fibre · <" + targets.sugar + "g sugar" + (targets.burnTarget ? " · 🔥" + targets.burnTarget + " kcal to burn" : "") + "</div>" : "")
+    + (goalUsable ? "<h2>" + goalPlanData.dietLabel + " — diet for your goal</h2>" + goalPlanHTML(goalPlanData.plan, goalPlanData.macros, goalPlanData.dietLabel) : "")
+    + "<h2>This week's meals</h2>" + weeklyPlanHTML(weeklyPlan)
+    + "<h2>Shopping — from your " + activePlanLabel + "</h2>" + shoppingHTML(grocery));
   const toggleGro = g => setCheckedGro(s => { const n = new Set(s); n.has(g) ? n.delete(g) : n.add(g); return n; });
   const guides = personGuidance(advice.flaggedKeys, advice.weightGoal, profile);   // dietitian + lifestyle guidance for their conditions
   const myConds = personConditions(advice.flaggedKeys, advice.weightGoal, profile);
@@ -4423,15 +4485,9 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
   return (
     <div className="tabPane">
       {goalSheetOpen && <GoalDietSheet profile={profile} goalDiet={goalDiet} onSave={onSaveGoalDiet} onClose={() => setGoalSheetOpen(false)} />}
-      <div onClick={() => setGoalSheetOpen(true)} style={{ marginBottom: 14, cursor: "pointer", background: `linear-gradient(135deg, ${T.teal}, ${T.tealSolid})`, borderRadius: 16, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-        <div>
-          <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, color: "#fff" }}>🥗 Diet for your goal</div>
-          <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "rgba(255,255,255,0.92)", marginTop: 3, lineHeight: 1.4 }}>{goalDiet && goalDiet.targetWeight ? `${GOAL_DIET_LABEL[goalDiet.diet] || "Balanced"} · goal ${goalDiet.targetWeight} kg — tap to view & refresh` : "A day-by-day plan with quantities, built for your weight goal, diet & conditions"}</div>
-        </div>
-        <span style={{ fontSize: 24, color: "#fff", flexShrink: 0, lineHeight: 1 }}>›</span>
-      </div>
+      {weekSheetOpen && weeklyPlan && weeklyPlan.days && <WeeklyPlanSheet weeklyPlan={weeklyPlan} profile={profile} advice={advice} onRegeneratePlan={onRegeneratePlan} onSwapMeal={onSwapMeal} onAddPlanItem={onAddPlanItem} onRemovePlanItem={onRemovePlanItem} onClose={() => setWeekSheetOpen(false)} />}
       {targets && (
-        <Card style={{ marginBottom: 14, background: `linear-gradient(180deg, ${T.tealPale}, ${T.white})` }}>
+        <Card style={{ marginBottom: 12, background: `linear-gradient(180deg, ${T.tealPale}, ${T.white})` }}>
           <SectionLabel>Your plan targets</SectionLabel>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19 }}>{targets.calories}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>kcal/day</div></div>
@@ -4440,25 +4496,54 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
             <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19, color: T.amber }}>&lt;{targets.sugar}g</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>sugar cap</div></div>
             {targets.burnTarget > 0 && <div style={{ flex: 1, minWidth: 66 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 19, color: T.forest }}>🔥{targets.burnTarget}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>extra to burn</div></div>}
           </div>
-          <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 8 }}>Tuned to your goals ({targets.note}){advice.focusMarkerLabel ? ` and ${advice.focusMarkerLabel}` : ""}.</div>
-          {targets.bmi != null && (
-            <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", fontFamily: "Inter", fontSize: 13, color: T.ink }}>
-              <span>BMI <b>{targets.bmi}</b> · {bmiCategory(targets.bmi)}</span>
-              <span style={{ color: T.inkSoft }}>Healthy <b style={{ color: T.ink }}>{targets.healthyMin}–{targets.healthyMax} kg</b> · ideal ≈ <b style={{ color: T.ink }}>{targets.idealWeight} kg</b></span>
-            </div>
-          )}
-          {targets.deficit > 0 ? (
-            <div style={{ marginTop: 10, background: T.creamDeep, borderRadius: 10, padding: "9px 11px", fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.5 }}>
-              {targets.toLoseKg > 0 && <><b>Target {targets.targetWeight} kg</b> — about <b>{targets.toLoseKg} kg</b> to lose{targets.weeklyLossKg > 0 ? `, ≈ ${Math.ceil(targets.toLoseKg / targets.weeklyLossKg)} weeks at this pace` : ""}.<br /></>}
-              Your body already burns about <b>{targets.maintenance} kcal/day</b> just to keep you going (BMR {targets.bmr} × your activity). Eat <b>{targets.calories} kcal</b> and you're <b>{targets.deficit} under</b> that — a {targets.weeklyLossKg} kg/week loss without any exercise. The <b>{targets.burnTarget} kcal “extra to burn”</b> (~{targets.burnMins}-min brisk walk) is on <i>top</i> of that, to lose a little faster.
-            </div>
-          ) : targets.burnTarget > 0 ? (
-            <div style={{ marginTop: 10, background: T.creamDeep, borderRadius: 10, padding: "9px 11px", fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.5 }}>
-              Stay active: aim to <b>burn ~{targets.burnTarget} kcal/day</b> — about a <b>{targets.burnMins}-min brisk walk</b>. Your Today screen tracks calories burned against this.
-            </div>
-          ) : null}
+          {targets.bmi != null && <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", fontFamily: "Inter", fontSize: 12.5, color: T.ink }}><span>BMI <b>{targets.bmi}</b> · {bmiCategory(targets.bmi)}</span><span style={{ color: T.inkSoft }}>Healthy <b style={{ color: T.ink }}>{targets.healthyMin}–{targets.healthyMax} kg</b> · ideal ≈ <b style={{ color: T.ink }}>{targets.idealWeight} kg</b></span></div>}
+          <div style={{ marginTop: 9, fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.5 }}>
+            {targets.deficit > 0
+              ? <>🎯 Reach <b>{targets.targetWeight} kg</b> (~{targets.toLoseKg} kg to lose{targets.weeklyLossKg > 0 ? `, ≈ ${Math.ceil(targets.toLoseKg / targets.weeklyLossKg)} wk` : ""}) by eating <b>{targets.calories} kcal/day</b>.{targets.burnTarget > 0 ? <> 🔥 Add a <b>{targets.burnMins}-min walk</b> (~{targets.burnTarget} kcal) daily to get there faster.</> : null}</>
+              : targets.burnTarget > 0
+              ? <>🔥 Stay active — aim for a <b>{targets.burnMins}-min walk</b> (~{targets.burnTarget} kcal) most days.</>
+              : <>A balanced <b>{targets.calories} kcal/day</b> to maintain your weight.</>}
+          </div>
         </Card>
       )}
+      {/* Which plan are you following? (✓) — drives the shopping list. + PDF export on each. */}
+      <div style={{ marginBottom: 12, background: `linear-gradient(135deg, ${T.teal}, ${T.tealSolid})`, borderRadius: 16, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+        <button onClick={() => onSetActivePlan("goal")} aria-label="Follow this plan" title="Follow this plan" style={{ width: 24, height: 24, borderRadius: 6, flexShrink: 0, border: "2px solid #fff", background: activePlan === "goal" ? "#fff" : "transparent", color: T.teal, fontWeight: 900, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>{activePlan === "goal" ? "✓" : ""}</button>
+        <div onClick={() => setGoalSheetOpen(true)} style={{ flex: 1, cursor: "pointer", minWidth: 0 }}>
+          <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, color: "#fff" }}>🥗 Diet for your goal{activePlan === "goal" ? " · following" : ""}</div>
+          <div style={{ fontFamily: "Inter", fontSize: 12, color: "rgba(255,255,255,0.92)", marginTop: 3, lineHeight: 1.4 }}>{goalDiet && goalDiet.targetWeight ? `${GOAL_DIET_LABEL[goalDiet.diet] || "Balanced"} · goal ${goalDiet.targetWeight} kg — tap to view & refresh` : "Day-by-day plan with quantities — tap to set up"}</div>
+        </div>
+        {goalUsable && <button onClick={exportGoal} title="Export PDF" style={{ background: "rgba(255,255,255,0.2)", border: "none", borderRadius: 8, padding: "6px 9px", color: "#fff", fontFamily: "Manrope", fontWeight: 700, fontSize: 11.5, cursor: "pointer", flexShrink: 0 }}>⬇ PDF</button>}
+      </div>
+      {weeklyPlan && weeklyPlan.days && (
+        <div style={{ marginBottom: 12, background: T.white, border: `1px solid ${T.teal}`, borderRadius: 16, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+          <button onClick={() => onSetActivePlan("weekly")} aria-label="Follow this plan" title="Follow this plan" style={{ width: 24, height: 24, borderRadius: 6, flexShrink: 0, border: `2px solid ${T.teal}`, background: activePlan === "weekly" ? T.tealSolid : "transparent", color: "#fff", fontWeight: 900, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>{activePlan === "weekly" ? "✓" : ""}</button>
+          <div onClick={() => setWeekSheetOpen(true)} style={{ flex: 1, cursor: "pointer", minWidth: 0 }}>
+            <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, color: T.teal }}>🍽️ This week's meals{activePlan === "weekly" ? " · following" : ""}</div>
+            <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 3, lineHeight: 1.4 }}>Your editable weekly plan — add, remove or shuffle. Tap to open.</div>
+          </div>
+          <button onClick={exportWeekly} title="Export PDF" style={{ background: T.tealPale, border: "none", borderRadius: 8, padding: "6px 9px", color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 11.5, cursor: "pointer", flexShrink: 0 }}>⬇ PDF</button>
+        </div>
+      )}
+      {grocery.length > 0 && (
+        <Collapsible title="This week's shopping" emoji="🛒" subtitle={`${grocery.length} things · from your ${activePlanLabel}`}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, lineHeight: 1.5 }}>Based on your <b>{activePlanLabel}</b> — change which plan you follow with the ✓ above.</div>
+            <button onClick={exportShopping} style={{ background: T.tealPale, border: "none", borderRadius: 8, padding: "5px 10px", color: T.teal, fontFamily: "Manrope", fontWeight: 700, fontSize: 11.5, cursor: "pointer", flexShrink: 0 }}>⬇ PDF</button>
+          </div>
+          {grocery.map((g, i) => {
+            const on = checkedGro.has(g);
+            return (
+              <div key={i} onClick={() => toggleGro(g)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", cursor: "pointer" }}>
+                <span style={{ width: 19, height: 19, borderRadius: 5, flexShrink: 0, border: `1.5px solid ${on ? T.tealSolid : T.border}`, background: on ? T.tealSolid : "transparent", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 900 }}>{on ? "✓" : ""}</span>
+                <span style={{ fontFamily: "Inter", fontSize: 13.5, color: on ? T.inkSoft : T.ink, textDecoration: on ? "line-through" : "none" }}>{g}</span>
+              </div>
+            );
+          })}
+          <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 8, lineHeight: 1.5 }}>Prep tip: soak dal &amp; chop veg on Sunday to make the week easy.</div>
+        </Collapsible>
+      )}
+      <button onClick={exportAll} style={{ width: "100%", marginBottom: 14, background: T.tealSolid, border: "none", borderRadius: 12, padding: "11px 0", color: "#fff", fontFamily: "Manrope", fontWeight: 800, fontSize: 13.5, cursor: "pointer" }}>⬇ Export full week plan (PDF)</button>
       <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, margin: "2px 2px 10px" }}>Tap a section to open it.</div>
       {female && (
         <Collapsible title="🌸 Your cycle" subtitle={pred ? (pred.daysUntil > 1 ? `Next period in about ${pred.daysUntil} days` : pred.daysUntil >= 0 ? "Period expected around now" : `Period is ~${Math.abs(pred.daysUntil)} days late`) : "Add your last period date to start"}>
@@ -4532,30 +4617,6 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
             {(advice.flaggedKeys || []).some(k => /liver|ggt|tg|trig|sugar|glucose|hba1c|ldl|chol/i.test(k)) && <div style={{ borderLeft: `3px solid ${T.forest}`, paddingLeft: 11 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12.5, color: T.forest }}>For your markers</div><div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.5, marginTop: 2 }}>Giving the body a long daily break from food is one of the better-studied levers for fatty liver, triglycerides and insulin sensitivity — alongside the food choices in your plan.</div></div>}
           </div>
           <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 12, borderTop: `1px solid ${T.border}`, paddingTop: 8, lineHeight: 1.5 }}>General guidance based on Johns Hopkins Medicine and the U.S. National Institute on Aging — not medical advice. Check with your doctor before starting, especially on any medication.</div>
-        </Collapsible>
-      )}
-      {weekSheetOpen && weeklyPlan && weeklyPlan.days && <WeeklyPlanSheet weeklyPlan={weeklyPlan} profile={profile} advice={advice} onRegeneratePlan={onRegeneratePlan} onSwapMeal={onSwapMeal} onAddPlanItem={onAddPlanItem} onRemovePlanItem={onRemovePlanItem} onClose={() => setWeekSheetOpen(false)} />}
-      {weeklyPlan && weeklyPlan.days && (
-        <div onClick={() => setWeekSheetOpen(true)} style={{ marginBottom: 14, cursor: "pointer", background: T.white, border: `1px solid ${T.teal}`, borderRadius: 16, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-          <div>
-            <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 15, color: T.teal }}>🍽️ This week's meals</div>
-            <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 3, lineHeight: 1.4 }}>Your editable weekly plan — add, remove or shuffle any meal, day by day. Tap to open.</div>
-          </div>
-          <span style={{ fontSize: 24, color: T.teal, flexShrink: 0, lineHeight: 1 }}>›</span>
-        </div>
-      )}
-      {grocery.length > 0 && (
-        <Collapsible title="This week's shopping" emoji="🛒" subtitle={`${grocery.length} things, from your meal plan`}>
-          {grocery.map((g, i) => {
-            const on = checkedGro.has(g);
-            return (
-              <div key={i} onClick={() => toggleGro(g)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", cursor: "pointer" }}>
-                <span style={{ width: 19, height: 19, borderRadius: 5, flexShrink: 0, border: `1.5px solid ${on ? T.tealSolid : T.border}`, background: on ? T.tealSolid : "transparent", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 900 }}>{on ? "✓" : ""}</span>
-                <span style={{ fontFamily: "Inter", fontSize: 13.5, color: on ? T.inkSoft : T.ink, textDecoration: on ? "line-through" : "none" }}>{g}</span>
-              </div>
-            );
-          })}
-          <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 8, lineHeight: 1.5 }}>Auto-made from this week's meals. Prep tip: soak dal &amp; chop veg on Sunday to make the week easy.</div>
         </Collapsible>
       )}
       <Collapsible title="Eat more of" emoji="🌿" accent={T.forest} subtitle={eatMoreByCond.length ? "By your goals — chosen so they don't clash" : null}>
@@ -5489,6 +5550,7 @@ function App() {
   const [customDishes, setCustomDishes] = useKV(pk("dishes:custom"), {});
   const [weeklyPlan, setWeeklyPlan] = useKV(pk("plan:weekly"), null);
   const [goalDiet, setGoalDiet] = useKV(pk("plan:goaldiet"), null); // { targetWeight, weeks, diet, nonces } for the goal-based auto-plan
+  const [activePlan, setActivePlan] = useKV(pk("plan:active"), "weekly"); // which plan the person is following: "weekly" | "goal"
   const [cycleLog, setCycleLog] = useKV(pk("cycle:log"), []); // menstrual-cycle history (female): [{start, duration, symptoms, note}]
   const [corpusLoaded, setCorpusLoaded] = useState(false);
   useEffect(() => { loadDishCorpus().then(() => setCorpusLoaded(true)); }, []);
@@ -5757,7 +5819,7 @@ function App() {
         {tab === "health" && <MyHealthTab metrics={metrics} periods={periods} supplementsToday={supplementsToday} toggleSupplement={(id) => toggleSupplement(tk, id)} supplements={supplements} onAddReport={() => openSettings("reports")} advice={advice} selectedDate={selectedDate} setSelectedDate={setSelectedDate} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} activities={activities} targets={targets} demoCleared={demoCleared} clearDemo={clearDemo} />}
         {tab === "habits" && <HabitsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} habitsForDate={habitsForDate} toggleHabit={toggleHabit} weekHabits={weekHabits} weekFood={weekFood} weekSupplements={weekSupplements} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} advice={advice} weightKg={profile.weight} />}
         {tab === "supplements" && <SupplementsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} supplementsForDate={supplementsForDate} toggleSupplement={toggleSupplement} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} supplements={supplements} advice={advice} suggestedSupps={suggestedSupps} onAddSupplement={addSuggestedSupplement} />}
-        {tab === "plan" && <PlanTab weekFood={weekFood} advice={advice} profile={profile} targets={targets} weeklyPlan={weeklyPlan} onRegeneratePlan={regeneratePlan} onSwapMeal={swapPlanMeal} onAddPlanItem={addPlanItem} onRemovePlanItem={removePlanItem} cycleLog={cycleLog} onLogPeriod={logPeriod} goalDiet={goalDiet} onSaveGoalDiet={setGoalDiet} />}
+        {tab === "plan" && <PlanTab weekFood={weekFood} advice={advice} profile={profile} targets={targets} weeklyPlan={weeklyPlan} onRegeneratePlan={regeneratePlan} onSwapMeal={swapPlanMeal} onAddPlanItem={addPlanItem} onRemovePlanItem={removePlanItem} cycleLog={cycleLog} onLogPeriod={logPeriod} goalDiet={goalDiet} onSaveGoalDiet={setGoalDiet} activePlan={activePlan} onSetActivePlan={setActivePlan} />}
         <div style={{ position: "fixed", bottom: 0, width: "100%", maxWidth: 460, background: T.tealSolid, display: "flex", alignItems: "center", justifyContent: "space-around", padding: "8px 8px 10px", zIndex: 30 }}>
           {NAV.map((t, i) => {
             if (t.center) return (
