@@ -760,6 +760,29 @@ function allCuratedDishes() {
 const NV_NAME_RE = /chicken|murgh|mutton|lamb|keema|tikka|tandoori|korma|xacuti|cafreal|chettinad|souvlaki|haleem|\bfish|prawn|shrimp|salmon|tuna|meen|macher|seafood|\begg|omelette|omelet|biryani|kebab|bulgogi|teriyaki|shawarma|turkey|bacon|sausage|\bham\b/i;
 // Free search across the WHOLE food library (curated + the 10k-dish health DB + dish corpus) so ANY
 // dish is findable regardless of the meal slot it's normally suggested for. Atomic names float to top.
+// Typo-tolerant fallback for the search dropdown: when nothing contains the typed text (e.g. a
+// misspelling like "dhosa"), find dish names whose first word is within edit-distance 2 ("dosa").
+// Cheap first-char/length prefilter keeps it fast; only runs when the substring pass found nothing.
+function fuzzyDishSuggest(q, limit) {
+  const nq = (q || "").toLowerCase().replace(/[^a-z]/g, "");
+  if (nq.length < 4) return [];
+  const scored = [];
+  const consider = name => {
+    if (!name) return;
+    const first = String(name).toLowerCase().split(/\s+/)[0].replace(/[^a-z]/g, "");
+    if (!first || Math.abs(first.length - nq.length) > 2) return;
+    if (first[0] !== nq[0] && first[1] !== nq[1]) return; // prefilter: share a leading letter
+    const d = levenshtein(nq, first);
+    if (d <= 2) scored.push([d, name]);
+  };
+  try { if (HEALTH_DB && HEALTH_DB.dishes) { for (const id in HEALTH_DB.dishes) consider(HEALTH_DB.dishes[id].name); } } catch (e) {}
+  try { allCuratedDishes().forEach(d => consider(d.name)); } catch (e) {}
+  try { if (DISH_CORPUS && DISH_CORPUS.dishes) { for (const row of DISH_CORPUS.dishes) consider(Array.isArray(row) ? row[0] : row.name); } } catch (e) {}
+  scored.sort((a, b) => a[0] - b[0] || a[1].length - b[1].length);
+  const seen = new Set(), out = [];
+  for (const [, name] of scored) { const k = name.toLowerCase(); if (seen.has(k)) continue; seen.add(k); out.push({ name, cuisine: "", nv: NV_NAME_RE.test(name) }); if (out.length >= (limit || 8)) break; }
+  return out;
+}
 function searchDishPool(query, style) {
   const q = (query || "").trim().toLowerCase();
   if (!q) return [];
@@ -773,7 +796,11 @@ function searchDishPool(query, style) {
   if (!strict) allCuratedDishes().forEach(d => { if (d.name.toLowerCase().includes(q)) push(d.name, d.cuisine, null); }); // curated have no macros — only for non-strict styles
   try { if (HEALTH_DB && HEALTH_DB.dishes) { for (const id in HEALTH_DB.dishes) { if (out.length > 150) break; const d = HEALTH_DB.dishes[id]; if (d.name && d.name.toLowerCase().includes(q)) push(d.name, "", d.n); } } } catch (e) {}
   if (!strict) try { if (DISH_CORPUS && DISH_CORPUS.dishes) { const cz = DISH_CORPUS.cuisines || []; for (const row of DISH_CORPUS.dishes) { if (out.length > 220) break; const nm = Array.isArray(row) ? row[0] : row.name; const ci = Array.isArray(row) ? row[1] : row.c; if (nm && nm.toLowerCase().includes(q)) push(nm, (typeof ci === "number" ? cz[ci] : "") || "", null); } } } catch (e) {}
-  out.sort((a, b) => a.name.length - b.name.length); // shorter = more "atomic" (plain Thepla before Thepla with…)
+  if (out.length < 8) { // few/no literal matches → blend in spelling-tolerant matches (e.g. "dhosa" → "Dosa")
+    const have = new Set(out.map(x => x.name.toLowerCase()));
+    for (const f of fuzzyDishSuggest(q, 8)) { const k = f.name.toLowerCase(); if (!have.has(k)) { have.add(k); out.push(f); } }
+  }
+  out.sort((a, b) => a.name.length - b.name.length); // shorter = more "atomic" (plain Dosa before Masala dhosa…)
   return out;
 }
 // A day's meals are now LISTS of items per slot (breakfast/lunch/snack/dinner) so you can add your own.
@@ -3264,6 +3291,9 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
   const [warning, setWarning] = useState(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [correctedFrom, setCorrectedFrom] = useState(null);
+  const [showSuggest, setShowSuggest] = useState(false); // controls the search-suggestions dropdown; closes on pick/check
+  const [corpusReady, setCorpusReady] = useState(!!DISH_CORPUS); // preload the dish corpus so the dropdown (incl. spelling-tolerant fallback) has it before the first Check
+  useEffect(() => { if (!DISH_CORPUS) loadDishCorpus().then(() => setCorpusReady(true)).catch(() => {}); }, []);
   // Most-frequently-logged dishes first (personalised), then a few curated regulars.
   const shortcuts = (() => {
     // Only single, scorable dishes — skip combined meal descriptions ("ragda petis, salad, chhash").
@@ -3275,6 +3305,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
   })();
 
   async function checkDish(dish) {
+    setShowSuggest(false); // collapse the suggestions dropdown so the result shows right below the box
     setResult(null); setWarning(null); setNotFound(null); setManualVerdict(null); setManualCals(""); setPasteText(""); setPastePreview(null); setCorrectedFrom(null); setQty(1); setDisambig(null);
     const raw = dish.trim();
     const modifierNotes = detectModifiers(raw);
@@ -3535,12 +3566,12 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
         <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
           <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, border: `2px solid ${T.teal}`, borderRadius: 12, padding: "0 12px", background: T.white, minWidth: 0 }}>
             <span style={{ fontSize: 18, flexShrink: 0 }} aria-hidden>🔍</span>
-            <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search a dish to log…" style={{ flex: 1, border: "none", outline: "none", padding: "12px 0", fontFamily: "Inter", fontSize: 15, background: "transparent", color: T.ink, minWidth: 0 }} onKeyDown={e => { if (e.key === "Enter" && query.trim()) checkDish(query.trim()); }} />
-            {query && <button onClick={() => setQuery("")} aria-label="Clear" style={{ background: "none", border: "none", color: T.inkSoft, fontSize: 20, cursor: "pointer", padding: 0, lineHeight: 1 }}>×</button>}
+            <input value={query} onChange={e => { const v = e.target.value; setQuery(v); setShowSuggest(v.trim().length >= 2); if (result) setResult(null); if (notFound) setNotFound(null); if (disambig) setDisambig(null); if (warning) setWarning(null); if (correctedFrom) setCorrectedFrom(null); }} placeholder="Search a dish to log…" style={{ flex: 1, border: "none", outline: "none", padding: "12px 0", fontFamily: "Inter", fontSize: 15, background: "transparent", color: T.ink, minWidth: 0 }} onKeyDown={e => { if (e.key === "Enter" && query.trim()) checkDish(query.trim()); }} />
+            {query && <button onClick={() => { setQuery(""); setShowSuggest(false); }} aria-label="Clear" style={{ background: "none", border: "none", color: T.inkSoft, fontSize: 20, cursor: "pointer", padding: 0, lineHeight: 1 }}>×</button>}
           </div>
           <button onClick={() => query.trim() && checkDish(query.trim())} style={{ background: T.saffron, border: "none", borderRadius: 12, padding: "0 18px", color: T.white, fontFamily: "Manrope", fontWeight: 800, fontSize: 14, cursor: "pointer", flexShrink: 0 }}>Check</button>
         </div>
-        {(() => {
+        {showSuggest && (() => {
           if (query.trim().length < 2) return null;
           const seen = new Set(), list = [];
           for (const x of (searchDishPool(query.trim()) || [])) { const k = (x.name || "").toLowerCase(); if (k && !seen.has(k)) { seen.add(k); list.push(x); } if (list.length >= 8) break; }
@@ -3548,7 +3579,7 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
           return (
             <div style={{ marginTop: 8, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
               {list.map((s, i) => (
-                <button key={i} onClick={() => checkDish(s.name)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", textAlign: "left", background: T.white, border: "none", borderBottom: i < list.length - 1 ? `1px solid ${T.creamDeep}` : "none", padding: "11px 12px", fontFamily: "Inter", fontSize: 14, color: T.ink, cursor: "pointer" }}>
+                <button key={i} onClick={() => { setQuery(s.name); checkDish(s.name); }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", textAlign: "left", background: T.white, border: "none", borderBottom: i < list.length - 1 ? `1px solid ${T.creamDeep}` : "none", padding: "11px 12px", fontFamily: "Inter", fontSize: 14, color: T.ink, cursor: "pointer" }}>
                   <span>{s.name}</span>{s.cuisine && s.cuisine !== "Any" ? <span style={{ fontSize: 13, color: T.inkSoft, marginLeft: 8, flexShrink: 0 }}>{s.cuisine}{s.nv ? " · non-veg" : ""}</span> : null}
                 </button>
               ))}
