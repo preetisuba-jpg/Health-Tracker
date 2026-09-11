@@ -1068,13 +1068,18 @@ function compCondOk(x, conds) {
 }
 // Pick one component for a role. lowCal drops the heaviest proteins so a small target isn't blown.
 // Returns null when nothing fits (e.g. no keto-legal grain) — the caller then simply omits that role.
-function pickComp(role, prefs, dietKey, conds, seed, used, lowCal) {
+// Main ingredient words, so one meal doesn't end up with two dishes of the same vegetable
+// (e.g. "Palak paneer" + "Palak sabji" = double spinach — reads as "two sabjis").
+const ING_WORDS = ["palak", "spinach", "paneer", "tofu", "soya", "aloo", "potato", "bhindi", "okra", "baingan", "brinjal", "eggplant", "gobi", "cauliflower", "broccoli", "cabbage", "methi", "lauki", "dudhi", "tinda", "karela", "matar", "peas", "carrot", "beans", "rajma", "chana", "chole", "chickpea", "corn", "mushroom", "capsicum", "tomato", "sprout", "beetroot", "pumpkin", "kaddu", "turai", "parwal", "bharta"];
+function ingWords(name) { const n = (name || "").toLowerCase(); return ING_WORDS.filter(w => n.includes(w)); }
+function pickComp(role, prefs, dietKey, conds, seed, used, lowCal, usedWords) {
   const heavyOk = x => !(lowCal && x.r === "protein" && x.cal > 230);
   let pool = FC.filter(x => x.r === role && heavyOk(x) && compDietOk(x, prefs, dietKey) && compCondOk(x, conds));
   if (!pool.length) pool = FC.filter(x => x.r === role && compDietOk(x, prefs, dietKey)); // relax CONDITIONS only, never the diet
   if (!pool.length) return null;
   let cands = pool.filter(x => !used.has(x.n));
   if (!cands.length) cands = pool;
+  if (usedWords && usedWords.size) { const c2 = cands.filter(x => !ingWords(x.n).some(w => usedWords.has(w))); if (c2.length) cands = c2; } // no repeated main ingredient in the same meal
   return cands[Math.floor(seededRand(seed) * cands.length) % cands.length];
 }
 const fmtQty = q => (Math.round(q * 2) / 2).toString().replace(/\.0$/, "");
@@ -1091,8 +1096,9 @@ function assembleMeal(slot, macros, prefs, dietKey, conds, seed, dayUsed) {
   const target = macros.calories * SLOT_SHARE[slot];
   const lowCal = macros.calories <= 1400;
   const used = new Set(dayUsed);   // avoid repeating today's grains/proteins across meals
+  const usedWords = new Set();     // avoid two dishes of the same vegetable within THIS meal
   const chosen = [];
-  const add = (role, s) => { const x = pickComp(role, prefs, dietKey, conds, s, used, lowCal); if (x) { used.add(x.n); if (role === "grain" || role === "protein") dayUsed.add(x.n); chosen.push(x); } return x; };
+  const add = (role, s) => { const x = pickComp(role, prefs, dietKey, conds, s, used, lowCal, usedWords); if (x) { used.add(x.n); ingWords(x.n).forEach(w => usedWords.add(w)); if (role === "grain" || role === "protein") dayUsed.add(x.n); chosen.push(x); } return x; };
   const lowCarb = dietKey === "keto" || dietKey === "lowcarb";
   if (slot === "breakfast") {
     if (lowCarb) { add("protein", seed + 2); add("veg", seed + 3); add("snack", seed + 4); }   // eggs/paneer + veg + nuts
@@ -2090,35 +2096,52 @@ function dayScore(entries, habitsForDay, supplementsForDay, actsForDay) {
 // only if the person has any). (2) HEALTH — how good the day was, from FOOD + ACTIVITY only (never
 // supplements). Activity counts EACH recommended type (e.g. a walk AND a gym session if both apply),
 // and `missing` explains exactly why the health ring isn't full.
-function dayRings(entries, actsForDay, supplements, supplementsForDay, profile) {
-  const meals = (entries || []).length;
+const MAIN_MEAL_SLOTS = ["Breakfast", "Lunch", "Dinner"];
+function dayRings(entries, actsForDay, supplements, supplementsForDay, profile, targets, skipped) {
+  const list = entries || [];
+  const meals = list.length;
   const hasFood = meals > 0;
   const acts = actsForDay || [];
   const hasActivity = acts.length > 0;
   const supCount = (supplements || []).length;
   const supTaken = Object.values(supplementsForDay || {}).filter(Boolean).length;
   const supComplete = supCount === 0 || supTaken >= supCount;
-  // COMPLETENESS
-  const logItems = [{ ok: hasFood, label: "log a meal" }, { ok: hasActivity, label: "log some activity" }];
-  if (supCount > 0) logItems.push({ ok: supComplete, label: `take supplements (${supTaken}/${supCount})` });
-  const completeness = Math.round(logItems.filter(i => i.ok).length / logItems.length * 100);
-  // HEALTH — food quality
-  const bad = (entries || []).filter(f => f.verdict === "avoid" || f.verdict === "limit").length;
+  const skip = skipped || {};
+  // COMPLETENESS — a full day means each MAIN meal is logged OR marked skipped, plus activity
+  // (and supplements if any). Logging a single meal no longer reads as a complete day.
+  const slotDone = s => list.some(f => (f.mealSlot || "") === s) || !!skip[s];
+  const items = MAIN_MEAL_SLOTS.map(s => ({ ok: slotDone(s), slot: s, label: s.toLowerCase() }));
+  items.push({ ok: hasActivity, label: "activity", act: true });
+  if (supCount > 0) items.push({ ok: supComplete, label: `supplements (${supTaken}/${supCount})`, supp: true });
+  const completeness = Math.round(items.filter(i => i.ok).length / items.length * 100);
+  const missingSlots = MAIN_MEAL_SLOTS.filter(s => !slotDone(s)); // meals neither logged nor skipped
+  // HEALTH — three parts: food quality (good vs flagged meals), nutrient adequacy (protein/fibre/
+  // sugar/calories vs targets), and activity. So a day that's low on protein/fibre can't read 100%.
+  const bad = list.filter(f => f.verdict === "avoid" || f.verdict === "limit").length;
   const foodHealth = meals === 0 ? 0 : Math.round((meals - bad) / meals * 100);
-  // recommended activities for this person (walk for everyone; +gym if a muscle/strength goal)
+  const sums = list.reduce((a, f) => ({ cal: a.cal + (f.calories || 0), protein: a.protein + (f.protein || 0), fiber: a.fiber + (f.fiber || 0), sugar: a.sugar + (f.sugar || 0) }), { cal: 0, protein: 0, fiber: 0, sugar: 0 });
+  const nConcerns = [];
+  if (meals > 0 && targets && targets.protein) {
+    if (sums.protein < targets.protein * 0.7) nConcerns.push("protein");
+    if (sums.fiber < targets.fiber * 0.6) nConcerns.push("fibre");
+    if (sums.sugar > targets.sugar) nConcerns.push("sugar");
+    if (sums.cal > targets.calories * 1.05) nConcerns.push("calories");
+  }
+  const nutrientHealth = (meals > 0 && targets && targets.protein) ? Math.round((4 - nConcerns.length) / 4 * 100) : (meals > 0 ? 100 : 0);
   const goals = ((profile && profile.goals) || []).join(" ").toLowerCase();
   const rec = [{ type: "Walk", label: "a 30-min walk" }];
   if (/muscle|strength/.test(goals)) rec.push({ type: "Gym / Strength", label: "a gym / strength session" });
   const didType = t => acts.some(a => a.type === t);
   const recDone = rec.filter(r => didType(r.type)).length;
   const actHealth = Math.round(recDone / rec.length * 100);
-  const health = (!hasFood && !hasActivity) ? 0 : Math.round(foodHealth * 0.6 + actHealth * 0.4);
-  // WHY not full
+  const health = (!hasFood && !hasActivity) ? 0 : Math.round(foodHealth * 0.5 + nutrientHealth * 0.2 + actHealth * 0.3);
+  // WHY not full (health-side reasons)
   const missing = [];
   if (!hasFood) missing.push("log today's meals");
   else if (bad > 0) missing.push(`${bad} meal${bad > 1 ? "s" : ""} flagged — swap for a lighter choice`);
+  if (nConcerns.length) missing.push(`low/over on ${nConcerns.join(", ")} — balance the plate`);
   rec.forEach(r => { if (!didType(r.type)) missing.push(`add ${r.label}`); });
-  return { completeness, health, missing, logItems };
+  return { completeness, health, missing, missingSlots, items };
 }
 function hasAnyData(dateKey, weekFood, weekHabits, weekSupplements) {
   return (weekFood[dateKey] || []).length > 0 || Object.keys(weekHabits[dateKey] || {}).length > 0 || Object.keys(weekSupplements[dateKey] || {}).length > 0;
@@ -3036,7 +3059,7 @@ function TrendRow({ label, value, compareLabel, compareValue }) {
   );
 }
 
-function TodayTab({ profile, targets, advice, foodToday, habitToday, supplementsToday, weekFood, weekHabits, weekSupplements, activities, vitals, setVital, toggleHabit, onToggleWalk, supplements, onNavigate, demoCleared, clearDemo, selectedDate, setSelectedDate }) {
+function TodayTab({ profile, targets, advice, foodToday, habitToday, supplementsToday, weekFood, weekHabits, weekSupplements, activities, vitals, setVital, toggleHabit, onToggleWalk, supplements, onNavigate, demoCleared, clearDemo, selectedDate, setSelectedDate, skippedForDate, onSkipMeal }) {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const day = new Date(selectedDate + "T00:00:00");
   const dateStr = day.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
@@ -3044,7 +3067,7 @@ function TodayTab({ profile, targets, advice, foodToday, habitToday, supplements
   const tk = selectedDate;
   const isToday = selectedDate === todayKey();
   const score = dayScore(foodToday, habitToday, supplementsToday, activities[tk] || []);
-  const rings = dayRings(foodToday, activities[tk] || [], supplements, supplementsToday, profile);
+  const rings = dayRings(foodToday, activities[tk] || [], supplements, supplementsToday, profile, targets, skippedForDate);
   const mealsCount = foodToday.length;
   const badMeals = foodToday.filter(f => f.verdict === "avoid" || f.verdict === "limit").length;
   const goodMeals = mealsCount - badMeals;
@@ -3125,14 +3148,46 @@ function TodayTab({ profile, targets, advice, foodToday, habitToday, supplements
       <div data-tour="dash-rings">
       <Card style={{ background: `linear-gradient(180deg, ${T.tealPale}, ${T.white})` }}>
         <div style={{ display: "flex", justifyContent: "space-around", gap: 10, flexWrap: "wrap" }}>
-          <MiniRing pct={rings.completeness} label={"Logged today"} emoji="📋" />
-          <MiniRing pct={rings.health} label={"Healthy day"} emoji="💚" />
+          <div style={{ textAlign: "center" }}>
+            <MiniRing pct={rings.completeness} label={"Logged"} emoji="📋" />
+            <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginTop: 3 }}>Did you record the day?</div>
+          </div>
+          <div style={{ textAlign: "center" }}>
+            <MiniRing pct={rings.health} label={"Healthy"} emoji="💚" />
+            <div style={{ fontFamily: "Inter", fontSize: 11.5, color: T.inkSoft, marginTop: 3 }}>Did you live healthy?</div>
+          </div>
         </div>
-        <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, textAlign: "center", marginTop: 8, fontStyle: "italic" }}>“Logged” = did you record today · “Healthy” = quality of what you logged</div>
         <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 12, textAlign: "center", lineHeight: 1.5 }}>
           {mealsCount === 0 ? "Nothing logged yet — start with a meal below." : `${mealsCount} meal${mealsCount > 1 ? "s" : ""} logged — ${goodMeals} good, ${badMeals} need attention.`}
-          {rings.missing.length > 0 && <div style={{ marginTop: 8, background: T.white, borderRadius: 10, padding: "9px 11px", textAlign: "left", color: T.ink }}><b style={{ color: T.teal }}>To reach 100%:</b><div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 4 }}>{rings.missing.map((m, i) => <div key={i} style={{ fontSize: 12.5 }}>• {m}</div>)}</div></div>}
         </div>
+        {(() => {
+          const btnT = { background: T.tealSolid, color: "#fff", border: "none", borderRadius: 8, padding: "5px 11px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12, cursor: "pointer" };
+          const btnG = { background: "none", color: T.inkSoft, border: `1px solid ${T.border}`, borderRadius: 8, padding: "5px 11px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12, cursor: "pointer" };
+          const skippedSlots = MAIN_MEAL_SLOTS.filter(s => (skippedForDate || {})[s]);
+          const otherMissing = rings.missing.filter(m => !/log today's meals/.test(m));
+          if (!rings.missingSlots.length && !otherMissing.length && !skippedSlots.length) return null;
+          return (
+            <div style={{ marginTop: 10, background: T.white, borderRadius: 10, padding: "10px 12px", textAlign: "left", color: T.ink }}>
+              {rings.completeness < 100 && <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 13, color: T.teal, marginBottom: 4 }}>To reach 100%</div>}
+              {rings.missingSlots.map(s => (
+                <div key={s} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 6 }}>
+                  <span style={{ fontFamily: "Inter", fontSize: 13 }}>🍽️ {s} — not logged</span>
+                  <span style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                    <button onClick={() => onNavigate("food")} style={btnT}>Log</button>
+                    <button onClick={() => onSkipMeal && onSkipMeal(selectedDate, s)} style={btnG}>Skip</button>
+                  </span>
+                </div>
+              ))}
+              {skippedSlots.map(s => (
+                <div key={s} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 6, color: T.inkSoft }}>
+                  <span style={{ fontFamily: "Inter", fontSize: 12.5 }}>⤾ {s} — skipped</span>
+                  <button onClick={() => onSkipMeal && onSkipMeal(selectedDate, s)} style={btnG}>Undo</button>
+                </div>
+              ))}
+              {otherMissing.map((m, i) => <div key={i} style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 6 }}>• {m}</div>)}
+            </div>
+          );
+        })()}
       </Card>
       </div>
       <div style={{ height: 14 }} />
@@ -4140,7 +4195,7 @@ function HabitsTab({ selectedDate, setSelectedDate, habitsForDate, toggleHabit, 
 }
 
 /* ============================== TAB 5: PLAN ============================== */
-function SupplementsTab({ selectedDate, setSelectedDate, supplementsForDate, toggleSupplement, weekFood, activities, weekSupplements, supplements, advice, suggestedSupps, onAddSupplement }) {
+function SupplementsTab({ selectedDate, setSelectedDate, supplementsForDate, toggleSupplement, weekFood, activities, weekSupplements, supplements, advice, suggestedSupps, onAddSupplement, onRemoveSupplement }) {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const groups = [{ key: "morning", label: "🌅 Morning" }, { key: "afternoon", label: "☀️ After lunch" }, { key: "evening", label: "🌆 Evening" }, { key: "night", label: "🌙 Before bed" }, { key: "weekly", label: "📅 Weekly" }];
   const takenToday = supplements.filter(s => supplementsForDate[s.id]).length;
@@ -4166,72 +4221,68 @@ function SupplementsTab({ selectedDate, setSelectedDate, supplementsForDate, tog
       <div data-tour="supp-summary">
       <Card style={{ marginBottom: 14, textAlign: "center" }}>
         {supplements.length === 0 ? (
-          <><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 17, color: T.forest }}>✅ No supplements to take</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 3 }}>Add any your doctor recommends in ⚙️ → Supplements.</div></>
+          <><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 17, color: T.forest }}>✅ No supplements added yet</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginTop: 3 }}>Add any your doctor recommends below, or from ⚙️ → Supplements.</div></>
         ) : (
           <><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 22 }}>{takenToday} of {supplements.length}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>taken — {formatDateLabel(selectedDate)}</div></>
         )}
       </Card>
       </div>
-      {suggestedSupps && suggestedSupps.length > 0 && (
-        <>
-          <SectionLabel>Suggested for your profile</SectionLabel>
-          <Card style={{ marginBottom: 14 }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-              {suggestedSupps.map(s => {
-                const added = supplements.some(x => (x.name || "").toLowerCase() === s.name.toLowerCase());
-                return (
-                <div key={s.name} style={{ display: "flex", gap: 9, alignItems: "flex-start" }}>
-                  <span style={{ color: T.teal, fontSize: 15, lineHeight: "20px" }}>•</span>
-                  <div style={{ flex: 1 }}><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, color: T.ink }}>{s.name}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>{s.why}</div></div>
-                  {added
-                    ? <span style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.forest, whiteSpace: "nowrap", alignSelf: "center" }}>Added ✓</span>
-                    : <button onClick={() => onAddSupplement && onAddSupplement(s)} style={{ background: T.tealSolid, border: "none", borderRadius: 8, padding: "7px 12px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap", alignSelf: "center" }}>+ Add</button>}
-                </div>
-              );})}
-            </div>
-            <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 10, borderTop: `1px solid ${T.border}`, paddingTop: 8 }}>Based on the conditions in your profile. General wellness ideas only — confirm what's right for you (and any doses) with your doctor before starting.</div>
-          </Card>
-        </>
-      )}
-      {(curW || prevW) && (
-        <>
-          <SectionLabel>Adherence — week & month</SectionLabel>
-          <Card style={{ marginBottom: 14 }}>
-            <div style={{ display: "flex", gap: 10, marginBottom: 6 }}>
-              <MetricDelta label="This week" cur={curW ? curW.pct : null} prev={prevW ? prevW.pct : null} unit="%" />
-              <MetricDelta label="Avg taken/day" cur={curW ? curW.avgTaken : null} prev={prevW ? prevW.avgTaken : null} />
-              <div style={{ flex: 1, minWidth: 76 }}><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 18 }}>{prevW ? prevW.pct + "%" : "—"}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>Last week</div></div>
-            </div>
-            {(weekSuppThis.some(v => v != null) || weekSuppLast.some(v => v != null)) && (
-              <div style={{ marginTop: 8, width: "100%", overflowX: "auto" }}>
-                <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 4 }}>Supplements taken per day (%) — this week vs last week</div>
-                <div style={{ minWidth: 480 }}>
-                  <TwoLineChart labels={weekLabels} a={weekSuppThis} b={weekSuppLast} aLabel="This week" bLabel="Last week" yMax={100} unit="%" height={170} />
-                </div>
-              </div>
-            )}
-            {(monSuppThis.some(v => v != null) || monSuppLast.some(v => v != null)) && (
-              <div style={{ marginTop: 14, width: "100%", overflowX: "auto" }}>
-                <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 4 }}>Weekly average (%) — {monthLabel(thisMonthKey)} vs {monthLabel(lastMonthKey)}</div>
-                <div style={{ minWidth: 480 }}>
-                  <TwoLineChart labels={monLabels} a={monPad(monSuppThis)} b={monPad(monSuppLast)} aLabel={monthLabel(thisMonthKey)} bLabel={monthLabel(lastMonthKey)} yMax={100} unit="%" height={170} />
-                </div>
-              </div>
-            )}
-          </Card>
-        </>
-      )}
+      {/* TRACKER FIRST — tick off as you take them, so it's the top thing when you switch days. */}
+      {supplements.length > 0 && <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 13, letterSpacing: 0.3, textTransform: "uppercase", color: T.teal, marginBottom: 8 }}>Tick off as you take them</div>}
       {groups.map(g => { const items = supplements.filter(s => s.time === g.key); if (items.length === 0) return null; return (
-        <div key={g.key} style={{ marginBottom: 14 }}>
+        <div key={g.key} style={{ marginBottom: 12 }}>
           <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13, color: T.inkSoft, marginBottom: 6 }}>{g.label}</div>
           <Card><div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{items.map(s => (
             <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <button onClick={() => toggleSupplement(selectedDate, s.id)} style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${supplementsForDate[s.id] ? T.forest : T.border}`, background: supplementsForDate[s.id] ? T.forest : T.white, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{supplementsForDate[s.id] && <Icon name="check" size={14} color={T.white} />}</button>
-              <div style={{ flex: 1 }}><div style={{ fontFamily: "Inter", fontSize: 13.5, fontWeight: 600 }}>{s.name}</div><div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft }}>{s.dose} · {s.why}</div></div>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontFamily: "Inter", fontSize: 13.5, fontWeight: 600 }}>{s.name}</div><div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft }}>{s.dose ? s.dose + " · " : ""}{s.why}</div></div>
+              <button onClick={() => onRemoveSupplement && onRemoveSupplement(s.id)} aria-label={`Remove ${s.name}`} title="Remove from my routine" style={{ background: "none", border: "none", padding: 5, cursor: "pointer", flexShrink: 0 }}><Icon name="trash" size={15} color={T.inkSoft} /></button>
             </div>
           ))}</div></Card>
         </div>
       ); })}
+      {(() => {
+        // Hide a suggestion if the person already has an equivalent supplement, even under a different
+        // name — match on a shared significant keyword (omega/psyllium/magnesium…), ignoring generic
+        // words like "vitamin" so B12 vs D3 aren't wrongly merged.
+        const SUPP_STOP = new Set(["vitamin", "complex", "extract", "tablet", "capsule", "powder", "daily", "acids"]);
+        const suppKw = n => (n || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(w => w.length >= 5 && !SUPP_STOP.has(w));
+        const alreadyHave = s => supplements.some(x => (x.name || "").toLowerCase() === (s.name || "").toLowerCase() || suppKw(x.name).some(w => suppKw(s.name).includes(w)));
+        const notAdded = (suggestedSupps || []).filter(s => !alreadyHave(s));
+        if (!notAdded.length) return null;
+        return (
+          <>
+            <div style={{ height: 4 }} />
+            <SectionLabel>Suggested for your profile</SectionLabel>
+            <Card style={{ marginBottom: 14 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                {notAdded.map(s => (
+                  <div key={s.name} style={{ display: "flex", gap: 9, alignItems: "flex-start" }}>
+                    <span style={{ color: T.teal, fontSize: 15, lineHeight: "20px" }}>•</span>
+                    <div style={{ flex: 1 }}><div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 13.5, color: T.ink }}>{s.name}</div><div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft }}>{s.why}</div></div>
+                    <button onClick={() => onAddSupplement && onAddSupplement(s)} style={{ background: T.tealSolid, border: "none", borderRadius: 8, padding: "7px 12px", color: T.white, fontFamily: "Manrope", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap", alignSelf: "center" }}>+ Add</button>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 10, borderTop: `1px solid ${T.border}`, paddingTop: 8 }}>Based on the conditions in your profile. General wellness ideas only — confirm what's right for you (and any doses) with your doctor before starting.</div>
+            </Card>
+          </>
+        );
+      })()}
+      {/* ONE graph at the bottom — light-touch adherence, no heavy analysis. */}
+      {(curW || prevW) && (weekSuppThis.some(v => v != null) || weekSuppLast.some(v => v != null)) && (
+        <>
+          <SectionLabel>Adherence</SectionLabel>
+          <Card style={{ marginBottom: 14 }}>
+            <div style={{ fontFamily: "Inter", fontSize: 13, color: T.inkSoft, marginBottom: 8 }}>This week <b style={{ color: T.ink }}>{curW ? curW.pct : 0}%</b>{prevW ? <> · last week {prevW.pct}%</> : null}</div>
+            <div style={{ width: "100%", overflowX: "auto" }}>
+              <div style={{ minWidth: 480 }}>
+                <TwoLineChart labels={weekLabels} a={weekSuppThis} b={weekSuppLast} aLabel="This week" bLabel="Last week" yMax={100} unit="%" height={170} />
+              </div>
+            </div>
+          </Card>
+        </>
+      )}
       <div style={{ height: 90 }} />
       {calendarOpen && <CalendarPicker selectedDate={selectedDate} onSelect={setSelectedDate} onClose={() => setCalendarOpen(false)} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} />}
     </div>
@@ -4366,6 +4417,12 @@ function WeeklyPlanSheet({ weeklyPlan, profile, advice, onRegeneratePlan, onSwap
         <button onClick={onClose} aria-label="Close" style={{ background: T.creamDeep, border: `1px solid ${T.border}`, borderRadius: 999, width: 32, height: 32, cursor: "pointer", fontSize: 16, color: T.ink }}>✕</button>
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: 16, maxWidth: 480, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
+        {weeklyPlan.fromGoal && (
+          <div style={{ background: T.forestPale, border: `1px solid ${T.forest}`, borderRadius: 12, padding: "10px 12px", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.4 }}>🥗 Imported from your <b>goal diet plan</b> — edit any dish below.</span>
+            <button onClick={onRegeneratePlan} style={{ background: T.white, border: `1px solid ${T.teal}`, borderRadius: 10, padding: "8px 12px", fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.teal, cursor: "pointer", flexShrink: 0 }}>↩ Back to normal menu</button>
+          </div>
+        )}
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
           <button onClick={onRegeneratePlan} style={{ background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 10, padding: "10px 16px", fontFamily: "Manrope", fontWeight: 800, fontSize: 13.5, color: T.teal, cursor: "pointer" }}>↻ Regenerate week</button>
         </div>
@@ -4425,20 +4482,29 @@ function WeeklyPlanSheet({ weeklyPlan, profile, advice, onRegeneratePlan, onSwap
 }
 // Goal-based diet plan — app-chosen, quantified, refresh-only. Opens as a full-screen sheet so the
 // long day-by-day plan lives in its own scroll (not stacked inline on the Plan tab).
-function GoalDietSheet({ profile, goalDiet, onSave, onClose }) {
+function GoalDietSheet({ profile, goalDiet, onSave, onClose, onImportToWeekly }) {
   const defTarget = (computeTargets(profile.weight || 60, [], profile) || {}).targetWeight || Math.max(45, Math.round((profile.weight || 60) - 3));
+  const myConds = ((profile && profile.conditions) || []).filter(c => c && !/^none$/i.test(c));
+  const hasConds = myConds.length > 0;
+  const wantsLossGoal = /lose weight|weight loss|fat loss|reduce belly/.test(((profile.goals) || []).join(" ").toLowerCase()) || /obes|overweight/.test(myConds.join(" ").toLowerCase());
   const [targetWeight, setTargetWeight] = useState((goalDiet && goalDiet.targetWeight) || defTarget);
   const [weeks, setWeeks] = useState((goalDiet && goalDiet.weeks) || 12);
   const [diet, setDiet] = useState((goalDiet && goalDiet.diet) || "balanced");
   const [nonces, setNonces] = useState((goalDiet && goalDiet.nonces) || {});
+  // What is this plan FOR: lose weight, manage health conditions, or both. Drives calories (deficit
+  // vs maintenance) — the food is condition-safe in every case.
+  const [focus, setFocus] = useState((goalDiet && goalDiet.focus) || (hasConds ? (wantsLossGoal ? "both" : "conditions") : "weight"));
   const [dayIdx, setDayIdx] = useState(new Date().getDay() === 0 ? 6 : new Date().getDay() - 1);
-  const persist = (patch) => { const next = { targetWeight, weeks, diet, nonces, ...patch }; onSave(next); };
+  const persist = (patch) => { const next = { targetWeight, weeks, diet, nonces, focus, ...patch }; onSave(next); };
   const setT = v => { setTargetWeight(v); persist({ targetWeight: v }); };
   const setW = v => { setWeeks(v); persist({ weeks: v }); };
   const setD = v => { setDiet(v); persist({ diet: v }); };
+  const setF = v => { setFocus(v); persist({ focus: v }); };
   const bumpNonce = (key) => { const nx = { ...nonces, [key]: (nonces[key] || 0) + 1 }; setNonces(nx); persist({ nonces: nx }); };
+  const wantWeight = focus !== "conditions"; // "weight" or "both" pursue a deficit; "conditions" holds at maintenance
   const v = validateWeightGoal(profile, Number(targetWeight) || profile.weight, Number(weeks) || 12);
-  const macros = goalMacros(v.calories, profile.weight || 60, diet, profile);
+  const planCalories = wantWeight ? v.calories : v.maintenance;
+  const macros = goalMacros(planCalories, profile.weight || 60, diet, profile);
   const plan = generateGoalPlan(profile, macros, diet, weekNumber(), nonces);
   const conflicts = dietConflicts(diet, profile);
   const rec = recommendDiets(profile);
@@ -4471,14 +4537,26 @@ function GoalDietSheet({ profile, goalDiet, onSave, onClose }) {
         <button onClick={onClose} aria-label="Close" style={{ background: T.creamDeep, border: `1px solid ${T.border}`, borderRadius: 999, width: 32, height: 32, cursor: "pointer", fontSize: 16, color: T.ink }}>✕</button>
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: 16, maxWidth: 480, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
+        {/* What is this plan FOR — only offered when the person has conditions to weigh against weight loss. */}
+        {hasConds && (
+          <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
+            <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 12.5, color: T.teal, letterSpacing: 0.3, marginBottom: 8 }}>WHAT SHOULD THIS PLAN FOCUS ON?</div>
+            <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+              {[["weight", "Lose weight"], ["conditions", "Manage my conditions"], ["both", "Both"]].map(([k, l]) => (
+                <button key={k} onClick={() => setF(k)} style={{ background: focus === k ? T.tealSolid : T.white, color: focus === k ? "#fff" : T.ink, border: `1px solid ${focus === k ? T.tealSolid : T.border}`, borderRadius: 999, padding: "7px 13px", fontFamily: "Manrope", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>{l}</button>
+              ))}
+            </div>
+            <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 8, lineHeight: 1.5 }}>Your conditions ({myConds.slice(0, 4).join(", ")}) shape the food either way — this just decides whether we also aim for a weight-loss calorie deficit.{focus === "weight" ? " Even focused on weight, the plan still avoids foods that aren't good for your conditions." : ""}</div>
+          </div>
+        )}
         {/* Goal inputs */}
-        <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
+        <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: 12, marginBottom: 12, opacity: wantWeight ? 1 : 0.6 }}>
           <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
             <div><div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 4 }}>Now</div><div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 16, padding: "7px 2px", lineHeight: 1.2, whiteSpace: "nowrap" }}>{profile.weight || "—"} kg</div></div>
-            <div><div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 4 }}>Goal weight (kg)</div><input type="number" inputMode="decimal" value={targetWeight} onChange={e => setT(e.target.value)} style={inS} /></div>
-            <div><div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 4 }}>Reach in (weeks)</div><input type="number" inputMode="numeric" value={weeks} onChange={e => setW(e.target.value)} style={inS} /></div>
+            <div><div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 4 }}>Goal weight (kg)</div><input type="number" inputMode="decimal" value={targetWeight} onChange={e => setT(e.target.value)} disabled={!wantWeight} style={inS} /></div>
+            <div><div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 4 }}>Reach in (weeks)</div><input type="number" inputMode="numeric" value={weeks} onChange={e => setW(e.target.value)} disabled={!wantWeight} style={inS} /></div>
           </div>
-          <div style={{ marginTop: 10, background: v.ok === false ? T.amberPale : T.forestPale, borderRadius: 10, padding: "9px 11px", fontFamily: "Inter", fontSize: 12.5, color: v.ok === false ? T.amber : T.forest, lineHeight: 1.5 }}>{v.ok === false ? "⚠️ " : "✓ "}{v.message}</div>
+          <div style={{ marginTop: 10, background: (wantWeight && v.ok === false) ? T.amberPale : T.forestPale, borderRadius: 10, padding: "9px 11px", fontFamily: "Inter", fontSize: 12.5, color: (wantWeight && v.ok === false) ? T.amber : T.forest, lineHeight: 1.5 }}>{wantWeight ? <>{v.ok === false ? "⚠️ " : "✓ "}{v.message}</> : <>✓ Focused on your conditions — eating around <b>{Math.round(v.maintenance)} kcal/day</b> (your maintenance) with condition-friendly food, no calorie cut.</>}</div>
         </div>
         {/* Recommendation for this person */}
         <div style={{ background: `linear-gradient(135deg, ${T.forestPale}, ${T.tealPale})`, border: `1px solid ${T.teal}`, borderRadius: 12, padding: "11px 13px", marginBottom: 12 }}>
@@ -4520,6 +4598,12 @@ function GoalDietSheet({ profile, goalDiet, onSave, onClose }) {
           </div>
         </div>
         {["breakfast", "lunch", "snack", "dinner"].map(mealBlock)}
+        {onImportToWeekly && (
+          <div style={{ background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 12, padding: "12px 13px", marginTop: 4, marginBottom: 8 }}>
+            <button onClick={() => onImportToWeekly(plan.days)} style={{ width: "100%", background: T.tealSolid, border: "none", borderRadius: 10, padding: "11px 0", color: "#fff", fontFamily: "Manrope", fontWeight: 800, fontSize: 14, cursor: "pointer" }}>＋ Add this plan to my weekly menu</button>
+            <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 7, lineHeight: 1.5, textAlign: "center" }}>Copies this 7-day plan into your editable weekly menu, where you can swap any single dish yourself.</div>
+          </div>
+        )}
         </>)}
         <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 6, marginBottom: 20, lineHeight: 1.5 }}>
           Meals are chosen for you from your cuisine, diet pattern, allergies and conditions — tap 🔄 to reshuffle a meal, a day, or the week. Quantities are careful estimates from standard household measures, for steady progress without starving. This is general wellness guidance, not medical advice — for weight loss with medical conditions, confirm with your doctor.
@@ -4528,7 +4612,7 @@ function GoalDietSheet({ profile, goalDiet, onSave, onClose }) {
     </div>
   );
 }
-function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegeneratePlan, onSwapMeal, onAddPlanItem, onRemovePlanItem, cycleLog, onLogPeriod, goalDiet, onSaveGoalDiet, activePlan, onSetActivePlan, targetOverride, onSaveTargets, baseTargets }) {
+function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegeneratePlan, onSwapMeal, onAddPlanItem, onRemovePlanItem, cycleLog, onLogPeriod, goalDiet, onSaveGoalDiet, activePlan, onSetActivePlan, targetOverride, onSaveTargets, baseTargets, onImportGoalToWeekly }) {
   const [editT, setEditT] = useState(false);
   const [draftT, setDraftT] = useState({});
   const startEditT = () => { setDraftT({ calories: targets.calories, protein: targets.protein, fiber: targets.fiber, sugar: targets.sugar, ...(targets.burnTarget ? { burnTarget: targets.burnTarget } : {}) }); setEditT(true); };
@@ -4625,7 +4709,7 @@ function PlanTab({ weekFood, advice, profile, targets, weeklyPlan, onRegenerateP
   const avoidByCond = (guides || []).map(g => ({ label: g.label, strong: g.strong_no || [], less: g.eat_less || [] })).filter(x => x.strong.length || x.less.length);
   return (
     <div className="tabPane">
-      {goalSheetOpen && <GoalDietSheet profile={profile} goalDiet={goalDiet} onSave={onSaveGoalDiet} onClose={() => setGoalSheetOpen(false)} />}
+      {goalSheetOpen && <GoalDietSheet profile={profile} goalDiet={goalDiet} onSave={onSaveGoalDiet} onClose={() => setGoalSheetOpen(false)} onImportToWeekly={(days) => { onImportGoalToWeekly && onImportGoalToWeekly(days); setGoalSheetOpen(false); setWeekSheetOpen(true); }} />}
       {weekSheetOpen && weeklyPlan && weeklyPlan.days && <WeeklyPlanSheet weeklyPlan={weeklyPlan} profile={profile} advice={advice} onRegeneratePlan={onRegeneratePlan} onSwapMeal={onSwapMeal} onAddPlanItem={onAddPlanItem} onRemovePlanItem={onRemovePlanItem} onClose={() => setWeekSheetOpen(false)} />}
       <div data-tour="plan-following" style={{ display: "flex", alignItems: "center", gap: 9, background: T.tealPale, borderRadius: 12, padding: "9px 13px", marginBottom: 12 }}>
         <span style={{ fontSize: 16, flexShrink: 0 }}>{usingGoal ? "🥗" : "🍽️"}</span>
@@ -5913,6 +5997,8 @@ function App() {
   const [demoCleared, setDemoCleared] = useKV(pk("week:demoCleared"), false);
   const [activities, setActivities] = useKV(pk("activities:log"), {});
   const [vitals, setVitals] = useKV(pk("week:vitals"), {}); // { [dateKey]: { water, steps, weight } } — MFP-style daily quick log
+  const [weekSkipped, setWeekSkipped] = useKV(pk("week:skipped"), {}); // { [dateKey]: { Breakfast:true, … } } — meals the person marked skipped, so a complete day doesn't require logging them
+  const toggleSkipMeal = (dateKey, slot) => setWeekSkipped(prev => { const day = { ...(prev[dateKey] || {}) }; if (day[slot]) delete day[slot]; else day[slot] = true; return { ...prev, [dateKey]: day }; });
   const [profile, setProfile] = useKV(pk("profile:data"), (isSelf && !FRESH_MODE) ? PROFILE_SEED : BLANK_PROFILE);
   const [goalToggles, setGoalToggles] = useKV(pk("goals:toggles"), DEFAULT_GOAL_TOGGLES);
   const [customGoals, setCustomGoals] = useKV(pk("goals:custom"), []);
@@ -6023,6 +6109,16 @@ function App() {
   const planSig = (profile.dietPattern || "") + "|" + (profile.cuisines || []).join(",") + "|" + (profile.dietRules || []).join(",");
   useEffect(() => { const wk = weekNumber(); if (!weeklyPlan || weeklyPlan.week !== wk || weeklyPlan.sig !== planSig || weeklyPlan.v !== 2) setWeeklyPlan({ ...generateWeeklyPlan(wk, wk, mealPreferences), sig: planSig }); }, [weeklyPlan, activeId, planSig]);
   const regeneratePlan = () => setWeeklyPlan({ ...generateWeeklyPlan(weekNumber(), Math.floor(Math.random() * 1e6), mealPreferences), sig: planSig });
+  // Import a goal-diet plan's 7 days into the editable weekly menu (each meal's items → dish-name list).
+  const importGoalToWeekly = (goalDays) => {
+    const days = (goalDays || []).map(d => {
+      const names = slot => ((d[slot] && d[slot].items) || []).map(it => it.label || it.name);
+      return { breakfast: names("breakfast"), lunch: names("lunch"), snack: names("snack"), dinner: names("dinner") };
+    });
+    while (days.length < 7) days.push({ breakfast: [], lunch: [], snack: [], dinner: [] });
+    setWeeklyPlan({ week: weekNumber(), v: 2, sig: planSig, fromGoal: true, days });
+    setActivePlan("weekly");
+  };
   const swapPlanMeal = (dayIdx, slot) => setWeeklyPlan(p => (p ? swapMeal(p, dayIdx, slot, mealPreferences) : p));
   const addPlanItem = (dayIdx, slot, dish) => setWeeklyPlan(p => (p && p.days) ? { ...p, days: p.days.map((d, i) => i === dayIdx ? { ...d, [slot]: [...(d[slot] || []), dish] } : d) } : p);
   const removePlanItem = (dayIdx, slot, idx) => setWeeklyPlan(p => (p && p.days) ? { ...p, days: p.days.map((d, i) => i === dayIdx ? { ...d, [slot]: (d[slot] || []).filter((_, j) => j !== idx) } : d) } : p);
@@ -6240,12 +6336,12 @@ function App() {
             </div>
           </>);
         })()}
-        {tab === "today" && <TodayTab profile={profile} targets={targets} advice={advice} foodToday={foodForDate} habitToday={habitsForDate} supplementsToday={supplementsForDate} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} activities={activities} vitals={vitals} setVital={setVital} toggleHabit={toggleHabit} onToggleWalk={toggleWalk} supplements={supplements} onNavigate={setTab} demoCleared={demoCleared} clearDemo={clearDemo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />}
+        {tab === "today" && <TodayTab profile={profile} targets={targets} advice={advice} foodToday={foodForDate} habitToday={habitsForDate} supplementsToday={supplementsForDate} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} activities={activities} vitals={vitals} setVital={setVital} toggleHabit={toggleHabit} onToggleWalk={toggleWalk} supplements={supplements} onNavigate={setTab} demoCleared={demoCleared} clearDemo={clearDemo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} skippedForDate={weekSkipped[selectedDate] || {}} onSkipMeal={toggleSkipMeal} />}
         {tab === "food" && <FoodCheckTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} foodForDate={foodForDate} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} addFoodEntry={addFoodEntry} deleteFoodEntry={deleteFoodEntry} updateFoodEntry={updateFoodEntry} splitFoodEntry={splitFoodEntry} customDishes={customDishes} saveCustomDish={saveCustomDish} metrics={metrics} periods={periods} targets={targets} advice={advice} otherProfilesMeals={otherProfilesMeals} onCopyFromProfile={copyFromProfile} />}
         {tab === "health" && <MyHealthTab metrics={metrics} periods={periods} supplementsToday={supplementsToday} toggleSupplement={(id) => toggleSupplement(tk, id)} supplements={supplements} onAddReport={() => openSettings("reports")} advice={advice} selectedDate={selectedDate} setSelectedDate={setSelectedDate} weekFood={weekFood} weekHabits={weekHabits} weekSupplements={weekSupplements} activities={activities} targets={targets} demoCleared={demoCleared} clearDemo={clearDemo} />}
         {tab === "habits" && <HabitsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} habitsForDate={habitsForDate} toggleHabit={toggleHabit} weekHabits={weekHabits} weekFood={weekFood} weekSupplements={weekSupplements} activities={activities} addActivity={addActivity} deleteActivity={deleteActivity} advice={advice} weightKg={profile.weight} />}
-        {tab === "supplements" && <SupplementsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} supplementsForDate={supplementsForDate} toggleSupplement={toggleSupplement} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} supplements={supplements} advice={advice} suggestedSupps={suggestedSupps} onAddSupplement={addSuggestedSupplement} />}
-        {tab === "plan" && <PlanTab weekFood={weekFood} advice={advice} profile={profile} targets={targets} weeklyPlan={weeklyPlan} onRegeneratePlan={regeneratePlan} onSwapMeal={swapPlanMeal} onAddPlanItem={addPlanItem} onRemovePlanItem={removePlanItem} cycleLog={cycleLog} onLogPeriod={logPeriod} goalDiet={goalDiet} onSaveGoalDiet={setGoalDiet} activePlan={activePlan} onSetActivePlan={setActivePlan} targetOverride={targetOverride} onSaveTargets={setTargetOverride} baseTargets={baseTargets} />}
+        {tab === "supplements" && <SupplementsTab selectedDate={selectedDate} setSelectedDate={setSelectedDate} supplementsForDate={supplementsForDate} toggleSupplement={toggleSupplement} weekFood={weekFood} activities={activities} weekSupplements={weekSupplements} supplements={supplements} advice={advice} suggestedSupps={suggestedSupps} onAddSupplement={addSuggestedSupplement} onRemoveSupplement={(id) => setSupplements(supplements.filter(x => x.id !== id))} />}
+        {tab === "plan" && <PlanTab weekFood={weekFood} advice={advice} profile={profile} targets={targets} weeklyPlan={weeklyPlan} onRegeneratePlan={regeneratePlan} onSwapMeal={swapPlanMeal} onAddPlanItem={addPlanItem} onRemovePlanItem={removePlanItem} cycleLog={cycleLog} onLogPeriod={logPeriod} goalDiet={goalDiet} onSaveGoalDiet={setGoalDiet} activePlan={activePlan} onSetActivePlan={setActivePlan} targetOverride={targetOverride} onSaveTargets={setTargetOverride} baseTargets={baseTargets} onImportGoalToWeekly={importGoalToWeekly} />}
         <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, width: "100%", maxWidth: 460, margin: "0 auto", background: T.tealSolid, display: "flex", alignItems: "center", justifyContent: "space-around", padding: "8px 8px calc(10px + env(safe-area-inset-bottom, 0px))", zIndex: 45, boxShadow: "0 -2px 12px rgba(0,0,0,0.12)" }}>
           {NAV.map((t, i) => {
             if (t.center) return (
