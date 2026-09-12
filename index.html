@@ -40,8 +40,15 @@
 // caches so a re-deploy always shows the latest app (no stale cached version). Re-enable a
 // caching SW later, once the app is stable, for offline/PWA use.
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())).catch(() => {});
-  if (window.caches && caches.keys) caches.keys().then(ks => ks.forEach(k => caches.delete(k))).catch(() => {});
+  var __pushOn = false; try { __pushOn = localStorage.getItem('push:enabled') === '1'; } catch (e) {}
+  if (__pushOn) {
+    // The user opted into phone reminders: keep the service worker registered so push can arrive.
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+  } else {
+    // Default (no push): unregister any SW + clear caches so every deploy shows the latest instantly.
+    navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())).catch(() => {});
+    if (window.caches && caches.keys) caches.keys().then(ks => ks.forEach(k => caches.delete(k))).catch(() => {});
+  }
 }
 </script>
 <script type="text/babel" data-presets="react">
@@ -3446,6 +3453,27 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
   const [showSuggest, setShowSuggest] = useState(false); // controls the search-suggestions dropdown; closes on pick/check
   const [corpusReady, setCorpusReady] = useState(!!DISH_CORPUS); // preload the dish corpus so the dropdown (incl. spelling-tolerant fallback) has it before the first Check
   useEffect(() => { if (!DISH_CORPUS) loadDishCorpus().then(() => setCorpusReady(true)).catch(() => {}); }, []);
+  // Photo meal-log: a picture -> Gemini names the dishes -> tap a chip to check & log it (reuses checkDish).
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoErr, setPhotoErr] = useState("");
+  const [detected, setDetected] = useState(null); // array of {name, confidence} from a meal photo, or null
+  const photoRef = useRef(null);
+  async function handleMealPhoto(fileList) {
+    const file = fileList && fileList[0]; if (!file) return;
+    setPhotoErr(""); setDetected(null); setPhotoBusy(true);
+    try {
+      const inline = await reportFileToInline(file);
+      if (!inline) { setPhotoErr("Couldn't read that image — try a JPG/PNG photo."); setPhotoBusy(false); return; }
+      const resp = await fetch("/api/identify-dish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: [inline] }) });
+      const data = await resp.json().catch(() => null);
+      if (!resp.ok || !data) { setPhotoErr((data && data.error) || "Photo reading works on the deployed web app (needs internet) — not the claude.ai preview."); setPhotoBusy(false); return; }
+      if (!Array.isArray(data.items) || !data.items.length) { setPhotoErr("No dishes recognised — try a clearer, closer photo, or just search by name below."); setPhotoBusy(false); return; }
+      setDetected(data.items);
+    } catch (e) {
+      setPhotoErr("Reading failed — it needs internet and the deployed web app (not the preview).");
+    }
+    setPhotoBusy(false);
+  }
   // Most-frequently-logged dishes first (personalised), then a few curated regulars.
   const shortcuts = (() => {
     // Only single, scorable dishes — skip combined meal descriptions ("ragda petis, salad, chhash").
@@ -3741,6 +3769,20 @@ function FoodCheckTab({ selectedDate, setSelectedDate, foodForDate, weekFood, ac
             </div>
           );
         })()}
+        <input ref={photoRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => { handleMealPhoto(e.target.files); e.target.value = ""; }} />
+        <button onClick={() => photoRef.current && photoRef.current.click()} disabled={photoBusy} style={{ width: "100%", marginTop: 10, background: T.tealPale, border: `1px dashed ${T.teal}`, borderRadius: 12, padding: "11px 0", color: T.teal, fontFamily: "Manrope", fontWeight: 800, fontSize: 13.5, cursor: "pointer", opacity: photoBusy ? 0.6 : 1 }}>{photoBusy ? "Looking at your meal…" : "📷 Snap or upload a meal photo"}</button>
+        {photoErr && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.alert, marginTop: 8, lineHeight: 1.45 }}>{photoErr}</div>}
+        {detected && detected.length > 0 && (
+          <div style={{ marginTop: 10, background: T.tealPale, borderRadius: 12, padding: "11px 12px" }}>
+            <div style={{ fontFamily: "Manrope", fontWeight: 700, fontSize: 12.5, color: T.teal, marginBottom: 7 }}>We spotted these — tap one to check &amp; log it:</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+              {detected.map((it, i) => (
+                <button key={i} onClick={() => { setDetected(null); setShowSuggest(false); setQuery(it.name); checkDish(it.name); }} style={{ background: T.white, border: `1px solid ${T.teal}`, borderRadius: 999, padding: "6px 13px", fontFamily: "Inter", fontSize: 13.5, color: T.ink, cursor: "pointer" }}>{it.name}{it.confidence != null && it.confidence < 0.5 ? " ?" : ""}</button>
+              ))}
+            </div>
+            <div style={{ fontFamily: "Inter", fontSize: 12, color: T.inkSoft, marginTop: 8, lineHeight: 1.45 }}>Not right, or something missing? Type it in the search box above. A "?" means we're unsure.</div>
+          </div>
+        )}
       </Card>
       {disambig && (
         <>
@@ -5046,9 +5088,49 @@ async function reportFileToInline(file) {
   if (file.type && file.type.startsWith("image/")) { const d = await downscaleImage(file); if (d) return d; }
   return fileToBase64(file);
 }
+// ---- Web Push opt-in: turn on real phone reminders that arrive even when the app is closed. ----
+// The public VAPID key comes from /api/vapid; the subscription is stored server-side by /api/subscribe;
+// the daily nudge is sent by /api/send-notifications (Vercel Cron). Works on the deployed https app,
+// NOT the claude.ai artifact. On iPhone the site must first be added to the Home Screen.
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64); const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+function pushSupported() { return ("serviceWorker" in navigator) && ("PushManager" in window) && ("Notification" in window); }
+async function enablePushNotifications() {
+  if (!pushSupported()) return { ok: false, msg: "This browser can't do push. On iPhone: open the site in Safari → Share → Add to Home Screen, then open that icon and try again." };
+  let permission = Notification.permission;
+  if (permission !== "granted") { try { permission = await Notification.requestPermission(); } catch (e) {} }
+  if (permission !== "granted") return { ok: false, msg: "Notifications are blocked. Allow them for this site in your browser/phone settings, then try again." };
+  try {
+    const reg = await navigator.serviceWorker.register("sw.js");
+    await navigator.serviceWorker.ready;
+    const vres = await fetch("/api/vapid"); const vjson = await vres.json().catch(() => null);
+    if (!vres.ok || !vjson || !vjson.publicKey) return { ok: false, msg: "Reminders aren't set up on the server yet. This works on the deployed web app once VAPID keys are configured." };
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(vjson.publicKey) });
+    const sres = await fetch("/api/subscribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subscription: sub, ua: navigator.userAgent }) });
+    if (!sres.ok) { const ej = await sres.json().catch(() => null); return { ok: false, msg: (ej && ej.error) || "Couldn't save your reminder on the server." }; }
+    try { localStorage.setItem("push:enabled", "1"); } catch (e) {}
+    return { ok: true, msg: "✅ Phone reminders are on — you'll get a gentle daily nudge even when the app is closed." };
+  } catch (e) {
+    return { ok: false, msg: "Couldn't enable reminders: " + ((e && e.message) || e) };
+  }
+}
+async function disablePushNotifications() {
+  try { const reg = await navigator.serviceWorker.getRegistration(); const sub = reg && await reg.pushManager.getSubscription(); if (sub) await sub.unsubscribe(); } catch (e) {}
+  try { localStorage.removeItem("push:enabled"); } catch (e) {}
+  return { ok: true, msg: "Phone reminders turned off on this device." };
+}
 function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveGoalToggles, customGoals, saveCustomGoals, metrics, saveMetrics, periods, savePeriods, supplements, saveSupplements, initialSection, onClearDate, onClearAll, onApplyDemoMonth, onOpenWizard, profiles, activeId, onSwitchPerson, onAddPerson, onRemovePerson, notifSettings, saveNotifSettings }) {
   const [section, setSection] = useState(initialSection || "profile");
   const [helpOpen, setHelpOpen] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushMsg, setPushMsg] = useState("");
+  const [pushOn, setPushOn] = useState(() => { try { return localStorage.getItem("push:enabled") === "1"; } catch (e) { return false; } });
   const SETTINGS_HINTS = [
     { emoji: "👤", label: "Profile", body: "Your name, age, height, weight and the People list — switch between family members or add a new person here." },
     { emoji: "🥗", label: "Health & Diet", body: "Your conditions, goals, diet pattern, cuisines and lifestyle. Changing these re-tunes your plan and food advice." },
@@ -5477,7 +5559,13 @@ function SettingsPanel({ open, onClose, profile, saveProfile, goalToggles, saveG
             );
             return (
               <div>
-                <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 8, lineHeight: 1.5 }}>Pick which nudges you get — they appear on the 🔔 bell (and as phone notifications once the app is installed to your home screen).</div>
+                <div style={{ background: T.tealPale, border: `1px solid ${T.teal}`, borderRadius: 12, padding: "12px 13px", marginBottom: 14 }}>
+                  <div style={{ fontFamily: "Manrope", fontWeight: 800, fontSize: 13.5, color: T.teal }}>📱 Phone reminders {pushOn ? "· on" : ""}</div>
+                  <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.ink, lineHeight: 1.5, margin: "4px 0 9px" }}>Get a gentle daily nudge on your phone <b>even when the app is closed</b>. {pushOn ? "On for this device." : "On iPhone: add the app to your Home Screen first, open that icon, then turn this on."}</div>
+                  <button disabled={pushBusy} onClick={async () => { setPushBusy(true); setPushMsg(""); const r = pushOn ? await disablePushNotifications() : await enablePushNotifications(); setPushMsg(r.msg); if (r.ok) setPushOn(!pushOn); setPushBusy(false); }} style={{ background: pushOn ? T.creamDeep : T.tealSolid, color: pushOn ? T.ink : "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontFamily: "Manrope", fontWeight: 800, fontSize: 13, cursor: "pointer", opacity: pushBusy ? 0.6 : 1 }}>{pushBusy ? "Working…" : (pushOn ? "Turn off phone reminders" : "Enable phone reminders")}</button>
+                  {pushMsg && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginTop: 8, lineHeight: 1.45 }}>{pushMsg}</div>}
+                </div>
+                <div style={{ fontFamily: "Inter", fontSize: 12.5, color: T.inkSoft, marginBottom: 8, lineHeight: 1.5 }}>Pick which nudges you get — they appear on the 🔔 bell (and, with phone reminders on, as notifications on your phone).</div>
                 <Toggle k="meals" label="Meal reminders" desc="Nudges to log breakfast / lunch / dinner" />
                 <Toggle k="water" label="Water" desc="Are you drinking enough today?" />
                 <Toggle k="activity" label="Activity" desc="Nudge when you haven't moved" />
