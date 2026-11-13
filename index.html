@@ -663,13 +663,14 @@ function mealPrefs(profile) {
   const nonveg = /non-veg|flexitarian/i.test(dp);
   const pescatarian = /pescatarian/i.test(dp);
   const eggOk = /eggetarian/i.test(dp) || nonveg;
+  const chemo = !!(profile.conditions && profile.conditions.some(c => /chemo|lymphoma|leukemia|cancer/i.test(c)));
   return {
     vegan: dp === "Vegan" || has("dairy") || has("lactose"),
     jain: dp === "Jain" || has("jain"),
     noOnionGarlic: has("onion"),
     nut: has("nut allergy"), gluten: has("gluten"), egg: dp === "Vegan" || has("egg"), soy: has("soy"),
     cuisines: profile.cuisines || [],
-    nonveg, pescatarian, eggOk,
+    nonveg, pescatarian, eggOk, chemo,
   };
 }
 function mealAllowed(dish, p) {
@@ -681,6 +682,11 @@ function mealAllowed(dish, p) {
   if (p.gluten && /wheat|roti|paratha|naan|maida|\batta\b|bread|pasta|thepla|poori|\bpuri\b|bhatura|rava|rawa|suji|semolina/.test(n)) return false;
   if (p.egg && /\begg\b|anda|omelet|omelette/.test(n)) return false;
   if (p.soy && /\bsoy\b|tofu|soya/.test(n)) return false;
+  if (p.chemo) {
+    if (/raw\s|uncooked|salad|sushi|sashimi|tartare|ceviche|sprout|golgappa|pani\s*puri|chaat|bhel/i.test(n)) return false;
+    if (/street\s*food|outside\s*food|restaurant|leftover|reheated|stale/i.test(n)) return false;
+    if (/raw\s*curd|raita|cold\s*milk|unpasteurized|lassi|chaas|chhash|buttermilk/i.test(n)) return false;
+  }
   return true;
 }
 function mealScore(dish) { const v = demoVerdictFor(dish); return v === "safe" ? 3 : v === "moderate" ? 2 : v === "limit" ? 1 : 0; }
