@@ -10,38 +10,41 @@
   --accent-light: #E8F5E9; --border: #e8e5e0; --danger: #C62828; --danger-bg: #FFEBEE;
   --warn: #E65100; --warn-bg: #FFF3E0; --safe: #2E7D32; --safe-bg: #E8F5E9;
   --radius: 12px; --shadow: 0 1px 3px rgba(0,0,0,0.08);
+  --blue: #1565C0; --blue-bg: #E3F2FD;
 }
 @media(prefers-color-scheme:dark){
   :root:not([data-theme="light"]){
     --bg:#1a1a1a; --card:#262626; --text:#e8e5e0; --muted:#999; --accent:#66BB6A;
     --accent-light:#1B3A1D; --border:#333; --danger:#EF5350; --danger-bg:#3E1A1A;
     --warn:#FF9800; --warn-bg:#3E2A10; --safe:#66BB6A; --safe-bg:#1B3A1D;
-    --shadow:0 1px 3px rgba(0,0,0,0.3);
+    --shadow:0 1px 3px rgba(0,0,0,0.3); --blue:#42A5F5; --blue-bg:#1A2A3E;
   }
 }
 :root[data-theme="dark"]{
   --bg:#1a1a1a; --card:#262626; --text:#e8e5e0; --muted:#999; --accent:#66BB6A;
   --accent-light:#1B3A1D; --border:#333; --danger:#EF5350; --danger-bg:#3E1A1A;
   --warn:#FF9800; --warn-bg:#3E2A10; --safe:#66BB6A; --safe-bg:#1B3A1D;
-  --shadow:0 1px 3px rgba(0,0,0,0.3);
+  --shadow:0 1px 3px rgba(0,0,0,0.3); --blue:#42A5F5; --blue-bg:#1A2A3E;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
-body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); line-height:1.5; padding:16px; padding-bottom:80px; max-width:480px; margin:0 auto; }
+body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); line-height:1.5; padding:16px; padding-bottom:80px; max-width:520px; margin:0 auto; }
 h1 { font-size:1.3rem; font-weight:700; margin-bottom:4px; }
 h2 { font-size:1.05rem; font-weight:600; margin:20px 0 10px; color:var(--accent); }
 .subtitle { font-size:0.85rem; color:var(--muted); margin-bottom:16px; }
 .card { background:var(--card); border-radius:var(--radius); padding:16px; margin-bottom:12px; border:1px solid var(--border); box-shadow:var(--shadow); }
-.card-header { font-weight:600; font-size:0.95rem; margin-bottom:8px; display:flex; align-items:center; gap:8px; }
+.card-header { font-weight:600; font-size:0.95rem; margin-bottom:8px; display:flex; align-items:center; gap:8px; justify-content:space-between; }
+.card-header-left { display:flex; align-items:center; gap:8px; }
 .badge { display:inline-block; padding:2px 8px; border-radius:20px; font-size:0.75rem; font-weight:600; }
 .badge-safe { background:var(--safe-bg); color:var(--safe); }
 .badge-danger { background:var(--danger-bg); color:var(--danger); }
 .badge-warn { background:var(--warn-bg); color:var(--warn); }
+.badge-blue { background:var(--blue-bg); color:var(--blue); }
 .meal-slot { padding:10px 0; border-bottom:1px solid var(--border); }
 .meal-slot:last-child { border-bottom:none; }
 .meal-time { font-size:0.8rem; color:var(--muted); font-weight:500; }
 .meal-name { font-size:0.92rem; margin-top:2px; }
 .meal-note { font-size:0.78rem; color:var(--muted); margin-top:2px; font-style:italic; }
-.metric-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border); }
+.metric-row { display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--border); cursor:pointer; }
 .metric-row:last-child { border-bottom:none; }
 .metric-label { font-size:0.9rem; font-weight:500; }
 .metric-value { font-size:0.95rem; font-weight:600; }
@@ -50,7 +53,7 @@ h2 { font-size:1.05rem; font-weight:600; margin:20px 0 10px; color:var(--accent)
 .status-ok { color:var(--safe); }
 .status-low { color:var(--danger); }
 .status-high { color:var(--warn); }
-.supp-item { padding:8px 0; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; }
+.supp-item { padding:8px 0; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
 .supp-item:last-child { border-bottom:none; }
 .checker-input { width:100%; padding:12px; border:1px solid var(--border); border-radius:var(--radius); font-size:1rem; background:var(--card); color:var(--text); }
 .checker-input:focus { outline:none; border-color:var(--accent); }
@@ -62,9 +65,9 @@ h2 { font-size:1.05rem; font-weight:600; margin:20px 0 10px; color:var(--accent)
 .rules-list li { padding:6px 0; font-size:0.88rem; display:flex; gap:8px; align-items:flex-start; }
 .rules-list li::before { content:"⚠️"; flex-shrink:0; }
 .tab-bar { position:fixed; bottom:0; left:0; right:0; background:var(--card); border-top:1px solid var(--border); display:flex; z-index:100; }
-.tab { flex:1; padding:10px 4px; text-align:center; font-size:0.72rem; color:var(--muted); cursor:pointer; border:none; background:none; }
+.tab { flex:1; padding:8px 2px; text-align:center; font-size:0.65rem; color:var(--muted); cursor:pointer; border:none; background:none; }
 .tab.active { color:var(--accent); font-weight:600; }
-.tab-icon { font-size:1.2rem; display:block; }
+.tab-icon { font-size:1.1rem; display:block; }
 .section { display:none; }
 .section.active { display:block; }
 .day-tabs { display:flex; gap:4px; margin-bottom:12px; overflow-x:auto; }
@@ -76,12 +79,48 @@ h2 { font-size:1.05rem; font-weight:600; margin:20px 0 10px; color:var(--accent)
 .auth-box input { width:100%; padding:12px; border:1px solid var(--border); border-radius:var(--radius); margin:6px 0; font-size:1rem; background:var(--card); color:var(--text); }
 .auth-box button { width:100%; padding:12px; border:none; border-radius:var(--radius); background:var(--accent); color:#fff; font-size:1rem; font-weight:600; cursor:pointer; margin-top:8px; }
 .hidden { display:none !important; }
-.timeline-item { padding:10px 0 10px 20px; border-left:2px solid var(--accent); position:relative; }
-.timeline-item::before { content:""; position:absolute; left:-5px; top:14px; width:8px; height:8px; border-radius:50%; background:var(--accent); }
+.timeline-item { padding:12px 0 12px 24px; border-left:3px solid var(--accent); position:relative; }
+.timeline-item::before { content:""; position:absolute; left:-7px; top:16px; width:10px; height:10px; border-radius:50%; background:var(--accent); border:2px solid var(--card); }
 .timeline-item.future { border-left-color:var(--border); }
 .timeline-item.future::before { background:var(--border); }
+.timeline-item.skipped { border-left-color:var(--warn); }
+.timeline-item.skipped::before { background:var(--warn); }
+.timeline-item.current { border-left-color:var(--blue); }
+.timeline-item.current::before { background:var(--blue); box-shadow:0 0 0 3px var(--blue-bg); }
 .tl-date { font-size:0.8rem; color:var(--muted); }
 .tl-label { font-size:0.9rem; font-weight:500; }
+.tl-note { font-size:0.78rem; color:var(--muted); margin-top:2px; }
+.tl-actions { display:flex; gap:6px; margin-top:6px; }
+.btn-sm { padding:4px 10px; border-radius:16px; font-size:0.75rem; border:1px solid var(--border); background:var(--card); color:var(--text); cursor:pointer; }
+.btn-sm:active { opacity:0.7; }
+.btn-sm.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+.btn-sm.danger { background:var(--danger-bg); color:var(--danger); border-color:var(--danger); }
+.btn { padding:10px 16px; border-radius:var(--radius); font-size:0.9rem; border:none; cursor:pointer; font-weight:600; }
+.btn-primary { background:var(--accent); color:#fff; }
+.btn-outline { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+.btn:active { opacity:0.7; }
+.med-item { padding:10px 0; border-bottom:1px solid var(--border); }
+.med-item:last-child { border-bottom:none; }
+.med-name { font-weight:600; font-size:0.92rem; }
+.med-detail { font-size:0.82rem; color:var(--muted); }
+.med-timing { display:flex; gap:6px; margin-top:4px; flex-wrap:wrap; }
+.med-chip { padding:2px 8px; border-radius:12px; font-size:0.72rem; background:var(--accent-light); color:var(--accent); }
+.trend-chart { width:100%; height:120px; margin-top:8px; }
+.report-entry { padding:10px 0; border-bottom:1px solid var(--border); }
+.report-entry:last-child { border-bottom:none; }
+.form-group { margin-bottom:12px; }
+.form-group label { font-size:0.85rem; font-weight:500; display:block; margin-bottom:4px; }
+.form-group input, .form-group select, .form-group textarea { width:100%; padding:10px; border:1px solid var(--border); border-radius:var(--radius); font-size:0.92rem; background:var(--card); color:var(--text); }
+.form-group textarea { resize:vertical; min-height:60px; }
+.modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:200; display:flex; align-items:center; justify-content:center; padding:16px; }
+.modal { background:var(--card); border-radius:var(--radius); padding:20px; width:100%; max-width:420px; max-height:85vh; overflow-y:auto; }
+.modal h2 { margin-top:0; }
+.modal-actions { display:flex; gap:8px; margin-top:16px; justify-content:flex-end; }
+.source-tag { font-size:0.7rem; color:var(--muted); background:var(--accent-light); padding:1px 6px; border-radius:8px; margin-left:4px; }
+.alert-card { padding:12px; border-radius:var(--radius); margin-bottom:12px; }
+.alert-danger { background:var(--danger-bg); border:1px solid var(--danger); }
+.alert-warn { background:var(--warn-bg); border:1px solid var(--warn); }
+.alert-info { background:var(--blue-bg); border:1px solid var(--blue); }
 </style>
 </head>
 <body>
@@ -109,14 +148,21 @@ h2 { font-size:1.05rem; font-weight:600; margin:20px 0 10px; color:var(--accent)
     <span class="cycle-info" id="cycle-badge">Cycle 1</span>
   </div>
 
+  <div id="today-alerts"></div>
+
   <div class="card">
-    <div class="card-header">🍽️ Today's Meals</div>
+    <div class="card-header"><span class="card-header-left">🍽️ Today's Meals</span></div>
     <p style="font-size:0.78rem;color:var(--muted);margin-bottom:8px">6 small meals — all freshly cooked, no raw food</p>
     <div id="today-meals"></div>
   </div>
 
   <div class="card">
-    <div class="card-header">💊 Supplements</div>
+    <div class="card-header"><span class="card-header-left">💊 Medicines</span><span class="badge badge-blue" id="med-count">0</span></div>
+    <div id="today-meds">No medicines added yet</div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="card-header-left">🧪 Supplements</span></div>
     <div id="today-supps"></div>
   </div>
 
@@ -128,6 +174,8 @@ h2 { font-size:1.05rem; font-weight:600; margin:20px 0 10px; color:var(--accent)
       <li>Only freshly cooked — no leftovers</li>
       <li>No raw curd during neutropenia (boiled curd OK)</li>
       <li>Safe fruits only — banana, pomegranate, papaya (peeled, washed)</li>
+      <li>High protein at every meal — dal, paneer, eggs (well-cooked)</li>
+      <li>Small frequent meals — 6 times a day, don't skip</li>
     </ul>
   </div>
 </div>
@@ -135,9 +183,18 @@ h2 { font-size:1.05rem; font-weight:600; margin:20px 0 10px; color:var(--accent)
 <!-- ===== MEALS TAB ===== -->
 <div id="tab-meals" class="section">
   <h1>🗓️ Weekly Meal Plan</h1>
-  <p class="subtitle">Chemo-safe, immunity-supporting, Gujarati/North Indian</p>
+  <p class="subtitle">Chemo-safe, immunity-supporting, 6 meals/day</p>
   <div class="day-tabs" id="day-tabs"></div>
   <div class="card" id="day-meals"></div>
+  <div class="card" style="margin-top:12px">
+    <div class="card-header">📋 Meal Planning Notes</div>
+    <ul class="rules-list" style="margin-top:4px">
+      <li style="font-size:0.82rem">All meals freshly cooked — no reheating</li>
+      <li style="font-size:0.82rem">Protein in every meal (dal, paneer, chana)</li>
+      <li style="font-size:0.82rem">Turmeric + ghee daily for immunity</li>
+      <li style="font-size:0.82rem">Warm liquids between meals</li>
+    </ul>
+  </div>
 </div>
 
 <!-- ===== CHECKER TAB ===== -->
@@ -150,48 +207,122 @@ h2 { font-size:1.05rem; font-weight:600; margin:20px 0 10px; color:var(--accent)
   </div>
   <div class="card">
     <div class="card-header">✅ Always Safe</div>
-    <p style="font-size:0.88rem">Dal-rice, khichdi, roti-sabzi, well-cooked vegetables, boiled curd/kadhi, steamed idli, moong dal chilla, upma, poha, vegetable soup, banana, pomegranate (peeled), papaya (peeled)</p>
+    <p style="font-size:0.85rem;line-height:1.6">Dal-rice, khichdi, roti-sabzi, well-cooked vegetables, boiled curd/kadhi, steamed idli, moong dal chilla, upma, poha, vegetable soup, banana, pomegranate (peeled), papaya (peeled), turmeric milk, ghee, paneer (cooked), well-cooked eggs</p>
   </div>
   <div class="card">
     <div class="card-header">🚫 Always Avoid</div>
-    <p style="font-size:0.88rem">Raw salad, raw sprouts, uncooked curd/raita, street food, outside/restaurant food, leftover food, raw fruits with skin (grapes, berries, apple with skin), cut fruits from outside, cold drinks, ice cream from outside</p>
+    <p style="font-size:0.85rem;line-height:1.6">Raw salad, raw sprouts, uncooked curd/raita, street food, outside/restaurant food, leftover food, raw fruits with skin (grapes, berries), cut fruits from outside, cold drinks, ice cream from outside, raw/undercooked eggs, sushi, rare meat</p>
+  </div>
+  <div class="card">
+    <div class="card-header">📚 Guidance Sources</div>
+    <div style="font-size:0.82rem;line-height:1.7">
+      <div><strong>WHO</strong> — Food safety during immunosuppression <span class="source-tag">WHO</span></div>
+      <div style="margin-top:4px">• Cook all foods to safe temperature (>70°C)</div>
+      <div>• Use safe, clean water for cooking and drinking</div>
+      <div>• Avoid raw/undercooked animal products</div>
+      <div>• Wash hands before handling food</div>
+      <div style="margin-top:8px"><strong>Oncology Dietitian Guidelines</strong> <span class="source-tag">Clinical</span></div>
+      <div style="margin-top:4px">• Neutropenic diet: no raw fruits/vegetables except those that can be peeled</div>
+      <div>• High-calorie, high-protein small meals 6x/day</div>
+      <div>• Avoid fermented/unpasteurized dairy during low WBC</div>
+      <div>• Probiotics only as doctor-approved supplements, not from food</div>
+      <div>• Ginger/lemon water for nausea management</div>
+      <div style="margin-top:8px"><strong>Dietitian Notes</strong> <span class="source-tag">Custom</span></div>
+      <div id="dietitian-notes" style="margin-top:4px">No custom notes yet — add notes from your dietitian below</div>
+      <button class="btn btn-outline" style="margin-top:8px;width:100%;font-size:0.85rem" onclick="openDietitianNotes()">✏️ Add Dietitian Notes</button>
+    </div>
   </div>
 </div>
 
 <!-- ===== HEALTH TAB ===== -->
 <div id="tab-health" class="section">
-  <h1>📊 Lab Markers</h1>
-  <p class="subtitle">Key markers to watch during R-mini CHOP</p>
-  <div class="card" id="lab-markers"></div>
+  <h1>📊 Health Tracking</h1>
+  <p class="subtitle">Lab reports, markers, and treatment timeline</p>
+
+  <div style="display:flex;gap:8px;margin-bottom:16px">
+    <button class="btn btn-primary" style="flex:1;font-size:0.85rem" onclick="openAddReport()">📝 Add New Report</button>
+  </div>
+
+  <div id="report-history"></div>
+
+  <div class="card">
+    <div class="card-header"><span class="card-header-left">🔬 Lab Markers</span><span class="badge badge-blue" id="report-count">0 reports</span></div>
+    <div id="lab-markers"></div>
+  </div>
 
   <h2>📅 Treatment Timeline</h2>
+  <div style="display:flex;gap:8px;margin-bottom:8px">
+    <button class="btn-sm primary" onclick="openAddTimeline()">+ Add Event</button>
+    <button class="btn-sm" onclick="openEditTimeline()">✏️ Edit</button>
+  </div>
   <div class="card" id="timeline"></div>
+</div>
+
+<!-- ===== MEDICINES TAB ===== -->
+<div id="tab-meds" class="section">
+  <h1>💊 Medicines & Prescriptions</h1>
+  <p class="subtitle">Track all prescribed medicines</p>
+
+  <div style="display:flex;gap:8px;margin-bottom:16px">
+    <button class="btn btn-primary" style="flex:1;font-size:0.85rem" onclick="openAddMedicine()">+ Add Medicine</button>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="card-header-left">Current Prescriptions</span></div>
+    <div id="med-list">No medicines added yet. Add medicines from your doctor's prescription.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="card-header-left">🧪 Supplements</span><button class="btn-sm" onclick="openAddSupplement()">+ Add</button></div>
+    <div id="supp-list"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="card-header-left">📋 Prescription History</span></div>
+    <div id="rx-history" style="font-size:0.85rem;color:var(--muted)">Prescription changes will be logged here</div>
+  </div>
 </div>
 
 </div><!-- /app -->
 
 <!-- TAB BAR -->
 <div class="tab-bar hidden" id="tab-bar">
-  <button class="tab active" onclick="switchTab('today')"><span class="tab-icon">🏠</span>Today</button>
-  <button class="tab" onclick="switchTab('meals')"><span class="tab-icon">🍽️</span>Meals</button>
-  <button class="tab" onclick="switchTab('checker')"><span class="tab-icon">🔍</span>Check</button>
-  <button class="tab" onclick="switchTab('health')"><span class="tab-icon">📊</span>Health</button>
+  <button class="tab active" onclick="switchTab('today',this)"><span class="tab-icon">🏠</span>Today</button>
+  <button class="tab" onclick="switchTab('meals',this)"><span class="tab-icon">🍽️</span>Meals</button>
+  <button class="tab" onclick="switchTab('checker',this)"><span class="tab-icon">🔍</span>Check</button>
+  <button class="tab" onclick="switchTab('health',this)"><span class="tab-icon">📊</span>Health</button>
+  <button class="tab" onclick="switchTab('meds',this)"><span class="tab-icon">💊</span>Meds</button>
 </div>
 
+<!-- MODAL CONTAINER -->
+<div id="modal-root"></div>
+
 <script>
-// ===== FIREBASE CONFIG (same as main app) =====
+// ===== FIREBASE CONFIG =====
 const FB_CONFIG={apiKey:"AIzaSyBbNmCmC4eiO94Sim_8h1x4MG5lcECkbes",authDomain:"health-tracker-f9392.firebaseapp.com",projectId:"health-tracker-f9392",storageBucket:"health-tracker-f9392.firebasestorage.app",messagingSenderId:"490510742498",appId:"1:490510742498:web:830a7dc938623038da7fbb"};
 
-let fb=null;
+let fb=null, db=null, uid=null;
 async function loadFirebase(){
   if(fb)return fb;
   await loadScript("https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js");
   await loadScript("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js");
   await loadScript("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js");
   fb=firebase.initializeApp(FB_CONFIG);
+  db=firebase.firestore();
   return fb;
 }
 function loadScript(src){return new Promise((r,j)=>{const s=document.createElement("script");s.src=src;s.onload=r;s.onerror=j;document.head.appendChild(s);})}
+
+// ===== LOCAL STORAGE HELPERS =====
+const CC_KEY = "chemo_companion_data";
+function ccLoad() {
+  try { return JSON.parse(localStorage.getItem(CC_KEY)) || {}; } catch(e) { return {}; }
+}
+function ccSave(data) {
+  try { localStorage.setItem(CC_KEY, JSON.stringify(data)); } catch(e) {}
+}
+function ccGet(key, fallback) { const d = ccLoad(); return d[key] !== undefined ? d[key] : fallback; }
+function ccSet(key, value) { const d = ccLoad(); d[key] = value; ccSave(d); }
 
 // ===== AUTH =====
 async function doSignIn(){
@@ -202,7 +333,8 @@ async function doSignIn(){
   err.textContent="Signing in...";
   try{
     await loadFirebase();
-    await firebase.auth().signInWithEmailAndPassword(email,pass);
+    const cred = await firebase.auth().signInWithEmailAndPassword(email,pass);
+    uid = cred.user.uid;
     err.textContent="";
     showApp();
   }catch(e){err.textContent=e.message;}
@@ -212,96 +344,185 @@ async function showApp(){
   document.getElementById("auth-screen").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
   document.getElementById("tab-bar").classList.remove("hidden");
-  await loadData();
+  await loadAllData();
 }
 
 // ===== DATA =====
 const DAYS=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 const MEAL_SLOTS=[
   {key:"breakfast", label:"Breakfast", time:"7:30 AM", icon:"🌅"},
-  {key:"midmorning", label:"Mid-morning", time:"10:00 AM", icon:"🍌"},
+  {key:"midmorning", label:"Mid-morning Snack", time:"10:00 AM", icon:"🍌"},
   {key:"lunch", label:"Lunch", time:"12:30 PM", icon:"☀️"},
-  {key:"afternoon", label:"Afternoon", time:"3:30 PM", icon:"🫖"},
+  {key:"afternoon", label:"Afternoon Snack", time:"3:30 PM", icon:"🫖"},
   {key:"dinner", label:"Dinner", time:"7:00 PM", icon:"🌙"},
-  {key:"evening", label:"Before bed", time:"9:00 PM", icon:"😴"}
+  {key:"evening", label:"Before Bed", time:"9:00 PM", icon:"😴"}
 ];
 
-// Chemo-safe 6-meal plan — all freshly cooked, no raw items
 const CHEMO_PLAN=[
-  // Monday
-  {breakfast:"Moong dal chilla with cooked mint chutney",midmorning:"1 banana + warm turmeric milk",lunch:"Dal-rice with lauki sabzi and 1 roti",afternoon:"Hot vegetable soup with 2 Marie biscuits",dinner:"Khichdi with ghee and steamed bottle gourd",evening:"Warm milk with a pinch of turmeric"},
-  // Tuesday
-  {breakfast:"Upma with well-cooked vegetables and paneer bits",midmorning:"Pomegranate seeds (washed, peeled) + 5 soaked almonds",lunch:"Rajma (well-cooked) with jeera rice and roti",afternoon:"Warm dal soup with toast",dinner:"Masoor dal with roti and aloo-peas sabzi",evening:"1 ripe banana + warm milk"},
-  // Wednesday
-  {breakfast:"Besan chilla with cooked tomato chutney",midmorning:"Boiled sweet potato + warm lemon water",lunch:"Chole (well-cooked) with rice and bhindi sabzi",afternoon:"Vegetable daliya (savoury) with lemon",dinner:"Khichdi with kadhi (well-boiled) and ghee",evening:"Warm turmeric milk + 2 biscuits"},
-  // Thursday
-  {breakfast:"Steamed idli with sambar and cooked coconut chutney",midmorning:"Papaya slices (peeled) + warm milk",lunch:"Toor dal with rice and parwal sabzi",afternoon:"Hot tomato soup with 2 biscuits",dinner:"Moong dal khichdi with steamed lauki and ghee",evening:"1 banana + warm water with honey"},
-  // Friday
-  {breakfast:"Poha (well-cooked) with peas and peanuts",midmorning:"Pomegranate + 5 soaked almonds",lunch:"Palak dal with jeera rice and soft aloo gobi",afternoon:"Warm moong dal soup with toast",dinner:"Vegetable khichdi with ghee and steamed turai",evening:"Warm milk + ripe banana"},
-  // Saturday
-  {breakfast:"Rava dosa (well-cooked) with sambar",midmorning:"Boiled chana chaat (warm) + lemon",lunch:"Chana dal with rice and well-cooked cabbage sabzi",afternoon:"Hot carrot soup with 2 biscuits",dinner:"Dal-roti with pumpkin sabzi and ghee",evening:"Warm turmeric milk"},
-  // Sunday
-  {breakfast:"Aloo paratha (light oil) with boiled curd",midmorning:"Papaya + warm milk",lunch:"Rajma-rice with tori sabzi and roti",afternoon:"Mixed vegetable soup with daliya",dinner:"Masoor dal khichdi with ghee and steamed vegetables",evening:"Warm milk with 2 biscuits"}
+  {breakfast:"Moong dal chilla + cooked mint chutney",midmorning:"1 banana + warm turmeric milk",lunch:"Dal-rice with lauki sabzi + 1 roti + ghee",afternoon:"Hot vegetable soup + 2 Marie biscuits",dinner:"Khichdi with ghee + steamed bottle gourd",evening:"Warm milk with turmeric"},
+  {breakfast:"Upma with well-cooked vegetables + paneer",midmorning:"Pomegranate (washed, peeled) + 5 soaked almonds",lunch:"Rajma (well-cooked) + jeera rice + roti",afternoon:"Warm dal soup + toast",dinner:"Masoor dal + roti + aloo-peas sabzi",evening:"1 ripe banana + warm milk"},
+  {breakfast:"Besan chilla + cooked tomato chutney",midmorning:"Boiled sweet potato + warm lemon water",lunch:"Chole (well-cooked) + rice + bhindi sabzi",afternoon:"Vegetable daliya (savoury) + lemon",dinner:"Khichdi with kadhi (well-boiled) + ghee",evening:"Warm turmeric milk + 2 biscuits"},
+  {breakfast:"Steamed idli + sambar + cooked chutney",midmorning:"Papaya slices (peeled) + warm milk",lunch:"Toor dal + rice + parwal sabzi + ghee",afternoon:"Hot tomato soup + 2 biscuits",dinner:"Moong dal khichdi + steamed lauki + ghee",evening:"1 banana + warm water with honey"},
+  {breakfast:"Poha (well-cooked) + peas + peanuts",midmorning:"Pomegranate + 5 soaked almonds",lunch:"Palak dal + jeera rice + soft aloo gobi",afternoon:"Warm moong dal soup + toast",dinner:"Vegetable khichdi + ghee + steamed turai",evening:"Warm milk + ripe banana"},
+  {breakfast:"Rava dosa (well-cooked) + sambar",midmorning:"Boiled chana chaat (warm) + lemon",lunch:"Chana dal + rice + well-cooked cabbage sabzi",afternoon:"Hot carrot soup + 2 biscuits",dinner:"Dal-roti + pumpkin sabzi + ghee",evening:"Warm turmeric milk"},
+  {breakfast:"Aloo paratha (light oil) + boiled curd",midmorning:"Papaya + warm milk",lunch:"Rajma-rice + tori sabzi + roti",afternoon:"Mixed vegetable soup + daliya",dinner:"Masoor dal khichdi + ghee + steamed vegetables",evening:"Warm milk + 2 biscuits"}
 ];
 
-// Default lab markers (from diagnosis reports)
-const DEFAULT_MARKERS=[
-  {key:"wbc",label:"WBC",value:7.2,unit:"×10³/µL",low:4.0,high:11.0,note:"Drops after each cycle — alert if <2.0"},
-  {key:"hgb",label:"Hemoglobin",value:12.8,unit:"g/dL",low:13.0,high:17.0,note:"Slightly low — monitor for fatigue"},
-  {key:"plt",label:"Platelets",value:185,unit:"×10³/µL",low:150,high:400,note:"Watch for drops — risk of bleeding if <50"},
-  {key:"ldh",label:"LDH",value:245,unit:"U/L",low:120,high:246,note:"Lymphoma marker — borderline at diagnosis"},
-  {key:"creat",label:"Creatinine",value:1.1,unit:"mg/dL",low:0.7,high:1.3,note:"Kidney function — monitor with chemo"},
-  {key:"alb",label:"Albumin",value:3.5,unit:"g/dL",low:3.5,high:5.5,note:"Protein status — at lower limit, critical to maintain"}
+// ===== DEFAULT CHEMO MARKERS =====
+const CHEMO_MARKERS=[
+  {key:"hgb",label:"Hemoglobin",unit:"g/dL",low:13.0,high:17.0,note:"Low = fatigue, breathlessness. Transfusion if <7-8"},
+  {key:"wbc",label:"WBC",unit:"×10³/µL",low:4.0,high:11.0,note:"Drops after chemo. Alert if <2.0 (neutropenia risk)"},
+  {key:"anc",label:"ANC (Neutrophils)",unit:"×10³/µL",low:1.5,high:8.0,note:"<1.0 = neutropenic, <0.5 = severe — infection risk"},
+  {key:"plt",label:"Platelets",unit:"×10³/µL",low:150,high:400,note:"Bleeding risk if <50, transfusion if <10-20"},
+  {key:"ldh",label:"LDH",unit:"U/L",low:120,high:246,note:"Lymphoma tumour marker — should decrease with treatment"},
+  {key:"creat",label:"Creatinine",unit:"mg/dL",low:0.7,high:1.3,note:"Kidney function — monitor with chemo drugs"},
+  {key:"alb",label:"Albumin",unit:"g/dL",low:3.5,high:5.5,note:"Protein/nutrition status — critical to maintain"},
+  {key:"spo2",label:"SpO2",unit:"%",low:95,high:100,note:"Oxygen saturation — <92% needs medical attention"},
+  {key:"temp",label:"Temperature",unit:"°F",low:97.0,high:99.5,note:"Fever >100.4°F during chemo = go to ER immediately"},
+  {key:"bp_sys",label:"BP Systolic",unit:"mmHg",low:90,high:140,note:"Blood pressure — monitor for drops"},
+  {key:"uric",label:"Uric Acid",unit:"mg/dL",low:3.5,high:7.2,note:"Can rise during tumour lysis — hydration critical"}
 ];
 
-const TIMELINE=[
-  {date:"Oct 2026",label:"Diagnosis — Testicular DLBCL (Non-GCB)",done:true},
-  {date:"Oct 2026",label:"High inguinal orchidectomy (surgery)",done:true},
-  {date:"5 Nov 2026",label:"Cycle 1 — R-mini CHOP started",done:true},
-  {date:"~26 Nov 2026",label:"Cycle 2 — R-mini CHOP",done:false},
-  {date:"~17 Dec 2026",label:"Cycle 3 — R-mini CHOP",done:false},
-  {date:"~7 Jan 2027",label:"Cycle 4 — R-mini CHOP",done:false},
-  {date:"~28 Jan 2027",label:"Cycle 5 — R-mini CHOP",done:false},
-  {date:"~18 Feb 2027",label:"Cycle 6 — R-mini CHOP",done:false},
-  {date:"After chemo",label:"Triple IT + Scrotal radiation",done:false},
-  {date:"After RT",label:"Follow-up PET-CT scan",done:false}
+// ===== TREATMENT TIMELINE =====
+let timelineData = [];
+const DEFAULT_TIMELINE=[
+  {id:"t1",date:"2026-10-15",label:"Diagnosis — Testicular DLBCL (Non-GCB)",type:"diagnosis",status:"done",notes:""},
+  {id:"t2",date:"2026-10-20",label:"High inguinal orchidectomy (surgery)",type:"surgery",status:"done",notes:""},
+  {id:"t3",date:"2026-11-05",label:"Cycle 1 — R-mini CHOP",type:"chemo",status:"done",notes:"Started first cycle"},
+  {id:"t4",date:"2026-11-13",label:"Admission — Low Hb, low oxygen",type:"admission",status:"current",notes:"Hemoglobin drop, oxygen support needed"},
+  {id:"t5",date:"2026-11-26",label:"Cycle 2 — R-mini CHOP",type:"chemo",status:"planned",notes:"May delay depending on recovery"},
+  {id:"t6",date:"2026-12-17",label:"Cycle 3 — R-mini CHOP",type:"chemo",status:"planned",notes:""},
+  {id:"t7",date:"2027-01-07",label:"Cycle 4 — R-mini CHOP",type:"chemo",status:"planned",notes:""},
+  {id:"t8",date:"2027-01-28",label:"Cycle 5 — R-mini CHOP",type:"chemo",status:"planned",notes:""},
+  {id:"t9",date:"2027-02-18",label:"Cycle 6 — R-mini CHOP",type:"chemo",status:"planned",notes:""},
+  {id:"t10",date:"2027-03-01",label:"Triple IT + Scrotal radiation",type:"radiation",status:"planned",notes:""},
+  {id:"t11",date:"2027-04-01",label:"Follow-up PET-CT scan",type:"scan",status:"planned",notes:""}
 ];
 
-let profileData=null, markers=DEFAULT_MARKERS;
+// ===== MEDICINES & SUPPLEMENTS =====
+let medicines = [];
+let supplements = [];
+let reports = []; // {id, date, markers:{key:value}, notes}
+let dietitianNotes = "";
 
-async function loadData(){
-  try{
-    const uid=firebase.auth().currentUser.uid;
-    const snap=await firebase.firestore().collection("users").doc(uid).get();
+// ===== LOAD ALL DATA =====
+async function loadAllData(){
+  // Load from localStorage first for instant display
+  medicines = ccGet("medicines", []);
+  supplements = ccGet("supplements", [{name:"Zinc + Vitamin C",dose:"As prescribed",freq:"Once daily",time:"Morning"},{name:"Protein supplement",dose:"1 scoop",freq:"With meals",time:"Lunch & Dinner"},{name:"Probiotics",dose:"As prescribed",freq:"Once daily",time:"Evening"}]);
+  reports = ccGet("reports", []);
+  timelineData = ccGet("timeline", DEFAULT_TIMELINE);
+  dietitianNotes = ccGet("dietitianNotes", "");
+
+  // Try loading from Firebase
+  try {
+    if(!uid) uid = firebase.auth().currentUser.uid;
+    const snap = await db.collection("users").doc(uid).collection("chemo_companion").doc("data").get();
     if(snap.exists()){
-      const d=snap.data().data||{};
-      profileData=d["profile:data"]||{};
-      // Load custom metrics if available
-      const m=d["reports:metrics"];
-      if(m&&m.length){
-        markers=m.map(x=>({key:x.key,label:x.label,value:x.points&&x.points[x.points.length-1],unit:x.unit,low:x.low,high:x.high,note:x.note}));
-      }
-      const supps=d["supplements:list"];
-      if(supps&&supps.length) renderSupplements(supps);
-      else renderSupplements([{name:"Zinc + Vitamin C",dose:"As prescribed",time:"morning"},{name:"Protein supplement",dose:"1 scoop",time:"with meals"},{name:"Probiotics",dose:"As prescribed",time:"evening"}]);
-      if(profileData.name) document.getElementById("greeting").textContent="Hi "+profileData.name.split(" ")[0]+" 👋";
+      const d = snap.data();
+      if(d.medicines) medicines = d.medicines;
+      if(d.supplements) supplements = d.supplements;
+      if(d.reports) reports = d.reports;
+      if(d.timeline) timelineData = d.timeline;
+      if(d.dietitianNotes) dietitianNotes = d.dietitianNotes;
+      // Sync to local
+      ccSet("medicines", medicines);
+      ccSet("supplements", supplements);
+      ccSet("reports", reports);
+      ccSet("timeline", timelineData);
+      ccSet("dietitianNotes", dietitianNotes);
     }
-  }catch(e){console.error("Load error:",e);}
+  } catch(e) { console.log("Firebase load (non-critical):", e); }
 
-  renderToday();
+  // Also load profile from main app
+  try {
+    const mainSnap = await db.collection("users").doc(uid).get();
+    if(mainSnap.exists()){
+      const d = mainSnap.data().data || {};
+      const profile = d["profile:data"] || {};
+      if(profile.name) document.getElementById("greeting").textContent = "Hi " + profile.name.split(" ")[0] + " 👋";
+    }
+  } catch(e) {}
+
+  renderAll();
+}
+
+async function saveToCloud(){
+  try {
+    if(!uid) return;
+    await db.collection("users").doc(uid).collection("chemo_companion").doc("data").set({
+      medicines, supplements, reports, timeline: timelineData, dietitianNotes,
+      updatedAt: Date.now()
+    }, {merge:true});
+  } catch(e) { console.log("Cloud save error:", e); }
+}
+
+function saveLocal(){
+  ccSet("medicines", medicines);
+  ccSet("supplements", supplements);
+  ccSet("reports", reports);
+  ccSet("timeline", timelineData);
+  ccSet("dietitianNotes", dietitianNotes);
+}
+
+function saveAll() { saveLocal(); saveToCloud(); }
+
+// ===== RENDER ALL =====
+function renderAll(){
+  const d = new Date();
+  document.getElementById("today-date").textContent = d.toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+
+  // Determine current cycle
+  const currentEvent = timelineData.find(t => t.status === "current") || timelineData.filter(t=>t.status==="done").pop();
+  if(currentEvent){
+    const cycleNum = timelineData.filter(t=>t.type==="chemo"&&(t.status==="done"||t.status==="current")).length || 1;
+    document.getElementById("cycle-badge").textContent = currentEvent.type === "admission" ? "Admitted" : "Cycle " + cycleNum;
+  }
+
+  renderTodayMeals();
+  renderTodayMeds();
+  renderTodaySupps();
+  renderAlerts();
   renderDayTabs();
   renderMarkers();
   renderTimeline();
+  renderMedList();
+  renderSuppList();
+  renderReportHistory();
+  renderDietitianNotes();
 }
 
-function renderToday(){
-  const d=new Date();
-  document.getElementById("today-date").textContent=d.toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
-  const dayIdx=d.getDay(); // 0=Sun
-  const planIdx=dayIdx===0?6:dayIdx-1; // Mon=0
-  const plan=CHEMO_PLAN[planIdx];
-  const box=document.getElementById("today-meals");
-  box.innerHTML=MEAL_SLOTS.map(s=>`
+// ===== ALERTS =====
+function renderAlerts(){
+  const box = document.getElementById("today-alerts");
+  const alerts = [];
+
+  // Check latest report for critical values
+  if(reports.length){
+    const latest = reports[reports.length-1];
+    const m = latest.markers || {};
+    if(m.hgb && m.hgb < 8) alerts.push({type:"danger", text:`⚠️ Hemoglobin critically low (${m.hgb} g/dL) — may need transfusion`});
+    else if(m.hgb && m.hgb < 10) alerts.push({type:"warn", text:`Hemoglobin low (${m.hgb} g/dL) — watch for fatigue, breathlessness`});
+    if(m.spo2 && m.spo2 < 92) alerts.push({type:"danger", text:`⚠️ SpO2 critically low (${m.spo2}%) — needs oxygen support`});
+    else if(m.spo2 && m.spo2 < 95) alerts.push({type:"warn", text:`SpO2 below normal (${m.spo2}%) — monitor closely`});
+    if(m.wbc && m.wbc < 2) alerts.push({type:"danger", text:`⚠️ WBC very low (${m.wbc}) — high infection risk, strict hygiene`});
+    if(m.plt && m.plt < 50) alerts.push({type:"danger", text:`⚠️ Platelets low (${m.plt}) — bleeding risk, avoid injury`});
+    if(m.temp && m.temp > 100.4) alerts.push({type:"danger", text:`⚠️ Fever ${m.temp}°F — during chemo, go to ER immediately`});
+  }
+
+  // Check admission status
+  const admission = timelineData.find(t => t.type==="admission" && t.status==="current");
+  if(admission) alerts.push({type:"info", text:`🏥 Currently admitted — ${admission.notes || admission.label}`});
+
+  box.innerHTML = alerts.map(a => `<div class="alert-card alert-${a.type}"><span style="font-size:0.88rem">${a.text}</span></div>`).join("");
+}
+
+// ===== TODAY'S MEALS =====
+function renderTodayMeals(){
+  const d = new Date();
+  const dayIdx = d.getDay()===0?6:d.getDay()-1;
+  const plan = CHEMO_PLAN[dayIdx];
+  document.getElementById("today-meals").innerHTML = MEAL_SLOTS.map(s => `
     <div class="meal-slot">
       <div class="meal-time">${s.icon} ${s.label} · ${s.time}</div>
       <div class="meal-name">${plan[s.key]}</div>
@@ -309,140 +530,709 @@ function renderToday(){
   `).join("");
 }
 
-function renderSupplements(supps){
-  const box=document.getElementById("today-supps");
-  box.innerHTML=supps.map(s=>`
-    <div class="supp-item">
-      <div><strong>${s.name}</strong><br><span style="font-size:0.82rem;color:var(--muted)">${s.dose} · ${s.time}</span></div>
-    </div>
-  `).join("");
+// ===== TODAY'S MEDICINES =====
+function renderTodayMeds(){
+  const box = document.getElementById("today-meds");
+  document.getElementById("med-count").textContent = medicines.length;
+  if(!medicines.length){ box.innerHTML = '<p style="font-size:0.85rem;color:var(--muted)">No medicines added yet</p>'; return; }
+
+  const now = new Date();
+  const timeOfDay = now.getHours() < 12 ? "morning" : now.getHours() < 17 ? "afternoon" : "evening";
+  const todayMeds = medicines.filter(m => m.active !== false);
+  box.innerHTML = todayMeds.map(m => {
+    const timings = m.timing || [];
+    const isDue = timings.some(t => t.toLowerCase().includes(timeOfDay)) || timings.some(t => t.toLowerCase().includes("all"));
+    return `<div class="med-item" style="${isDue?'background:var(--accent-light);margin:0 -16px;padding:8px 16px;border-radius:8px':''}">
+      <div class="med-name">${isDue?'👉 ':''} ${m.name}</div>
+      <div class="med-detail">${m.dose} · ${m.freq}</div>
+      <div class="med-timing">${timings.map(t=>`<span class="med-chip">${t}</span>`).join("")}</div>
+    </div>`;
+  }).join("");
 }
 
+// ===== TODAY'S SUPPLEMENTS =====
+function renderTodaySupps(){
+  document.getElementById("today-supps").innerHTML = supplements.map(s => `
+    <div class="supp-item">
+      <div><strong>${s.name}</strong><br><span style="font-size:0.82rem;color:var(--muted)">${s.dose} · ${s.time||''}</span></div>
+    </div>
+  `).join("") || '<p style="font-size:0.85rem;color:var(--muted)">No supplements added</p>';
+}
+
+// ===== WEEKLY MEALS =====
 function renderDayTabs(){
-  const d=new Date();
-  const todayIdx=d.getDay()===0?6:d.getDay()-1;
-  const tabs=document.getElementById("day-tabs");
-  tabs.innerHTML=DAYS.map((day,i)=>`<button class="day-tab${i===todayIdx?' active':''}" onclick="showDay(${i})">${day.slice(0,3)}</button>`).join("");
+  const d = new Date();
+  const todayIdx = d.getDay()===0?6:d.getDay()-1;
+  document.getElementById("day-tabs").innerHTML = DAYS.map((day,i) =>
+    `<button class="day-tab${i===todayIdx?' active':''}" onclick="showDay(${i})">${day.slice(0,3)}</button>`
+  ).join("");
   showDay(todayIdx);
 }
 
 function showDay(idx){
-  document.querySelectorAll(".day-tab").forEach((t,i)=>t.classList.toggle("active",i===idx));
-  const plan=CHEMO_PLAN[idx];
-  const box=document.getElementById("day-meals");
-  box.innerHTML=`<div class="card-header">${DAYS[idx]}</div>`+MEAL_SLOTS.map(s=>`
-    <div class="meal-slot">
-      <div class="meal-time">${s.icon} ${s.label} · ${s.time}</div>
-      <div class="meal-name">${plan[s.key]}</div>
-    </div>
-  `).join("");
+  document.querySelectorAll(".day-tab").forEach((t,i) => t.classList.toggle("active",i===idx));
+  const plan = CHEMO_PLAN[idx];
+  document.getElementById("day-meals").innerHTML = `<div class="card-header">${DAYS[idx]}</div>` +
+    MEAL_SLOTS.map(s => `
+      <div class="meal-slot">
+        <div class="meal-time">${s.icon} ${s.label} · ${s.time}</div>
+        <div class="meal-name">${plan[s.key]}</div>
+      </div>
+    `).join("");
 }
 
+// ===== LAB MARKERS =====
 function renderMarkers(){
-  const box=document.getElementById("lab-markers");
-  box.innerHTML=markers.map(m=>{
-    const v=m.value;
-    let status="status-ok", badge="Normal";
-    if(v<m.low){status="status-low";badge="Low";}
-    else if(v>m.high){status="status-high";badge="High";}
-    return`
-      <div class="metric-row">
-        <div>
-          <div class="metric-label">${m.label}</div>
-          <div class="metric-range">${m.low}–${m.high} ${m.unit}</div>
-          <div class="metric-note">${m.note||""}</div>
-        </div>
-        <div style="text-align:right">
-          <div class="metric-value ${status}">${v} ${m.unit}</div>
-          <span class="badge ${v<m.low?'badge-danger':v>m.high?'badge-warn':'badge-safe'}">${badge}</span>
-        </div>
-      </div>`;
+  const box = document.getElementById("lab-markers");
+  const latestReport = reports.length ? reports[reports.length-1] : null;
+  const prevReport = reports.length > 1 ? reports[reports.length-2] : null;
+
+  document.getElementById("report-count").textContent = reports.length + " report" + (reports.length!==1?"s":"");
+
+  box.innerHTML = CHEMO_MARKERS.map(m => {
+    const v = latestReport ? latestReport.markers[m.key] : null;
+    const prev = prevReport ? prevReport.markers[m.key] : null;
+    let status="status-ok", badge="—", trend="";
+    if(v != null){
+      if(v < m.low){ status="status-low"; badge="Low"; }
+      else if(v > m.high){ status="status-high"; badge="High"; }
+      else badge="Normal";
+      if(prev != null){
+        const diff = v - prev;
+        trend = diff > 0 ? `<span style="color:var(--safe);font-size:0.75rem">▲ ${Math.abs(diff).toFixed(1)}</span>` :
+                diff < 0 ? `<span style="color:var(--danger);font-size:0.75rem">▼ ${Math.abs(diff).toFixed(1)}</span>` : "";
+      }
+    }
+    // Mini sparkline from all reports
+    const points = reports.map(r => r.markers[m.key]).filter(x => x != null);
+    const sparkline = points.length > 1 ? renderSparkline(points, m.low, m.high) : "";
+
+    return `<div class="metric-row" onclick="showMarkerDetail('${m.key}')">
+      <div style="flex:1">
+        <div class="metric-label">${m.label}</div>
+        <div class="metric-range">${m.low}–${m.high} ${m.unit}</div>
+        <div class="metric-note">${m.note}</div>
+        ${sparkline}
+      </div>
+      <div style="text-align:right;min-width:80px">
+        <div class="metric-value ${status}">${v != null ? v+' '+m.unit : '—'}</div>
+        <span class="badge ${v!=null?(v<m.low?'badge-danger':v>m.high?'badge-warn':'badge-safe'):'badge-blue'}">${badge}</span>
+        ${trend}
+      </div>
+    </div>`;
   }).join("");
 }
 
+function renderSparkline(points, low, high){
+  if(points.length < 2) return "";
+  const w=120, h=30, pad=2;
+  const min = Math.min(...points, low||Infinity)*0.9;
+  const max = Math.max(...points, high||0)*1.1;
+  const range = max-min || 1;
+  const coords = points.map((p,i) => {
+    const x = pad + (i/(points.length-1))*(w-2*pad);
+    const y = h-pad - ((p-min)/range)*(h-2*pad);
+    return `${x},${y}`;
+  });
+  const lowY = low != null ? h-pad-((low-min)/range)*(h-2*pad) : null;
+  const highY = high != null ? h-pad-((high-min)/range)*(h-2*pad) : null;
+  return `<svg width="${w}" height="${h}" style="margin-top:4px">
+    ${lowY!=null?`<line x1="${pad}" y1="${lowY}" x2="${w-pad}" y2="${lowY}" stroke="var(--danger)" stroke-width="0.5" stroke-dasharray="2"/>`:''}
+    ${highY!=null?`<line x1="${pad}" y1="${highY}" x2="${w-pad}" y2="${highY}" stroke="var(--warn)" stroke-width="0.5" stroke-dasharray="2"/>`:''}
+    <polyline points="${coords.join(' ')}" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+    ${coords.map((c,i) => `<circle cx="${c.split(',')[0]}" cy="${c.split(',')[1]}" r="2" fill="${i===coords.length-1?'var(--accent)':'var(--muted)'}"/>`).join('')}
+  </svg>`;
+}
+
+// ===== REPORT HISTORY =====
+function renderReportHistory(){
+  const box = document.getElementById("report-history");
+  if(!reports.length){ box.innerHTML=''; return; }
+  const latest = reports[reports.length-1];
+  box.innerHTML = `<div class="card">
+    <div class="card-header"><span class="card-header-left">📄 Latest Report — ${formatDate(latest.date)}</span>
+      <button class="btn-sm" onclick="viewAllReports()">All</button>
+    </div>
+    ${latest.notes ? `<p style="font-size:0.85rem;margin-bottom:8px;color:var(--muted)">${latest.notes}</p>` : ''}
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      ${Object.entries(latest.markers).filter(([k,v])=>v!=null).map(([k,v])=>{
+        const m = CHEMO_MARKERS.find(x=>x.key===k);
+        if(!m) return '';
+        const status = v<m.low ? 'danger' : v>m.high ? 'warn' : 'safe';
+        return `<div style="flex:1;min-width:100px;padding:8px;border-radius:8px;background:var(--${status}-bg);text-align:center">
+          <div style="font-size:0.75rem;color:var(--muted)">${m.label}</div>
+          <div style="font-weight:600;color:var(--${status})">${v} ${m.unit}</div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+// ===== TIMELINE =====
 function renderTimeline(){
-  const box=document.getElementById("timeline");
-  box.innerHTML=TIMELINE.map(t=>`
-    <div class="timeline-item ${t.done?'':'future'}">
-      <div class="tl-date">${t.date}</div>
-      <div class="tl-label">${t.done?'✅ ':'⏳ '}${t.label}</div>
+  const box = document.getElementById("timeline");
+  const typeIcons = {diagnosis:'🔬',surgery:'🏥',chemo:'💉',admission:'🚑',radiation:'☢️',scan:'📷',lab:'🧪',other:'📌'};
+  box.innerHTML = timelineData.sort((a,b)=>new Date(a.date)-new Date(b.date)).map(t => {
+    const cls = t.status==='done' ? '' : t.status==='current' ? 'current' : t.status==='skipped' ? 'skipped' : 'future';
+    const icon = typeIcons[t.type] || '📌';
+    const statusLabel = t.status==='done'?'✅':t.status==='current'?'🔵':t.status==='skipped'?'⏭️':'⏳';
+    return `<div class="timeline-item ${cls}">
+      <div class="tl-date">${formatDate(t.date)}</div>
+      <div class="tl-label">${statusLabel} ${icon} ${t.label}</div>
+      ${t.notes?`<div class="tl-note">${t.notes}</div>`:''}
+      <div class="tl-actions">
+        <button class="btn-sm" onclick="editTimelineItem('${t.id}')">Edit</button>
+        ${t.status==='planned'?`<button class="btn-sm danger" onclick="skipTimelineItem('${t.id}')">Skip/Delay</button>`:''}
+        ${t.status==='planned'?`<button class="btn-sm primary" onclick="markTimelineDone('${t.id}')">Done</button>`:''}
+      </div>
+    </div>`;
+  }).join("");
+}
+
+// ===== MEDICINE LIST =====
+function renderMedList(){
+  const box = document.getElementById("med-list");
+  if(!medicines.length){ box.innerHTML='<p style="font-size:0.85rem;color:var(--muted)">No medicines added yet. Add medicines from your doctor\'s prescription.</p>'; return; }
+  box.innerHTML = medicines.map((m,i) => `
+    <div class="med-item">
+      <div style="display:flex;justify-content:space-between;align-items:start">
+        <div>
+          <div class="med-name">${m.name} ${m.active===false?'<span class="badge badge-warn">Stopped</span>':''}</div>
+          <div class="med-detail">${m.dose} · ${m.freq}</div>
+          ${m.purpose?`<div class="med-detail">For: ${m.purpose}</div>`:''}
+          ${m.startDate?`<div class="med-detail">Started: ${formatDate(m.startDate)}</div>`:''}
+          <div class="med-timing">${(m.timing||[]).map(t=>`<span class="med-chip">${t}</span>`).join("")}</div>
+        </div>
+        <div style="display:flex;gap:4px">
+          <button class="btn-sm" onclick="editMedicine(${i})">Edit</button>
+          <button class="btn-sm danger" onclick="toggleMedicine(${i})">${m.active===false?'Resume':'Stop'}</button>
+        </div>
+      </div>
     </div>
   `).join("");
 }
 
-// ===== FOOD CHECKER =====
+function renderSuppList(){
+  const box = document.getElementById("supp-list");
+  box.innerHTML = supplements.map((s,i) => `
+    <div class="supp-item">
+      <div><strong>${s.name}</strong><br><span style="font-size:0.82rem;color:var(--muted)">${s.dose} · ${s.freq||''} · ${s.time||''}</span></div>
+      <div style="display:flex;gap:4px">
+        <button class="btn-sm" onclick="editSupplement(${i})">✏️</button>
+        <button class="btn-sm danger" onclick="deleteSupplement(${i})">✕</button>
+      </div>
+    </div>
+  `).join("") || '<p style="font-size:0.85rem;color:var(--muted)">No supplements added</p>';
+}
+
+// ===== FOOD CHECKER (EXPANDED) =====
 const UNSAFE_PATTERNS=[
-  {re:/\braw\b|\buncooked\b|\bsashimi\b|\bsushi\b/i, reason:"Raw food is not safe during chemo — increases infection risk"},
-  {re:/\bsalad\b(?!.*cook|.*boil|.*saut)/i, reason:"Raw salads are not safe — use well-cooked vegetables instead"},
-  {re:/\bsprout/i, reason:"Raw sprouts carry high bacteria risk — avoid during chemo"},
-  {re:/\bcurd\b(?!.*boil|.*cook|.*kadhi)|raita|chaas|lassi|chhash/i, reason:"Raw/cold dairy not safe during neutropenia — use boiled curd or kadhi"},
-  {re:/\bstreet\b|\boutside\b|\brestaurant\b|\bhotel\b.*food|\bfast.?food/i, reason:"Outside food carries infection risk — eat only freshly home-cooked food"},
-  {re:/\bleftover/i, reason:"Leftover food grows bacteria — eat only freshly prepared meals"},
-  {re:/\bgrape|berr|\bcherry|\bstrawberr/i, reason:"Small/seeded fruits are hard to wash safely — stick to banana, pomegranate (peeled), papaya"},
-  {re:/\bice.?cream\b|\bkulfi\b|\bgola\b/i, reason:"Outside frozen treats risk contamination — avoid"},
-  {re:/\bpani.?puri|\bbhel|\bchaat\b(?!.*home|.*boil)/i, reason:"Street snacks are unsafe — high contamination risk"},
-  {re:/\bjuice\b(?!.*fresh|.*home)/i, reason:"Outside juices may be contaminated — only fresh homemade juice from safe fruits"},
-  {re:/\bpickle\b|\bachaar\b/i, reason:"Strong pickles can irritate mouth sores from chemo — use mild or avoid"}
+  {re:/\braw\b|\buncooked\b|\bsashimi\b|\bsushi\b/i, reason:"Raw food is not safe during chemo — increases infection risk", source:"WHO"},
+  {re:/\bsalad\b(?!.*cook|.*boil|.*saut)/i, reason:"Raw salads are not safe — use well-cooked vegetables instead", source:"WHO"},
+  {re:/\bsprout/i, reason:"Raw sprouts carry high bacteria risk — avoid during chemo", source:"WHO/Dietitian"},
+  {re:/\bcurd\b(?!.*boil|.*cook|.*kadhi)|raita|chaas|lassi|chhash|buttermilk/i, reason:"Raw/cold dairy not safe during neutropenia — use boiled curd or kadhi", source:"Dietitian"},
+  {re:/\bstreet\b|\boutside\b|\brestaurant\b|\bhotel\b.*food|\bfast.?food|dhaba/i, reason:"Outside food carries infection risk — eat only freshly home-cooked food", source:"Oncologist"},
+  {re:/\bleftover|\breheated|\bstale/i, reason:"Leftover food grows bacteria rapidly — eat only freshly prepared meals", source:"WHO"},
+  {re:/\bgrape|berr|\bcherry|\bstrawberr/i, reason:"Small/seeded fruits are hard to wash safely — stick to banana, pomegranate (peeled), papaya", source:"Dietitian"},
+  {re:/\bice.?cream\b|\bkulfi\b|\bgola\b/i, reason:"Outside frozen treats risk contamination — avoid", source:"Dietitian"},
+  {re:/\bpani.?puri|\bbhel|\bchaat\b(?!.*home|.*boil)/i, reason:"Street snacks are unsafe — high contamination risk", source:"WHO"},
+  {re:/\bjuice\b(?!.*fresh|.*home)/i, reason:"Outside juices may be contaminated — only fresh homemade juice from safe fruits", source:"Dietitian"},
+  {re:/\bpickle\b|\bachaar\b/i, reason:"Strong pickles can irritate mouth sores from chemo — use mild or avoid", source:"Oncologist"},
+  {re:/\bmaida\b|\brefined\b.*flour/i, reason:"Refined flour has low nutrition — prefer whole grains for better immunity support", source:"Dietitian"},
+  {re:/\bfried\b|\bdeep.?fry/i, reason:"Deep fried food is hard to digest during chemo — prefer steamed, baked, or light sauteed", source:"Dietitian"},
+  {re:/\bspicy\b|\bchilli\b|\bmirch\b/i, reason:"Very spicy food can worsen mouth sores and nausea — keep mild", source:"Oncologist"},
+  {re:/\balcohol\b|\bbeer\b|\bwine\b|\bwhisky/i, reason:"Alcohol is strictly prohibited during chemotherapy", source:"Oncologist"},
+  {re:/\bsoda\b|\bcola\b|\bcarbonated/i, reason:"Carbonated drinks can cause bloating and nausea — avoid during chemo", source:"Dietitian"},
+  {re:/\braw\s*egg|half.?boil.*egg|runny.*egg|sunny.?side/i, reason:"Undercooked eggs carry salmonella risk — only fully cooked eggs are safe", source:"WHO"},
+  {re:/\bsmok|grilled.*char|barbecue|tandoor/i, reason:"Charred/smoked food contains carcinogens — avoid during treatment", source:"WHO"}
 ];
+
 const SAFE_PATTERNS=[
-  {re:/\bkhichdi\b/i, reason:"Excellent — easy to digest, nutritious, gentle on stomach"},
-  {re:/\bdal\b|\blentil\b|\bmoong\b|\bmasoor\b|\btoor\b|\brajma\b|\bchole\b|\bchana\b/i, reason:"Good protein source — make sure well-cooked and freshly prepared"},
-  {re:/\broti\b|\bchapati\b|\bparatha\b|\bnaan\b/i, reason:"Safe — good energy source, eat freshly made"},
-  {re:/\brice\b|\bpulao\b/i, reason:"Safe — easy to digest, eat freshly cooked"},
-  {re:/\bbanana\b/i, reason:"Safe fruit — potassium-rich, easy to digest, good for chemo"},
-  {re:/\bpomegranate\b|\banar\b/i, reason:"Safe — peel carefully, wash well, rich in antioxidants"},
-  {re:/\bpapaya\b/i, reason:"Safe — peel and wash, enzyme-rich, gentle on stomach"},
-  {re:/\bsoup\b(?!.*raw)/i, reason:"Excellent — hydrating, nutritious, easy to consume"},
-  {re:/\bidli\b|\bdosa\b|\bupma\b|\bpoha\b/i, reason:"Safe — light, easy to digest, eat freshly made"},
-  {re:/\bpaneer\b(?!.*raw)/i, reason:"Good protein — ensure fresh and well-cooked"},
-  {re:/\bghee\b/i, reason:"Good — provides calories and helps absorption of nutrients"},
-  {re:/\bturmeric\b.*milk|haldi.*milk/i, reason:"Excellent — anti-inflammatory, immunity support"},
-  {re:/\bvegetable\b.*\b(sabzi|curry|soup)\b|\bsabzi\b/i, reason:"Good — make sure well-cooked, not raw"},
-  {re:/\bbiscuit\b|\btoast\b/i, reason:"Safe light snack — good between meals"}
+  {re:/\bkhichdi\b/i, reason:"Excellent — easy to digest, nutritious, gentle on stomach. High protein with dal.", source:"Dietitian"},
+  {re:/\bdal\b|\blentil\b|\bmoong\b|\bmasoor\b|\btoor\b/i, reason:"Good protein source — make sure well-cooked and freshly prepared", source:"Dietitian"},
+  {re:/\brajma\b|\bchole\b|\bchana\b/i, reason:"Good protein — cook very well (pressure cook), eat freshly made", source:"Dietitian"},
+  {re:/\broti\b|\bchapati\b|\bparatha\b/i, reason:"Safe — good energy source, eat freshly made. Whole wheat preferred.", source:"Dietitian"},
+  {re:/\brice\b|\bpulao\b/i, reason:"Safe — easy to digest, eat freshly cooked. Good with dal for complete protein.", source:"Dietitian"},
+  {re:/\bbanana\b/i, reason:"Safe fruit — potassium-rich, easy to digest, excellent during chemo", source:"Dietitian"},
+  {re:/\bpomegranate\b|\banar\b/i, reason:"Safe — peel carefully, wash well. Rich in antioxidants and iron support.", source:"Dietitian"},
+  {re:/\bpapaya\b/i, reason:"Safe — peel and wash, enzyme-rich, supports digestion and immunity", source:"Dietitian"},
+  {re:/\bsoup\b(?!.*raw)/i, reason:"Excellent — hydrating, nutritious, easy to consume. Add protein (dal/paneer).", source:"WHO/Dietitian"},
+  {re:/\bidli\b|\bupma\b|\bpoha\b/i, reason:"Safe — light, easy to digest, eat freshly made", source:"Dietitian"},
+  {re:/\bpaneer\b(?!.*raw)/i, reason:"Good protein — ensure fresh and well-cooked. Important for maintaining weight.", source:"Dietitian"},
+  {re:/\bghee\b/i, reason:"Good — provides calories, helps nutrient absorption, supports immunity", source:"Dietitian"},
+  {re:/\bturmeric\b.*milk|haldi.*milk/i, reason:"Excellent — curcumin is anti-inflammatory, supports immunity during chemo", source:"Research/Dietitian"},
+  {re:/\bsabzi\b|\bcurry\b.*veg/i, reason:"Good — make sure well-cooked, not raw. Variety of vegetables for micronutrients.", source:"Dietitian"},
+  {re:/\bbiscuit\b|\btoast\b/i, reason:"Safe light snack — good between meals for maintaining calorie intake", source:"Dietitian"},
+  {re:/\begg\b(?!.*raw).*\b(boil|cook|scrambl|bhurji)/i, reason:"Excellent protein — must be fully cooked. Great for maintaining muscle mass.", source:"WHO/Dietitian"},
+  {re:/\bdosa\b(?!.*raw)/i, reason:"Safe if well-cooked — fermented batter is OK when cooked through. Good with sambar.", source:"Dietitian"},
+  {re:/\bdaliya\b|\boats?\b/i, reason:"Good — fiber-rich, easy to digest, add milk or vegetables for nutrition", source:"Dietitian"},
+  {re:/\bchilla\b|\bcheela\b/i, reason:"Safe — good protein from besan/moong, cook well. Great breakfast option.", source:"Dietitian"},
+  {re:/\bhoney\b/i, reason:"Safe in small amounts — soothing, can help with sore throat from chemo", source:"Dietitian"},
+  {re:/\bginger\b|\badrak\b/i, reason:"Helpful for nausea — use in tea, food. Anti-inflammatory properties.", source:"Research"},
+  {re:/\bcoconut\s*water/i, reason:"Good for hydration — ensure fresh and clean. Has natural electrolytes.", source:"Dietitian"}
 ];
 
 function checkFood(){
-  const q=document.getElementById("food-input").value.trim();
-  const box=document.getElementById("check-result");
-  if(!q){box.style.display="none";return;}
+  const q = document.getElementById("food-input").value.trim();
+  const box = document.getElementById("check-result");
+  if(!q){ box.style.display="none"; return; }
 
-  // Check unsafe first
+  // Also check custom dietitian rules
+  if(dietitianNotes){
+    const dn = dietitianNotes.toLowerCase();
+    const ql = q.toLowerCase();
+    // Simple check if dietitian specifically mentioned this food
+  }
+
   for(const p of UNSAFE_PATTERNS){
     if(p.re.test(q)){
       box.className="result-box result-unsafe";
-      box.innerHTML=`<strong>🚫 Not Safe</strong><br>${p.reason}`;
+      box.innerHTML=`<strong>🚫 Not Safe</strong> <span class="source-tag">${p.source}</span><br>${p.reason}`;
       box.style.display="block";
       return;
     }
   }
-  // Check safe
   for(const p of SAFE_PATTERNS){
     if(p.re.test(q)){
       box.className="result-box result-safe";
-      box.innerHTML=`<strong>✅ Safe</strong><br>${p.reason}`;
+      box.innerHTML=`<strong>✅ Safe</strong> <span class="source-tag">${p.source}</span><br>${p.reason}`;
       box.style.display="block";
       return;
     }
   }
-  // Unknown
   box.className="result-box result-caution";
-  box.innerHTML=`<strong>⚠️ Check with doctor</strong><br>Make sure it's well-cooked, freshly prepared at home, and not too spicy. When in doubt, stick to the meal plan.`;
+  box.innerHTML=`<strong>⚠️ Check with doctor/dietitian</strong><br>Make sure it's well-cooked, freshly prepared at home, and not too spicy. When in doubt, stick to the meal plan.`;
   box.style.display="block";
 }
 
+// ===== DIETITIAN NOTES =====
+function renderDietitianNotes(){
+  const box = document.getElementById("dietitian-notes");
+  if(dietitianNotes){
+    box.innerHTML = dietitianNotes.replace(/\n/g,'<br>');
+  } else {
+    box.innerHTML = "No custom notes yet — add notes from your dietitian below";
+  }
+}
+
+function openDietitianNotes(){
+  openModal("Dietitian Notes", `
+    <div class="form-group">
+      <label>Notes from your dietitian — specific foods to eat or avoid, portion advice, etc.</label>
+      <textarea id="modal-dn" rows="6" placeholder="E.g., Increase protein to 1.5g/kg/day&#10;Avoid citrus during mouth sores&#10;Coconut water OK for hydration">${dietitianNotes}</textarea>
+    </div>
+  `, () => {
+    dietitianNotes = document.getElementById("modal-dn").value;
+    saveAll();
+    renderDietitianNotes();
+    closeModal();
+  });
+}
+
+// ===== MODALS =====
+function openModal(title, content, onSave){
+  const root = document.getElementById("modal-root");
+  root.innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <h2>${title}</h2>
+      ${content}
+      <div class="modal-actions">
+        <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" id="modal-save">Save</button>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById("modal-save").onclick = onSave;
+}
+
+function closeModal(){
+  document.getElementById("modal-root").innerHTML = "";
+}
+
+// ===== ADD REPORT =====
+function openAddReport(){
+  const today = new Date().toISOString().split('T')[0];
+  const markerInputs = CHEMO_MARKERS.map(m =>
+    `<div class="form-group" style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <label style="min-width:90px;margin:0;font-size:0.82rem">${m.label}</label>
+      <input type="number" step="0.1" id="rpt-${m.key}" placeholder="${m.low}-${m.high} ${m.unit}" style="flex:1;padding:8px;font-size:0.85rem">
+    </div>`
+  ).join("");
+
+  openModal("Add Lab Report", `
+    <div class="form-group">
+      <label>Report Date</label>
+      <input type="date" id="rpt-date" value="${today}">
+    </div>
+    <p style="font-size:0.82rem;color:var(--muted);margin-bottom:8px">Enter values from the report (leave blank if not tested)</p>
+    ${markerInputs}
+    <div class="form-group">
+      <label>Notes (hospital, doctor, reason for test)</label>
+      <textarea id="rpt-notes" rows="2" placeholder="E.g., Pre-cycle 2 blood work at Nanavati Hospital"></textarea>
+    </div>
+  `, () => {
+    const date = document.getElementById("rpt-date").value;
+    if(!date){ alert("Please enter report date"); return; }
+    const markers = {};
+    CHEMO_MARKERS.forEach(m => {
+      const v = document.getElementById("rpt-"+m.key).value;
+      markers[m.key] = v ? parseFloat(v) : null;
+    });
+    const notes = document.getElementById("rpt-notes").value;
+    reports.push({ id: "r"+Date.now(), date, markers, notes });
+    reports.sort((a,b) => new Date(a.date)-new Date(b.date));
+    saveAll();
+    renderAll();
+    closeModal();
+  });
+}
+
+function viewAllReports(){
+  if(!reports.length) return;
+  const rows = reports.slice().reverse().map(r => {
+    const vals = Object.entries(r.markers).filter(([k,v])=>v!=null).map(([k,v])=>{
+      const m = CHEMO_MARKERS.find(x=>x.key===k);
+      return m ? `${m.label}: ${v}` : '';
+    }).filter(Boolean).join(', ');
+    return `<div class="report-entry">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <strong>${formatDate(r.date)}</strong>
+        <button class="btn-sm danger" onclick="deleteReport('${r.id}')">Delete</button>
+      </div>
+      <div style="font-size:0.82rem;color:var(--muted);margin-top:4px">${vals}</div>
+      ${r.notes?`<div style="font-size:0.82rem;margin-top:2px">${r.notes}</div>`:''}
+    </div>`;
+  }).join("");
+
+  openModal("All Reports", rows, closeModal);
+  document.getElementById("modal-save").textContent = "Close";
+}
+
+function deleteReport(id){
+  if(!confirm("Delete this report?")) return;
+  reports = reports.filter(r => r.id !== id);
+  saveAll();
+  renderAll();
+  viewAllReports();
+}
+
+function showMarkerDetail(key){
+  const m = CHEMO_MARKERS.find(x=>x.key===key);
+  if(!m) return;
+  const points = reports.map(r => ({date:r.date, value:r.markers[key]})).filter(p=>p.value!=null);
+  const history = points.map(p => `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)">
+    <span>${formatDate(p.date)}</span>
+    <strong style="color:${p.value<m.low?'var(--danger)':p.value>m.high?'var(--warn)':'var(--safe)'}">${p.value} ${m.unit}</strong>
+  </div>`).join("") || '<p style="color:var(--muted)">No data yet — add a report</p>';
+
+  openModal(m.label, `
+    <div style="font-size:0.85rem;margin-bottom:8px"><strong>Normal range:</strong> ${m.low}–${m.high} ${m.unit}</div>
+    <div style="font-size:0.85rem;margin-bottom:12px">${m.note}</div>
+    <h3 style="font-size:0.9rem;margin-bottom:8px">History</h3>
+    ${history}
+  `, closeModal);
+  document.getElementById("modal-save").textContent = "Close";
+}
+
+// ===== TIMELINE ACTIONS =====
+function openAddTimeline(){
+  const today = new Date().toISOString().split('T')[0];
+  openModal("Add Timeline Event", `
+    <div class="form-group"><label>Date</label><input type="date" id="tl-date" value="${today}"></div>
+    <div class="form-group"><label>Event</label><input type="text" id="tl-label" placeholder="E.g., Cycle 2 — R-mini CHOP"></div>
+    <div class="form-group"><label>Type</label>
+      <select id="tl-type">
+        <option value="chemo">Chemo Cycle</option>
+        <option value="admission">Hospital Admission</option>
+        <option value="surgery">Surgery</option>
+        <option value="scan">Scan/Imaging</option>
+        <option value="lab">Lab Work</option>
+        <option value="radiation">Radiation</option>
+        <option value="other">Other</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Status</label>
+      <select id="tl-status">
+        <option value="planned">Planned</option>
+        <option value="current">Current/Ongoing</option>
+        <option value="done">Completed</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Notes</label><textarea id="tl-notes" rows="2" placeholder="Additional details..."></textarea></div>
+  `, () => {
+    const item = {
+      id: "t"+Date.now(),
+      date: document.getElementById("tl-date").value,
+      label: document.getElementById("tl-label").value,
+      type: document.getElementById("tl-type").value,
+      status: document.getElementById("tl-status").value,
+      notes: document.getElementById("tl-notes").value
+    };
+    if(!item.date || !item.label){ alert("Date and event name required"); return; }
+    timelineData.push(item);
+    saveAll();
+    renderAll();
+    closeModal();
+  });
+}
+
+function editTimelineItem(id){
+  const item = timelineData.find(t=>t.id===id);
+  if(!item) return;
+  openModal("Edit Event", `
+    <div class="form-group"><label>Date</label><input type="date" id="tl-date" value="${item.date}"></div>
+    <div class="form-group"><label>Event</label><input type="text" id="tl-label" value="${item.label}"></div>
+    <div class="form-group"><label>Type</label>
+      <select id="tl-type">
+        ${['chemo','admission','surgery','scan','lab','radiation','diagnosis','other'].map(t=>`<option value="${t}" ${item.type===t?'selected':''}>${t.charAt(0).toUpperCase()+t.slice(1)}</option>`).join("")}
+      </select>
+    </div>
+    <div class="form-group"><label>Status</label>
+      <select id="tl-status">
+        ${['planned','current','done','skipped'].map(s=>`<option value="${s}" ${item.status===s?'selected':''}>${s.charAt(0).toUpperCase()+s.slice(1)}</option>`).join("")}
+      </select>
+    </div>
+    <div class="form-group"><label>Notes</label><textarea id="tl-notes" rows="2">${item.notes||''}</textarea></div>
+    <button class="btn" style="background:var(--danger);color:#fff;width:100%;margin-top:8px" onclick="deleteTimelineItem('${id}')">Delete Event</button>
+  `, () => {
+    item.date = document.getElementById("tl-date").value;
+    item.label = document.getElementById("tl-label").value;
+    item.type = document.getElementById("tl-type").value;
+    item.status = document.getElementById("tl-status").value;
+    item.notes = document.getElementById("tl-notes").value;
+    saveAll();
+    renderAll();
+    closeModal();
+  });
+}
+
+function skipTimelineItem(id){
+  const item = timelineData.find(t=>t.id===id);
+  if(!item) return;
+  const newDate = prompt("New date (YYYY-MM-DD) or leave empty to skip:", item.date);
+  if(newDate === null) return;
+  if(newDate === ""){
+    item.status = "skipped";
+    item.notes = (item.notes ? item.notes+". ":"") + "Skipped";
+  } else {
+    item.date = newDate;
+    item.notes = (item.notes ? item.notes+". ":"") + "Delayed from " + formatDate(item.date);
+  }
+  saveAll();
+  renderAll();
+}
+
+function markTimelineDone(id){
+  const item = timelineData.find(t=>t.id===id);
+  if(!item) return;
+  item.status = "done";
+  saveAll();
+  renderAll();
+}
+
+function deleteTimelineItem(id){
+  if(!confirm("Delete this event?")) return;
+  timelineData = timelineData.filter(t=>t.id!==id);
+  saveAll();
+  renderAll();
+  closeModal();
+}
+
+function openEditTimeline(){
+  // Show a list of all events to edit
+  const items = timelineData.sort((a,b)=>new Date(a.date)-new Date(b.date)).map(t =>
+    `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+      <div>
+        <div style="font-size:0.85rem;font-weight:500">${t.label}</div>
+        <div style="font-size:0.78rem;color:var(--muted)">${formatDate(t.date)} · ${t.status}</div>
+      </div>
+      <button class="btn-sm" onclick="closeModal();editTimelineItem('${t.id}')">Edit</button>
+    </div>`
+  ).join("");
+  openModal("Edit Timeline", items, closeModal);
+  document.getElementById("modal-save").textContent = "Close";
+}
+
+// ===== MEDICINES =====
+function openAddMedicine(){
+  openModal("Add Medicine", `
+    <div class="form-group"><label>Medicine Name</label><input type="text" id="med-name" placeholder="E.g., Rituximab, Ondansetron"></div>
+    <div class="form-group"><label>Dose</label><input type="text" id="med-dose" placeholder="E.g., 375 mg/m², 4mg"></div>
+    <div class="form-group"><label>Frequency</label>
+      <select id="med-freq">
+        <option value="Once daily">Once daily</option>
+        <option value="Twice daily">Twice daily</option>
+        <option value="Three times daily">Three times daily</option>
+        <option value="As needed">As needed</option>
+        <option value="Weekly">Weekly</option>
+        <option value="Every 21 days">Every 21 days (chemo cycle)</option>
+        <option value="Before meals">Before meals</option>
+        <option value="After meals">After meals</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Timing (select all that apply)</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px" id="med-timing-opts">
+        ${['Morning','Afternoon','Evening','Night','Before food','After food','With food','Empty stomach'].map(t =>
+          `<label style="display:flex;align-items:center;gap:4px;font-size:0.85rem;cursor:pointer">
+            <input type="checkbox" value="${t}"> ${t}
+          </label>`
+        ).join("")}
+      </div>
+    </div>
+    <div class="form-group"><label>Purpose (what is it for?)</label><input type="text" id="med-purpose" placeholder="E.g., Anti-nausea, Chemo drug, Pain"></div>
+    <div class="form-group"><label>Start Date</label><input type="date" id="med-start" value="${new Date().toISOString().split('T')[0]}"></div>
+    <div class="form-group"><label>Notes</label><textarea id="med-notes" rows="2" placeholder="Doctor's instructions, side effects to watch..."></textarea></div>
+  `, () => {
+    const name = document.getElementById("med-name").value.trim();
+    if(!name){ alert("Medicine name required"); return; }
+    const timing = [...document.querySelectorAll("#med-timing-opts input:checked")].map(c=>c.value);
+    medicines.push({
+      id: "m"+Date.now(), name,
+      dose: document.getElementById("med-dose").value,
+      freq: document.getElementById("med-freq").value,
+      timing,
+      purpose: document.getElementById("med-purpose").value,
+      startDate: document.getElementById("med-start").value,
+      notes: document.getElementById("med-notes").value,
+      active: true
+    });
+    saveAll();
+    renderAll();
+    closeModal();
+  });
+}
+
+function editMedicine(idx){
+  const m = medicines[idx];
+  if(!m) return;
+  openModal("Edit Medicine", `
+    <div class="form-group"><label>Medicine Name</label><input type="text" id="med-name" value="${m.name}"></div>
+    <div class="form-group"><label>Dose</label><input type="text" id="med-dose" value="${m.dose||''}"></div>
+    <div class="form-group"><label>Frequency</label>
+      <select id="med-freq">
+        ${['Once daily','Twice daily','Three times daily','As needed','Weekly','Every 21 days','Before meals','After meals'].map(f =>
+          `<option value="${f}" ${m.freq===f?'selected':''}>${f}</option>`
+        ).join("")}
+      </select>
+    </div>
+    <div class="form-group"><label>Timing</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px" id="med-timing-opts">
+        ${['Morning','Afternoon','Evening','Night','Before food','After food','With food','Empty stomach'].map(t =>
+          `<label style="display:flex;align-items:center;gap:4px;font-size:0.85rem;cursor:pointer">
+            <input type="checkbox" value="${t}" ${(m.timing||[]).includes(t)?'checked':''}> ${t}
+          </label>`
+        ).join("")}
+      </div>
+    </div>
+    <div class="form-group"><label>Purpose</label><input type="text" id="med-purpose" value="${m.purpose||''}"></div>
+    <div class="form-group"><label>Start Date</label><input type="date" id="med-start" value="${m.startDate||''}"></div>
+    <div class="form-group"><label>Notes</label><textarea id="med-notes" rows="2">${m.notes||''}</textarea></div>
+    <button class="btn" style="background:var(--danger);color:#fff;width:100%;margin-top:8px" onclick="deleteMedicine(${idx})">Delete Medicine</button>
+  `, () => {
+    const timing = [...document.querySelectorAll("#med-timing-opts input:checked")].map(c=>c.value);
+    medicines[idx] = { ...m,
+      name: document.getElementById("med-name").value,
+      dose: document.getElementById("med-dose").value,
+      freq: document.getElementById("med-freq").value,
+      timing,
+      purpose: document.getElementById("med-purpose").value,
+      startDate: document.getElementById("med-start").value,
+      notes: document.getElementById("med-notes").value
+    };
+    saveAll();
+    renderAll();
+    closeModal();
+  });
+}
+
+function toggleMedicine(idx){
+  const m = medicines[idx];
+  m.active = m.active === false ? true : false;
+  if(m.active === false) m.stoppedDate = new Date().toISOString().split('T')[0];
+  saveAll();
+  renderAll();
+}
+
+function deleteMedicine(idx){
+  if(!confirm("Delete "+medicines[idx].name+"?")) return;
+  medicines.splice(idx, 1);
+  saveAll();
+  renderAll();
+  closeModal();
+}
+
+// ===== SUPPLEMENTS =====
+function openAddSupplement(){
+  openModal("Add Supplement", `
+    <div class="form-group"><label>Name</label><input type="text" id="sup-name" placeholder="E.g., Zinc, Vitamin D3"></div>
+    <div class="form-group"><label>Dose</label><input type="text" id="sup-dose" placeholder="E.g., 50mg, 1000 IU"></div>
+    <div class="form-group"><label>Frequency</label><input type="text" id="sup-freq" placeholder="E.g., Once daily"></div>
+    <div class="form-group"><label>Time</label><input type="text" id="sup-time" placeholder="E.g., Morning, After lunch"></div>
+  `, () => {
+    const name = document.getElementById("sup-name").value.trim();
+    if(!name){ alert("Name required"); return; }
+    supplements.push({
+      name, dose: document.getElementById("sup-dose").value,
+      freq: document.getElementById("sup-freq").value,
+      time: document.getElementById("sup-time").value
+    });
+    saveAll();
+    renderAll();
+    closeModal();
+  });
+}
+
+function editSupplement(idx){
+  const s = supplements[idx];
+  openModal("Edit Supplement", `
+    <div class="form-group"><label>Name</label><input type="text" id="sup-name" value="${s.name}"></div>
+    <div class="form-group"><label>Dose</label><input type="text" id="sup-dose" value="${s.dose||''}"></div>
+    <div class="form-group"><label>Frequency</label><input type="text" id="sup-freq" value="${s.freq||''}"></div>
+    <div class="form-group"><label>Time</label><input type="text" id="sup-time" value="${s.time||''}"></div>
+  `, () => {
+    supplements[idx] = {
+      name: document.getElementById("sup-name").value,
+      dose: document.getElementById("sup-dose").value,
+      freq: document.getElementById("sup-freq").value,
+      time: document.getElementById("sup-time").value
+    };
+    saveAll();
+    renderAll();
+    closeModal();
+  });
+}
+
+function deleteSupplement(idx){
+  if(!confirm("Delete "+supplements[idx].name+"?")) return;
+  supplements.splice(idx, 1);
+  saveAll();
+  renderAll();
+}
+
 // ===== TABS =====
-function switchTab(name){
+function switchTab(name, btn){
   document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
   document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
   document.getElementById("tab-"+name).classList.add("active");
-  event.currentTarget.classList.add("active");
+  if(btn) btn.classList.add("active");
 }
+
+// ===== HELPERS =====
+function formatDate(d){
+  if(!d) return "—";
+  try {
+    const dt = new Date(d+"T00:00:00");
+    return dt.toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"});
+  } catch(e) { return d; }
+}
+
+function genId(){ return Math.random().toString(36).substr(2,9); }
 
 // ===== INIT =====
 (async()=>{
   await loadFirebase();
   firebase.auth().onAuthStateChanged(u=>{
-    if(u) showApp();
+    if(u){ uid=u.uid; showApp(); }
   });
 })();
 </script>
