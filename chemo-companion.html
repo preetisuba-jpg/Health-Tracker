@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Chemo Companion — Natwarlal</title>
+<style>
+:root {
+  --bg: #FAFAF8; --card: #fff; --text: #1a1a1a; --muted: #666; --accent: #2E7D32;
+  --accent-light: #E8F5E9; --border: #e8e5e0; --danger: #C62828; --danger-bg: #FFEBEE;
+  --warn: #E65100; --warn-bg: #FFF3E0; --safe: #2E7D32; --safe-bg: #E8F5E9;
+  --radius: 12px; --shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+@media(prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#1a1a1a; --card:#262626; --text:#e8e5e0; --muted:#999; --accent:#66BB6A;
+    --accent-light:#1B3A1D; --border:#333; --danger:#EF5350; --danger-bg:#3E1A1A;
+    --warn:#FF9800; --warn-bg:#3E2A10; --safe:#66BB6A; --safe-bg:#1B3A1D;
+    --shadow:0 1px 3px rgba(0,0,0,0.3);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1a1a1a; --card:#262626; --text:#e8e5e0; --muted:#999; --accent:#66BB6A;
+  --accent-light:#1B3A1D; --border:#333; --danger:#EF5350; --danger-bg:#3E1A1A;
+  --warn:#FF9800; --warn-bg:#3E2A10; --safe:#66BB6A; --safe-bg:#1B3A1D;
+  --shadow:0 1px 3px rgba(0,0,0,0.3);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); line-height:1.5; padding:16px; padding-bottom:80px; max-width:480px; margin:0 auto; }
+h1 { font-size:1.3rem; font-weight:700; margin-bottom:4px; }
+h2 { font-size:1.05rem; font-weight:600; margin:20px 0 10px; color:var(--accent); }
+.subtitle { font-size:0.85rem; color:var(--muted); margin-bottom:16px; }
+.card { background:var(--card); border-radius:var(--radius); padding:16px; margin-bottom:12px; border:1px solid var(--border); box-shadow:var(--shadow); }
+.card-header { font-weight:600; font-size:0.95rem; margin-bottom:8px; display:flex; align-items:center; gap:8px; }
+.badge { display:inline-block; padding:2px 8px; border-radius:20px; font-size:0.75rem; font-weight:600; }
+.badge-safe { background:var(--safe-bg); color:var(--safe); }
+.badge-danger { background:var(--danger-bg); color:var(--danger); }
+.badge-warn { background:var(--warn-bg); color:var(--warn); }
+.meal-slot { padding:10px 0; border-bottom:1px solid var(--border); }
+.meal-slot:last-child { border-bottom:none; }
+.meal-time { font-size:0.8rem; color:var(--muted); font-weight:500; }
+.meal-name { font-size:0.92rem; margin-top:2px; }
+.meal-note { font-size:0.78rem; color:var(--muted); margin-top:2px; font-style:italic; }
+.metric-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border); }
+.metric-row:last-child { border-bottom:none; }
+.metric-label { font-size:0.9rem; font-weight:500; }
+.metric-value { font-size:0.95rem; font-weight:600; }
+.metric-range { font-size:0.75rem; color:var(--muted); }
+.metric-note { font-size:0.78rem; color:var(--muted); margin-top:2px; }
+.status-ok { color:var(--safe); }
+.status-low { color:var(--danger); }
+.status-high { color:var(--warn); }
+.supp-item { padding:8px 0; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; }
+.supp-item:last-child { border-bottom:none; }
+.checker-input { width:100%; padding:12px; border:1px solid var(--border); border-radius:var(--radius); font-size:1rem; background:var(--card); color:var(--text); }
+.checker-input:focus { outline:none; border-color:var(--accent); }
+.result-box { margin-top:10px; padding:12px; border-radius:var(--radius); display:none; }
+.result-safe { background:var(--safe-bg); border:1px solid var(--safe); }
+.result-unsafe { background:var(--danger-bg); border:1px solid var(--danger); }
+.result-caution { background:var(--warn-bg); border:1px solid var(--warn); }
+.rules-list { list-style:none; padding:0; }
+.rules-list li { padding:6px 0; font-size:0.88rem; display:flex; gap:8px; align-items:flex-start; }
+.rules-list li::before { content:"⚠️"; flex-shrink:0; }
+.tab-bar { position:fixed; bottom:0; left:0; right:0; background:var(--card); border-top:1px solid var(--border); display:flex; z-index:100; }
+.tab { flex:1; padding:10px 4px; text-align:center; font-size:0.72rem; color:var(--muted); cursor:pointer; border:none; background:none; }
+.tab.active { color:var(--accent); font-weight:600; }
+.tab-icon { font-size:1.2rem; display:block; }
+.section { display:none; }
+.section.active { display:block; }
+.day-tabs { display:flex; gap:4px; margin-bottom:12px; overflow-x:auto; }
+.day-tab { padding:6px 12px; border-radius:20px; font-size:0.82rem; border:1px solid var(--border); background:var(--card); cursor:pointer; white-space:nowrap; color:var(--text); }
+.day-tab.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+.header-bar { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+.cycle-info { font-size:0.82rem; color:var(--muted); background:var(--accent-light); padding:4px 10px; border-radius:20px; }
+.auth-box { text-align:center; padding:40px 20px; }
+.auth-box input { width:100%; padding:12px; border:1px solid var(--border); border-radius:var(--radius); margin:6px 0; font-size:1rem; background:var(--card); color:var(--text); }
+.auth-box button { width:100%; padding:12px; border:none; border-radius:var(--radius); background:var(--accent); color:#fff; font-size:1rem; font-weight:600; cursor:pointer; margin-top:8px; }
+.hidden { display:none !important; }
+.timeline-item { padding:10px 0 10px 20px; border-left:2px solid var(--accent); position:relative; }
+.timeline-item::before { content:""; position:absolute; left:-5px; top:14px; width:8px; height:8px; border-radius:50%; background:var(--accent); }
+.timeline-item.future { border-left-color:var(--border); }
+.timeline-item.future::before { background:var(--border); }
+.tl-date { font-size:0.8rem; color:var(--muted); }
+.tl-label { font-size:0.9rem; font-weight:500; }
+</style>
+</head>
+<body>
+
+<!-- AUTH SCREEN -->
+<div id="auth-screen" class="auth-box">
+  <h1>🩺 Chemo Companion</h1>
+  <p class="subtitle">Natwarlal's health tracker during R-mini CHOP</p>
+  <input type="email" id="auth-email" placeholder="Email" autocomplete="email">
+  <input type="password" id="auth-pass" placeholder="Password" autocomplete="current-password">
+  <button id="auth-btn" onclick="doSignIn()">Sign In</button>
+  <p id="auth-err" style="color:var(--danger);font-size:0.85rem;margin-top:8px"></p>
+</div>
+
+<!-- MAIN APP -->
+<div id="app" class="hidden">
+
+<!-- ===== TODAY TAB ===== -->
+<div id="tab-today" class="section active">
+  <div class="header-bar">
+    <div>
+      <h1 id="greeting">Hi Natwarlal 👋</h1>
+      <p class="subtitle" id="today-date"></p>
+    </div>
+    <span class="cycle-info" id="cycle-badge">Cycle 1</span>
+  </div>
+
+  <div class="card">
+    <div class="card-header">🍽️ Today's Meals</div>
+    <p style="font-size:0.78rem;color:var(--muted);margin-bottom:8px">6 small meals — all freshly cooked, no raw food</p>
+    <div id="today-meals"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">💊 Supplements</div>
+    <div id="today-supps"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">⚠️ Chemo Diet Rules</div>
+    <ul class="rules-list">
+      <li>No raw food — everything well-cooked</li>
+      <li>No outside/restaurant food</li>
+      <li>Only freshly cooked — no leftovers</li>
+      <li>No raw curd during neutropenia (boiled curd OK)</li>
+      <li>Safe fruits only — banana, pomegranate, papaya (peeled, washed)</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ===== MEALS TAB ===== -->
+<div id="tab-meals" class="section">
+  <h1>🗓️ Weekly Meal Plan</h1>
+  <p class="subtitle">Chemo-safe, immunity-supporting, Gujarati/North Indian</p>
+  <div class="day-tabs" id="day-tabs"></div>
+  <div class="card" id="day-meals"></div>
+</div>
+
+<!-- ===== CHECKER TAB ===== -->
+<div id="tab-checker" class="section">
+  <h1>🔍 Food Safety Check</h1>
+  <p class="subtitle">Is this food safe during chemo?</p>
+  <div class="card">
+    <input type="text" class="checker-input" id="food-input" placeholder="Type a food... e.g. paneer tikka, raw salad" oninput="checkFood()">
+    <div id="check-result" class="result-box"></div>
+  </div>
+  <div class="card">
+    <div class="card-header">✅ Always Safe</div>
+    <p style="font-size:0.88rem">Dal-rice, khichdi, roti-sabzi, well-cooked vegetables, boiled curd/kadhi, steamed idli, moong dal chilla, upma, poha, vegetable soup, banana, pomegranate (peeled), papaya (peeled)</p>
+  </div>
+  <div class="card">
+    <div class="card-header">🚫 Always Avoid</div>
+    <p style="font-size:0.88rem">Raw salad, raw sprouts, uncooked curd/raita, street food, outside/restaurant food, leftover food, raw fruits with skin (grapes, berries, apple with skin), cut fruits from outside, cold drinks, ice cream from outside</p>
+  </div>
+</div>
+
+<!-- ===== HEALTH TAB ===== -->
+<div id="tab-health" class="section">
+  <h1>📊 Lab Markers</h1>
+  <p class="subtitle">Key markers to watch during R-mini CHOP</p>
+  <div class="card" id="lab-markers"></div>
+
+  <h2>📅 Treatment Timeline</h2>
+  <div class="card" id="timeline"></div>
+</div>
+
+</div><!-- /app -->
+
+<!-- TAB BAR -->
+<div class="tab-bar hidden" id="tab-bar">
+  <button class="tab active" onclick="switchTab('today')"><span class="tab-icon">🏠</span>Today</button>
+  <button class="tab" onclick="switchTab('meals')"><span class="tab-icon">🍽️</span>Meals</button>
+  <button class="tab" onclick="switchTab('checker')"><span class="tab-icon">🔍</span>Check</button>
+  <button class="tab" onclick="switchTab('health')"><span class="tab-icon">📊</span>Health</button>
+</div>
+
+<script>
+// ===== FIREBASE CONFIG (same as main app) =====
+const FB_CONFIG={apiKey:"AIzaSyBbNmCmC4eiO94Sim_8h1x4MG5lcECkbes",authDomain:"health-tracker-f9392.firebaseapp.com",projectId:"health-tracker-f9392",storageBucket:"health-tracker-f9392.firebasestorage.app",messagingSenderId:"490510742498",appId:"1:490510742498:web:830a7dc938623038da7fbb"};
+
+let fb=null;
+async function loadFirebase(){
+  if(fb)return fb;
+  await loadScript("https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js");
+  await loadScript("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js");
+  await loadScript("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js");
+  fb=firebase.initializeApp(FB_CONFIG);
+  return fb;
+}
+function loadScript(src){return new Promise((r,j)=>{const s=document.createElement("script");s.src=src;s.onload=r;s.onerror=j;document.head.appendChild(s);})}
+
+// ===== AUTH =====
+async function doSignIn(){
+  const email=document.getElementById("auth-email").value.trim();
+  const pass=document.getElementById("auth-pass").value;
+  const err=document.getElementById("auth-err");
+  if(!email||!pass){err.textContent="Enter email and password";return;}
+  err.textContent="Signing in...";
+  try{
+    await loadFirebase();
+    await firebase.auth().signInWithEmailAndPassword(email,pass);
+    err.textContent="";
+    showApp();
+  }catch(e){err.textContent=e.message;}
+}
+
+async function showApp(){
+  document.getElementById("auth-screen").classList.add("hidden");
+  document.getElementById("app").classList.remove("hidden");
+  document.getElementById("tab-bar").classList.remove("hidden");
+  await loadData();
+}
+
+// ===== DATA =====
+const DAYS=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+const MEAL_SLOTS=[
+  {key:"breakfast", label:"Breakfast", time:"7:30 AM", icon:"🌅"},
+  {key:"midmorning", label:"Mid-morning", time:"10:00 AM", icon:"🍌"},
+  {key:"lunch", label:"Lunch", time:"12:30 PM", icon:"☀️"},
+  {key:"afternoon", label:"Afternoon", time:"3:30 PM", icon:"🫖"},
+  {key:"dinner", label:"Dinner", time:"7:00 PM", icon:"🌙"},
+  {key:"evening", label:"Before bed", time:"9:00 PM", icon:"😴"}
+];
+
+// Chemo-safe 6-meal plan — all freshly cooked, no raw items
+const CHEMO_PLAN=[
+  // Monday
+  {breakfast:"Moong dal chilla with cooked mint chutney",midmorning:"1 banana + warm turmeric milk",lunch:"Dal-rice with lauki sabzi and 1 roti",afternoon:"Hot vegetable soup with 2 Marie biscuits",dinner:"Khichdi with ghee and steamed bottle gourd",evening:"Warm milk with a pinch of turmeric"},
+  // Tuesday
+  {breakfast:"Upma with well-cooked vegetables and paneer bits",midmorning:"Pomegranate seeds (washed, peeled) + 5 soaked almonds",lunch:"Rajma (well-cooked) with jeera rice and roti",afternoon:"Warm dal soup with toast",dinner:"Masoor dal with roti and aloo-peas sabzi",evening:"1 ripe banana + warm milk"},
+  // Wednesday
+  {breakfast:"Besan chilla with cooked tomato chutney",midmorning:"Boiled sweet potato + warm lemon water",lunch:"Chole (well-cooked) with rice and bhindi sabzi",afternoon:"Vegetable daliya (savoury) with lemon",dinner:"Khichdi with kadhi (well-boiled) and ghee",evening:"Warm turmeric milk + 2 biscuits"},
+  // Thursday
+  {breakfast:"Steamed idli with sambar and cooked coconut chutney",midmorning:"Papaya slices (peeled) + warm milk",lunch:"Toor dal with rice and parwal sabzi",afternoon:"Hot tomato soup with 2 biscuits",dinner:"Moong dal khichdi with steamed lauki and ghee",evening:"1 banana + warm water with honey"},
+  // Friday
+  {breakfast:"Poha (well-cooked) with peas and peanuts",midmorning:"Pomegranate + 5 soaked almonds",lunch:"Palak dal with jeera rice and soft aloo gobi",afternoon:"Warm moong dal soup with toast",dinner:"Vegetable khichdi with ghee and steamed turai",evening:"Warm milk + ripe banana"},
+  // Saturday
+  {breakfast:"Rava dosa (well-cooked) with sambar",midmorning:"Boiled chana chaat (warm) + lemon",lunch:"Chana dal with rice and well-cooked cabbage sabzi",afternoon:"Hot carrot soup with 2 biscuits",dinner:"Dal-roti with pumpkin sabzi and ghee",evening:"Warm turmeric milk"},
+  // Sunday
+  {breakfast:"Aloo paratha (light oil) with boiled curd",midmorning:"Papaya + warm milk",lunch:"Rajma-rice with tori sabzi and roti",afternoon:"Mixed vegetable soup with daliya",dinner:"Masoor dal khichdi with ghee and steamed vegetables",evening:"Warm milk with 2 biscuits"}
+];
+
+// Default lab markers (from diagnosis reports)
+const DEFAULT_MARKERS=[
+  {key:"wbc",label:"WBC",value:7.2,unit:"×10³/µL",low:4.0,high:11.0,note:"Drops after each cycle — alert if <2.0"},
+  {key:"hgb",label:"Hemoglobin",value:12.8,unit:"g/dL",low:13.0,high:17.0,note:"Slightly low — monitor for fatigue"},
+  {key:"plt",label:"Platelets",value:185,unit:"×10³/µL",low:150,high:400,note:"Watch for drops — risk of bleeding if <50"},
+  {key:"ldh",label:"LDH",value:245,unit:"U/L",low:120,high:246,note:"Lymphoma marker — borderline at diagnosis"},
+  {key:"creat",label:"Creatinine",value:1.1,unit:"mg/dL",low:0.7,high:1.3,note:"Kidney function — monitor with chemo"},
+  {key:"alb",label:"Albumin",value:3.5,unit:"g/dL",low:3.5,high:5.5,note:"Protein status — at lower limit, critical to maintain"}
+];
+
+const TIMELINE=[
+  {date:"Oct 2026",label:"Diagnosis — Testicular DLBCL (Non-GCB)",done:true},
+  {date:"Oct 2026",label:"High inguinal orchidectomy (surgery)",done:true},
+  {date:"5 Nov 2026",label:"Cycle 1 — R-mini CHOP started",done:true},
+  {date:"~26 Nov 2026",label:"Cycle 2 — R-mini CHOP",done:false},
+  {date:"~17 Dec 2026",label:"Cycle 3 — R-mini CHOP",done:false},
+  {date:"~7 Jan 2027",label:"Cycle 4 — R-mini CHOP",done:false},
+  {date:"~28 Jan 2027",label:"Cycle 5 — R-mini CHOP",done:false},
+  {date:"~18 Feb 2027",label:"Cycle 6 — R-mini CHOP",done:false},
+  {date:"After chemo",label:"Triple IT + Scrotal radiation",done:false},
+  {date:"After RT",label:"Follow-up PET-CT scan",done:false}
+];
+
+let profileData=null, markers=DEFAULT_MARKERS;
+
+async function loadData(){
+  try{
+    const uid=firebase.auth().currentUser.uid;
+    const snap=await firebase.firestore().collection("users").doc(uid).get();
+    if(snap.exists()){
+      const d=snap.data().data||{};
+      profileData=d["profile:data"]||{};
+      // Load custom metrics if available
+      const m=d["reports:metrics"];
+      if(m&&m.length){
+        markers=m.map(x=>({key:x.key,label:x.label,value:x.points&&x.points[x.points.length-1],unit:x.unit,low:x.low,high:x.high,note:x.note}));
+      }
+      const supps=d["supplements:list"];
+      if(supps&&supps.length) renderSupplements(supps);
+      else renderSupplements([{name:"Zinc + Vitamin C",dose:"As prescribed",time:"morning"},{name:"Protein supplement",dose:"1 scoop",time:"with meals"},{name:"Probiotics",dose:"As prescribed",time:"evening"}]);
+      if(profileData.name) document.getElementById("greeting").textContent="Hi "+profileData.name.split(" ")[0]+" 👋";
+    }
+  }catch(e){console.error("Load error:",e);}
+
+  renderToday();
+  renderDayTabs();
+  renderMarkers();
+  renderTimeline();
+}
+
+function renderToday(){
+  const d=new Date();
+  document.getElementById("today-date").textContent=d.toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+  const dayIdx=d.getDay(); // 0=Sun
+  const planIdx=dayIdx===0?6:dayIdx-1; // Mon=0
+  const plan=CHEMO_PLAN[planIdx];
+  const box=document.getElementById("today-meals");
+  box.innerHTML=MEAL_SLOTS.map(s=>`
+    <div class="meal-slot">
+      <div class="meal-time">${s.icon} ${s.label} · ${s.time}</div>
+      <div class="meal-name">${plan[s.key]}</div>
+    </div>
+  `).join("");
+}
+
+function renderSupplements(supps){
+  const box=document.getElementById("today-supps");
+  box.innerHTML=supps.map(s=>`
+    <div class="supp-item">
+      <div><strong>${s.name}</strong><br><span style="font-size:0.82rem;color:var(--muted)">${s.dose} · ${s.time}</span></div>
+    </div>
+  `).join("");
+}
+
+function renderDayTabs(){
+  const d=new Date();
+  const todayIdx=d.getDay()===0?6:d.getDay()-1;
+  const tabs=document.getElementById("day-tabs");
+  tabs.innerHTML=DAYS.map((day,i)=>`<button class="day-tab${i===todayIdx?' active':''}" onclick="showDay(${i})">${day.slice(0,3)}</button>`).join("");
+  showDay(todayIdx);
+}
+
+function showDay(idx){
+  document.querySelectorAll(".day-tab").forEach((t,i)=>t.classList.toggle("active",i===idx));
+  const plan=CHEMO_PLAN[idx];
+  const box=document.getElementById("day-meals");
+  box.innerHTML=`<div class="card-header">${DAYS[idx]}</div>`+MEAL_SLOTS.map(s=>`
+    <div class="meal-slot">
+      <div class="meal-time">${s.icon} ${s.label} · ${s.time}</div>
+      <div class="meal-name">${plan[s.key]}</div>
+    </div>
+  `).join("");
+}
+
+function renderMarkers(){
+  const box=document.getElementById("lab-markers");
+  box.innerHTML=markers.map(m=>{
+    const v=m.value;
+    let status="status-ok", badge="Normal";
+    if(v<m.low){status="status-low";badge="Low";}
+    else if(v>m.high){status="status-high";badge="High";}
+    return`
+      <div class="metric-row">
+        <div>
+          <div class="metric-label">${m.label}</div>
+          <div class="metric-range">${m.low}–${m.high} ${m.unit}</div>
+          <div class="metric-note">${m.note||""}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="metric-value ${status}">${v} ${m.unit}</div>
+          <span class="badge ${v<m.low?'badge-danger':v>m.high?'badge-warn':'badge-safe'}">${badge}</span>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+function renderTimeline(){
+  const box=document.getElementById("timeline");
+  box.innerHTML=TIMELINE.map(t=>`
+    <div class="timeline-item ${t.done?'':'future'}">
+      <div class="tl-date">${t.date}</div>
+      <div class="tl-label">${t.done?'✅ ':'⏳ '}${t.label}</div>
+    </div>
+  `).join("");
+}
+
+// ===== FOOD CHECKER =====
+const UNSAFE_PATTERNS=[
+  {re:/\braw\b|\buncooked\b|\bsashimi\b|\bsushi\b/i, reason:"Raw food is not safe during chemo — increases infection risk"},
+  {re:/\bsalad\b(?!.*cook|.*boil|.*saut)/i, reason:"Raw salads are not safe — use well-cooked vegetables instead"},
+  {re:/\bsprout/i, reason:"Raw sprouts carry high bacteria risk — avoid during chemo"},
+  {re:/\bcurd\b(?!.*boil|.*cook|.*kadhi)|raita|chaas|lassi|chhash/i, reason:"Raw/cold dairy not safe during neutropenia — use boiled curd or kadhi"},
+  {re:/\bstreet\b|\boutside\b|\brestaurant\b|\bhotel\b.*food|\bfast.?food/i, reason:"Outside food carries infection risk — eat only freshly home-cooked food"},
+  {re:/\bleftover/i, reason:"Leftover food grows bacteria — eat only freshly prepared meals"},
+  {re:/\bgrape|berr|\bcherry|\bstrawberr/i, reason:"Small/seeded fruits are hard to wash safely — stick to banana, pomegranate (peeled), papaya"},
+  {re:/\bice.?cream\b|\bkulfi\b|\bgola\b/i, reason:"Outside frozen treats risk contamination — avoid"},
+  {re:/\bpani.?puri|\bbhel|\bchaat\b(?!.*home|.*boil)/i, reason:"Street snacks are unsafe — high contamination risk"},
+  {re:/\bjuice\b(?!.*fresh|.*home)/i, reason:"Outside juices may be contaminated — only fresh homemade juice from safe fruits"},
+  {re:/\bpickle\b|\bachaar\b/i, reason:"Strong pickles can irritate mouth sores from chemo — use mild or avoid"}
+];
+const SAFE_PATTERNS=[
+  {re:/\bkhichdi\b/i, reason:"Excellent — easy to digest, nutritious, gentle on stomach"},
+  {re:/\bdal\b|\blentil\b|\bmoong\b|\bmasoor\b|\btoor\b|\brajma\b|\bchole\b|\bchana\b/i, reason:"Good protein source — make sure well-cooked and freshly prepared"},
+  {re:/\broti\b|\bchapati\b|\bparatha\b|\bnaan\b/i, reason:"Safe — good energy source, eat freshly made"},
+  {re:/\brice\b|\bpulao\b/i, reason:"Safe — easy to digest, eat freshly cooked"},
+  {re:/\bbanana\b/i, reason:"Safe fruit — potassium-rich, easy to digest, good for chemo"},
+  {re:/\bpomegranate\b|\banar\b/i, reason:"Safe — peel carefully, wash well, rich in antioxidants"},
+  {re:/\bpapaya\b/i, reason:"Safe — peel and wash, enzyme-rich, gentle on stomach"},
+  {re:/\bsoup\b(?!.*raw)/i, reason:"Excellent — hydrating, nutritious, easy to consume"},
+  {re:/\bidli\b|\bdosa\b|\bupma\b|\bpoha\b/i, reason:"Safe — light, easy to digest, eat freshly made"},
+  {re:/\bpaneer\b(?!.*raw)/i, reason:"Good protein — ensure fresh and well-cooked"},
+  {re:/\bghee\b/i, reason:"Good — provides calories and helps absorption of nutrients"},
+  {re:/\bturmeric\b.*milk|haldi.*milk/i, reason:"Excellent — anti-inflammatory, immunity support"},
+  {re:/\bvegetable\b.*\b(sabzi|curry|soup)\b|\bsabzi\b/i, reason:"Good — make sure well-cooked, not raw"},
+  {re:/\bbiscuit\b|\btoast\b/i, reason:"Safe light snack — good between meals"}
+];
+
+function checkFood(){
+  const q=document.getElementById("food-input").value.trim();
+  const box=document.getElementById("check-result");
+  if(!q){box.style.display="none";return;}
+
+  // Check unsafe first
+  for(const p of UNSAFE_PATTERNS){
+    if(p.re.test(q)){
+      box.className="result-box result-unsafe";
+      box.innerHTML=`<strong>🚫 Not Safe</strong><br>${p.reason}`;
+      box.style.display="block";
+      return;
+    }
+  }
+  // Check safe
+  for(const p of SAFE_PATTERNS){
+    if(p.re.test(q)){
+      box.className="result-box result-safe";
+      box.innerHTML=`<strong>✅ Safe</strong><br>${p.reason}`;
+      box.style.display="block";
+      return;
+    }
+  }
+  // Unknown
+  box.className="result-box result-caution";
+  box.innerHTML=`<strong>⚠️ Check with doctor</strong><br>Make sure it's well-cooked, freshly prepared at home, and not too spicy. When in doubt, stick to the meal plan.`;
+  box.style.display="block";
+}
+
+// ===== TABS =====
+function switchTab(name){
+  document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
+  document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
+  document.getElementById("tab-"+name).classList.add("active");
+  event.currentTarget.classList.add("active");
+}
+
+// ===== INIT =====
+(async()=>{
+  await loadFirebase();
+  firebase.auth().onAuthStateChanged(u=>{
+    if(u) showApp();
+  });
+})();
+</script>
+</body>
+</html>
